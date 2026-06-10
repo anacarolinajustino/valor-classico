@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Valor Clássico — Preview Paleta: Atual vs. Opção C</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Source Sans 3', system-ui, sans-serif; background: #EDEDED; }
+
+  .page-title {
+    text-align: center;
+    padding: 32px 24px 24px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #555;
+  }
+
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    max-width: 1300px;
+    margin: 0 auto 48px;
+  }
+
+  .col-label {
+    text-align: center;
+    padding: 12px;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #333;
+    background: #E0E0E0;
+    border: 1px solid #CCC;
+  }
+
+  /* ════════════════════════════════
+     TEMA ATUAL (dark + verde-lima)
+  ════════════════════════════════ */
+  .atual {
+    --ac-accent:        #72E05A;
+    --ac-accent-strong: #56C744;
+    --ac-ink:           #121212;
+    --ac-surface:       #F5F5F5;
+    --ac-surface-dark:  #1A1A1A;
+    --ac-border:        #D9D9D9;
+    --ac-white:         #FFFFFF;
+    --ac-muted:         rgba(255,255,255,.5);
+    --ac-radius: 8px;
+    background: #F5F5F5;
+  }
+
+  /* Header Atual */
+  .atual .header {
+    background: rgba(18,18,18,.97);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  .atual .logo-badge {
+    width: 36px; height: 36px;
+    background: #72E05A;
+    color: #121212;
+    font-family: 'Teko', sans-serif;
+    font-size: 17px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 6px;
+  }
+  .atual .logo-name {
+    font-family: 'Teko', sans-serif;
+    font-size: 19px; font-weight: 600;
+    letter-spacing: 1.5px;
+    color: #FFF;
+  }
+  .atual .nav { margin-left: auto; display: flex; gap: 20px; }
+  .atual .nav a {
+    font-size: 13px; font-weight: 500;
+    color: rgba(255,255,255,.6);
+    text-decoration: none;
+  }
+  .atual .nav a:last-child {
+    padding: 6px 14px;
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 6px;
+    color: rgba(255,255,255,.7);
+  }
+
+  /* Hero Atual */
+  .atual .hero {
+    background:
+      linear-gradient(to bottom, rgba(18,18,18,.88) 0%, rgba(18,18,18,.65) 50%, rgba(18,18,18,.92) 100%),
+      url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=70') center/cover no-repeat;
+    padding: 56px 28px 44px;
+    text-align: center;
+  }
+  .atual .hero-eyebrow {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: #72E05A; font-weight: 600; margin-bottom: 14px;
+    font-family: 'Teko', sans-serif;
+  }
+  .atual .hero-h1 {
+    font-family: 'Teko', sans-serif;
+    font-size: 56px; font-weight: 700; line-height: 1.0;
+    color: #FFF; margin-bottom: 12px;
+    letter-spacing: .5px;
+  }
+  .atual .hero-h1 em {
+    font-family: 'Playfair Display', serif;
+    font-style: italic; color: #72E05A; font-weight: 400;
+  }
+  .atual .hero-sub {
+    font-size: 15px; color: rgba(255,255,255,.65);
+    margin-bottom: 32px; max-width: 480px; margin-inline: auto;
+  }
+
+  /* Search card Atual */
+  .atual .search-card {
+    background: rgba(255,255,255,.06);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px;
+    padding: 28px 24px 20px;
+    text-align: left;
+    max-width: 540px;
+    margin: 0 auto;
+  }
+  .atual .search-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;
+  }
+  .atual .field-label {
+    font-family: 'Teko', sans-serif;
+    font-size: 13px; font-weight: 600;
+    letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,.55);
+    display: block; margin-bottom: 6px;
+  }
+  .atual .field-input {
+    width: 100%; height: 46px; padding: 0 14px;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 8px;
+    color: #FFF; font-size: 14px;
+    font-family: 'Source Sans 3', sans-serif;
+  }
+  .atual .btn-primary {
+    background: #72E05A; color: #121212;
+    padding: 12px 28px;
+    font-family: 'Teko', sans-serif; font-size: 17px; font-weight: 600;
+    border: none; border-radius: 8px; cursor: pointer;
+    letter-spacing: .8px; width: 100%;
+  }
+  .atual .trust-line {
+    text-align: center; font-size: 11px;
+    color: rgba(255,255,255,.35); margin-top: 12px; letter-spacing: .3px;
+  }
+
+  /* Stats Atual */
+  .atual .results {
+    background: #F5F5F5;
+    padding: 36px 28px;
+  }
+  .atual .result-title {
+    font-family: 'Teko', sans-serif;
+    font-size: 32px; font-weight: 700; color: #121212;
+    margin-bottom: 20px; letter-spacing: .5px;
+  }
+  .atual .stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+  .atual .stat-card {
+    background: #FFF; border: 1px solid #D9D9D9;
+    border-radius: 8px; padding: 18px 20px;
+  }
+  .atual .stat-card.hi {
+    background: #121212; border-color: #121212; color: #FFF;
+  }
+  .atual .stat-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: #6B6B6B;
+    font-family: 'Teko', sans-serif; margin-bottom: 6px;
+  }
+  .atual .stat-card.hi .stat-label { color: rgba(255,255,255,.55); }
+  .atual .stat-value {
+    font-family: 'Teko', sans-serif;
+    font-size: 28px; font-weight: 700; color: #121212; line-height: 1;
+  }
+  .atual .stat-card.hi .stat-value { color: #72E05A; }
+
+  /* ════════════════════════════════
+     OPÇÃO C (Verde Garagem + Âmbar)
+  ════════════════════════════════ */
+  .opcao-c {
+    --oc-accent:        #C4862A;
+    --oc-accent-strong: #A36A18;
+    --oc-ink:           #1A1A1A;
+    --oc-ink-soft:      #3A3A3A;
+    --oc-ink-muted:     #7A6E5F;
+    --oc-surface:       #F4F1EC;
+    --oc-surface-warm:  #EDE8E0;
+    --oc-surface-dark:  #1E3A2F;
+    --oc-border:        #D4CEBF;
+    --oc-cream:         #FDFAF6;
+    --oc-radius: 6px;
+    background: #F4F1EC;
+  }
+
+  /* Header Opção C */
+  .opcao-c .header {
+    background: #1E3A2F;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 2px solid #C4862A;
+  }
+  .opcao-c .logo-badge {
+    width: 36px; height: 36px;
+    background: #C4862A;
+    color: #FDFAF6;
+    font-family: 'Playfair Display', serif;
+    font-size: 17px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+    letter-spacing: 0;
+  }
+  .opcao-c .logo-name {
+    font-family: 'Playfair Display', serif;
+    font-size: 18px; font-weight: 600;
+    letter-spacing: .5px;
+    color: #FDFAF6;
+  }
+  .opcao-c .nav { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+  .opcao-c .nav a {
+    font-size: 13px; font-weight: 500;
+    color: rgba(253,250,246,.65);
+    text-decoration: none;
+  }
+  .opcao-c .nav a:last-child {
+    padding: 6px 14px;
+    border: 1px solid #C4862A;
+    border-radius: 4px;
+    color: #C4862A;
+    font-weight: 600;
+  }
+
+  /* Hero Opção C */
+  .opcao-c .hero {
+    background:
+      linear-gradient(to bottom, rgba(30,58,47,.90) 0%, rgba(30,58,47,.68) 45%, rgba(30,58,47,.93) 100%),
+      url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=70') center/cover no-repeat;
+    padding: 56px 28px 44px;
+    text-align: center;
+  }
+  .opcao-c .hero-eyebrow {
+    font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase;
+    color: #C4862A; font-weight: 600; margin-bottom: 14px;
+    font-family: 'Source Sans 3', sans-serif;
+  }
+  .opcao-c .hero-h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 48px; font-weight: 700; line-height: 1.1;
+    color: #FDFAF6; margin-bottom: 12px;
+    letter-spacing: -.3px;
+  }
+  .opcao-c .hero-h1 em {
+    font-style: italic; color: #C4862A; font-weight: 400;
+  }
+  .opcao-c .hero-sub {
+    font-size: 15px; color: rgba(253,250,246,.72);
+    margin-bottom: 32px; max-width: 480px; margin-inline: auto;
+    line-height: 1.6;
+  }
+
+  /* Search card Opção C */
+  .opcao-c .search-card {
+    background: rgba(253,250,246,.10);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(196,134,42,.35);
+    border-radius: 6px;
+    padding: 28px 24px 20px;
+    text-align: left;
+    max-width: 540px;
+    margin: 0 auto;
+    box-shadow: 0 8px 32px rgba(0,0,0,.25);
+  }
+  .opcao-c .search-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;
+  }
+  .opcao-c .field-label {
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    color: rgba(253,250,246,.65);
+    display: block; margin-bottom: 6px;
+  }
+  .opcao-c .field-input {
+    width: 100%; height: 46px; padding: 0 14px;
+    background: rgba(253,250,246,.10);
+    border: 1px solid rgba(196,134,42,.30);
+    border-radius: 4px;
+    color: #FDFAF6; font-size: 14px;
+    font-family: 'Source Sans 3', sans-serif;
+  }
+  .opcao-c .btn-primary {
+    background: #C4862A; color: #FDFAF6;
+    padding: 12px 28px;
+    font-family: 'Source Sans 3', sans-serif; font-size: 15px; font-weight: 600;
+    border: none; border-radius: 4px; cursor: pointer;
+    letter-spacing: .5px; width: 100%;
+    text-transform: uppercase;
+  }
+  .opcao-c .trust-line {
+    text-align: center; font-size: 11px;
+    color: rgba(253,250,246,.40); margin-top: 12px; letter-spacing: .3px;
+  }
+
+  /* Stats Opção C */
+  .opcao-c .results {
+    background: #F4F1EC;
+    padding: 36px 28px;
+  }
+  .opcao-c .result-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 28px; font-weight: 600; color: #1A1A1A;
+    margin-bottom: 4px;
+  }
+  .opcao-c .result-subtitle {
+    font-size: 13px; color: #7A6E5F; margin-bottom: 20px;
+  }
+  .opcao-c .stats-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+  .opcao-c .stat-card {
+    background: #FDFAF6; border: 1px solid #D4CEBF;
+    border-radius: 6px; padding: 18px 20px;
+  }
+  .opcao-c .stat-card.hi {
+    background: #1E3A2F; border-color: #1E3A2F; color: #FDFAF6;
+  }
+  .opcao-c .stat-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+    text-transform: uppercase; color: #7A6E5F;
+    font-family: 'Source Sans 3', sans-serif; margin-bottom: 8px;
+  }
+  .opcao-c .stat-card.hi .stat-label { color: rgba(253,250,246,.50); }
+  .opcao-c .stat-value {
+    font-family: 'Playfair Display', serif;
+    font-size: 26px; font-weight: 700; color: #1A1A1A; line-height: 1;
+  }
+  .opcao-c .stat-card.hi .stat-value { color: #C4862A; }
+  .opcao-c .stat-note {
+    font-size: 11px; color: #7A6E5F; margin-top: 4px;
+  }
+  .opcao-c .stat-card.hi .stat-note { color: rgba(253,250,246,.45); }
+
+  /* Footer note */
+  .token-table {
+    max-width: 1300px; margin: 0 auto 48px;
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+  .token-panel {
+    padding: 24px 28px;
+    background: #FFF;
+    border: 1px solid #DDD;
+  }
+  .token-panel h3 {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: #555; margin-bottom: 16px;
+  }
+  .token-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .swatch {
+    width: 24px; height: 24px; border-radius: 4px;
+    border: 1px solid rgba(0,0,0,.1); flex-shrink: 0;
+  }
+  .token-name { font-size: 12px; font-weight: 600; color: #333; min-width: 120px; }
+  .token-hex { font-size: 11px; color: #666; font-family: monospace; }
+  .token-note { font-size: 11px; color: #888; }
+</style>
+</head>
+<body>
+
+<p class="page-title">Valor Clássico — Comparativo de Paleta · Atual vs. Opção C — Verde Garagem</p>
+
+<div class="compare-grid">
+  <div class="col-label">⚡ Atual — Dark + Verde-Lima</div>
+  <div class="col-label">✦ Opção C — Verde Garagem + Âmbar</div>
+</div>
+
+<!-- HEADER -->
+<div class="compare-grid" style="margin-bottom:0">
+  <div class="atual">
+    <div class="header">
+      <div class="logo-badge">VC</div>
+      <span class="logo-name">VALOR CLÁSSICO</span>
+      <div class="nav">
+        <a href="#">Como funciona</a>
+        <a href="#">Fontes</a>
+        <a href="#">Falar no WhatsApp</a>
+      </div>
+    </div>
+  </div>
+  <div class="opcao-c">
+    <div class="header">
+      <div class="logo-badge">VC</div>
+      <span class="logo-name">Valor Clássico</span>
+      <div class="nav">
+        <a href="#">Como funciona</a>
+        <a href="#">Fontes</a>
+        <a href="#">Falar no WhatsApp</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HERO -->
+<div class="compare-grid" style="margin-bottom:0">
+  <div class="atual">
+    <div class="hero">
+      <p class="hero-eyebrow">Referência de preço para carros antigos</p>
+      <h1 class="hero-h1">Carro antigo não tem preço,<br>tem <em>Valor.</em></h1>
+      <p class="hero-sub">Estimativa baseada em anúncios reais de fontes especializadas — fora da FIPE.</p>
+      <div class="search-card">
+        <div class="search-row">
+          <div>
+            <span class="field-label">Marca / Modelo</span>
+            <input class="field-input" placeholder="Ex: Opala SS" type="text">
+          </div>
+          <div>
+            <span class="field-label">Ano</span>
+            <input class="field-input" placeholder="Ex: 1972" type="text">
+          </div>
+        </div>
+        <button class="btn-primary">Calcular Média</button>
+        <p class="trust-line">Baseado em anúncios reais · Atualizado semanalmente</p>
+      </div>
+    </div>
+  </div>
+  <div class="opcao-c">
+    <div class="hero">
+      <p class="hero-eyebrow">Referência de preço para carros antigos</p>
+      <h1 class="hero-h1">Carro antigo não tem preço,<br>tem <em>Valor.</em></h1>
+      <p class="hero-sub">Estimativa baseada em anúncios reais de fontes especializadas — fora da FIPE.</p>
+      <div class="search-card">
+        <div class="search-row">
+          <div>
+            <span class="field-label">Marca / Modelo</span>
+            <input class="field-input" placeholder="Ex: Opala SS" type="text">
+          </div>
+          <div>
+            <span class="field-label">Ano</span>
+            <input class="field-input" placeholder="Ex: 1972" type="text">
+          </div>
+        </div>
+        <button class="btn-primary">Calcular Média</button>
+        <p class="trust-line">Baseado em anúncios reais · Atualizado semanalmente</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div class="compare-grid" style="margin-bottom:0">
+  <div class="atual">
+    <div class="results">
+      <p class="result-title">Opala SS · 1972</p>
+      <div class="stats-row">
+        <div class="stat-card hi">
+          <p class="stat-label">Preço Médio</p>
+          <p class="stat-value">R$ 87.500</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Faixa Típica</p>
+          <p class="stat-value" style="color:#121212">R$ 72k – 105k</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Anúncios</p>
+          <p class="stat-value" style="color:#121212">34</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="opcao-c">
+    <div class="results">
+      <p class="result-title">Opala SS · 1972</p>
+      <p class="result-subtitle">34 anúncios · atualizado em mai. 2026</p>
+      <div class="stats-row">
+        <div class="stat-card hi">
+          <p class="stat-label">Preço Médio</p>
+          <p class="stat-value">R$ 87.500</p>
+          <p class="stat-note">mediana: R$ 84.000</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Faixa Típica</p>
+          <p class="stat-value">R$ 72k – 105k</p>
+          <p class="stat-note">80% dos anúncios</p>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">Confiança</p>
+          <p class="stat-value">Alta</p>
+          <p class="stat-note">34 anúncios válidos</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOKEN TABLE -->
+<div class="token-table">
+  <div class="token-panel">
+    <h3>Tokens — Atual</h3>
+    <div class="token-row">
+      <div class="swatch" style="background:#72E05A"></div>
+      <span class="token-name">--vc-accent</span>
+      <span class="token-hex">#72E05A</span>
+      <span class="token-note">Verde-lima</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#121212"></div>
+      <span class="token-name">--vc-ink</span>
+      <span class="token-hex">#121212</span>
+      <span class="token-note">Preto</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#1A1A1A"></div>
+      <span class="token-name">--vc-surface-dark</span>
+      <span class="token-hex">#1A1A1A</span>
+      <span class="token-note">Dark base</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#F5F5F5; border:1px solid #CCC"></div>
+      <span class="token-name">--vc-surface</span>
+      <span class="token-hex">#F5F5F5</span>
+      <span class="token-note">Branco frio</span>
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:#888;line-height:1.6">
+      Heading: <strong>Teko</strong> condensada · Body: Inter
+    </div>
+  </div>
+  <div class="token-panel">
+    <h3>Tokens — Opção C · Verde Garagem</h3>
+    <div class="token-row">
+      <div class="swatch" style="background:#C4862A"></div>
+      <span class="token-name">--vc-accent</span>
+      <span class="token-hex">#C4862A</span>
+      <span class="token-note">Âmbar / ouro queimado</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#1E3A2F"></div>
+      <span class="token-name">--vc-surface-dark</span>
+      <span class="token-hex">#1E3A2F</span>
+      <span class="token-note">Verde musgo profundo</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#1A1A1A"></div>
+      <span class="token-name">--vc-ink</span>
+      <span class="token-hex">#1A1A1A</span>
+      <span class="token-note">Carvão</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#F4F1EC; border:1px solid #CCC"></div>
+      <span class="token-name">--vc-surface</span>
+      <span class="token-hex">#F4F1EC</span>
+      <span class="token-note">Marfim quente</span>
+    </div>
+    <div class="token-row">
+      <div class="swatch" style="background:#FDFAF6; border:1px solid #CCC"></div>
+      <span class="token-name">--vc-cream</span>
+      <span class="token-hex">#FDFAF6</span>
+      <span class="token-note">Creme — base dos cards</span>
+    </div>
+    <div style="margin-top:12px;font-size:12px;color:#888;line-height:1.6">
+      Heading: <strong>Playfair Display</strong> serif · Body: Source Sans 3
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Referência de Preço para Carros Antigos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  HEADER                              ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="https://static.wixstatic.com/media/976048_be0ac7e9e21a4c26b8793c97177078aa~mv2.png/v1/fill/w_366,h_148,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Logo%20Valor%20Cl%C3%A1ssico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <nav class="header-nav">
+        <a href="#how-it-works">Como funciona</a>
+        <a href="#data-sources">Fontes</a>
+        <a href="#footer">Contato</a>
+      </nav>
+      <a href="https://wa.me/5511999999999" class="btn btn-outline btn-sm" target="_blank" rel="noopener">WhatsApp</a>
+    </div>
+  </header>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  HERO + BUSCA                        ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <section id="hero-search">
+    <div class="hero-overlay"></div>
+    <div class="hero-content">
+      <p class="hero-eyebrow">Tabela de referência · Carros antigos · Brasil</p>
+      <h1 class="hero-headline">Carro antigo não tem preço,<br /><em>tem Valor.</em></h1>
+      <p class="hero-sub">Consulte a média real de mercado por marca, modelo e ano — baseada em anúncios coletados de fontes especializadas.</p>
+
+      <!-- Card de busca -->
+      <div class="search-card" id="search-card">
+        <form id="search-form" novalidate>
+          <div class="search-row">
+            <div class="field-group">
+              <label for="input-marca">Marca</label>
+              <select id="input-marca">
+                <option value="">Selecione a marca…</option>
+              </select>
+            </div>
+
+            <div class="field-group">
+              <label for="input-modelo">Modelo</label>
+              <input
+                id="input-modelo"
+                type="text"
+                placeholder="Ex: Kombi"
+                autocomplete="off"
+                list="list-modelo"
+                disabled
+              />
+              <datalist id="list-modelo"></datalist>
+              <span id="modelo-error" class="field-error hidden">Por favor, escolha um modelo</span>
+            </div>
+
+            <div class="field-group field-group--ano">
+              <label for="input-ano">Ano</label>
+              <select id="input-ano" disabled>
+                <option value="">Todos</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="search-actions">
+            <button type="submit" class="btn btn-primary" id="btn-buscar">Calcular média</button>
+            <button type="button" class="btn btn-ghost" id="btn-limpar">Limpar</button>
+          </div>
+
+          <p class="search-trust">Baseado em anúncios reais de fontes especializadas · Atualizado continuamente</p>
+        </form>
+      </div><!-- /search-card -->
+    </div>
+  </section>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  BLOCO DE RESULTADO                  ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <section id="result-section" class="result-section hidden" aria-live="polite">
+    <div class="container">
+
+      <!-- Estado: carregando -->
+      <div id="result-loading" class="result-state hidden">
+        <div class="spinner"></div>
+        <p>Consultando fontes de mercado…</p>
+      </div>
+
+      <!-- Estado: erro -->
+      <div id="result-error" class="result-state result-state--error hidden">
+        <span class="result-icon">⚠</span>
+        <p id="result-error-msg">Ocorreu um erro na consulta.</p>
+      </div>
+
+      <!-- Estado: sem resultados -->
+      <div id="result-empty" class="result-state hidden">
+        <span class="result-icon">🔍</span>
+        <p>Nenhum anúncio encontrado para essa combinação. Tente com filtros diferentes.</p>
+      </div>
+
+      <!-- Estado: resultado -->
+      <div id="result-data" class="hidden">
+        <div class="result-header">
+          <div>
+            <h2 class="result-title" id="result-title">—</h2>
+            <p class="result-subtitle">Referência de mercado · <span id="result-fontes">—</span></p>
+          </div>
+
+        </div>
+
+        <!-- Tabela de preços por ano -->
+        <div class="year-table-wrap">
+          <table class="year-table" id="year-table">
+            <thead>
+              <tr>
+                <th>Ano</th>
+                <th>Preço médio</th>
+                <th>Mediana</th>
+                <th>Mínimo</th>
+                <th>Máximo</th>
+                <th>Amostras</th>
+              </tr>
+            </thead>
+            <tbody id="year-tbody"></tbody>
+          </table>
+        </div>
+
+        <p class="result-sample">
+          <strong id="result-total-amostra">—</strong> anúncio(s) válidos no total
+          <span class="confidence-badge" id="confidence-badge"></span>
+        </p>
+
+        <!-- Links dos anúncios — visível apenas quando ano for filtrado -->
+        <details id="result-anuncios" class="anuncios-details hidden">
+          <summary class="anuncios-summary">Ver anúncios encontrados (<span id="anuncios-count">0</span>)</summary>
+          <ul id="anuncios-list" class="anuncios-list"></ul>
+        </details>
+      </div><!-- /result-data -->
+
+    </div>
+  </section>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  COMO CALCULAMOS                     ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <section id="how-it-works" class="section-light">
+    <div class="container">
+      <h2 class="section-title">Como calculamos</h2>
+      <div class="steps-grid">
+        <div class="step">
+          <span class="step-num">01</span>
+          <h3>Coleta multi-fonte</h3>
+          <p>Coletamos anúncios de portais especializados em automóveis antigos, sem alterar os dados originais.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">02</span>
+          <h3>Limpeza e deduplicação</h3>
+          <p>Removemos duplicatas, anúncios sem preço e valores discrepantes usando filtro estatístico (IQR).</p>
+        </div>
+        <div class="step">
+          <span class="step-num">03</span>
+          <h3>Média + mediana + faixa</h3>
+          <p>Calculamos média, mediana, mínimo e máximo sobre a amostra limpa, com rastreabilidade de cada anúncio.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">04</span>
+          <h3>Score de confiança</h3>
+          <p>Indicamos o tamanho da amostra e as fontes usadas para que você avalie a robustez do dado.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  FONTES                              ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <section id="data-sources" class="section-dark">
+    <div class="container">
+      <h2 class="section-title">Fontes de dados</h2>
+      <div class="sources-grid">
+        <div class="source-card source-card--active">
+          <span class="source-status source-status--active">Ativa</span>
+          <strong>Maxicar</strong>
+          <span>maior portal de antigomobilismo do Brasil</span>
+        </div>
+        <div class="source-card source-card--active">
+          <span class="source-status source-status--active">Ativa</span>
+          <strong>Super Antigo</strong>
+          <span>portal especializado em clássicos</span>
+        </div>
+        <div class="source-card source-card--active">
+          <span class="source-status source-status--active">Ativa</span>
+          <strong>Ateliê do Carro</strong>
+          <span>loja referência em restauração</span>
+        </div>
+        <div class="source-card source-card--planned">
+          <span class="source-status source-status--planned">Em breve</span>
+          <strong>Mercado Livre</strong>
+          <span>via API oficial</span>
+        </div>
+        <div class="source-card source-card--planned">
+          <span class="source-status source-status--planned">Em breve</span>
+          <strong>OLX</strong>
+          <span>anúncios nacionais</span>
+        </div>
+        <div class="source-card source-card--planned">
+          <span class="source-status source-status--planned">Em breve</span>
+          <strong>iCarros · Netmotors</strong>
+          <span>portais verticais</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  PARA QUEM                           ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <section id="segments" class="section-light">
+    <div class="container">
+      <h2 class="section-title">Para quem é o Valor Clássico</h2>
+      <div class="segments-grid">
+        <div class="segment">
+          <span class="segment-icon">🏎</span>
+          <h3>Colecionadores</h3>
+          <p>Compre e venda com referência real de mercado, sem depender de achismos.</p>
+        </div>
+        <div class="segment">
+          <span class="segment-icon">🏪</span>
+          <h3>Lojistas</h3>
+          <p>Precifique seu estoque com dados de mercado atualizados.</p>
+        </div>
+        <div class="segment">
+          <span class="segment-icon">📈</span>
+          <h3>Investidores</h3>
+          <p>Acompanhe a valorização histórica de modelos clássicos e raros.</p>
+        </div>
+        <div class="segment">
+          <span class="segment-icon">🛡️</span>
+          <h3>Seguradoras e parceiros B2B</h3>
+          <p>Acesso a dados estruturados via API para avaliação de sinistros e laudos.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ╔══════════════════════════════════════╗ -->
+  <!-- ║  FOOTER                              ║ -->
+  <!-- ╚══════════════════════════════════════╝ -->
+  <footer id="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-vc">VC</span>
+        <p>Valor Clássico · Referência de mercado para automóveis antigos brasileiros</p>
+      </div>
+      <div class="footer-links">
+        <p>contato@valorclassico.com.br</p>
+        <p>© 2026 Valor Clássico · Todos os direitos reservados</p>
+        <p class="footer-lgpd">Coletamos apenas dados de preço e veículo. Nenhum dado pessoal de anunciantes é armazenado.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
