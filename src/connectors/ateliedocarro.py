@@ -144,6 +144,104 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     return anuncios
 
 
+def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
+    """
+    Coleta TODOS os anúncios do site (ingestão batch), sem filtro de marca/modelo.
+
+    Diferente de buscar(), percorre a listagem completa /carros-a-venda/page/N/
+    até a última página e busca cada página de detalhe. Pensada para rodar em
+    batch (1 fonte/dia, revisita mensal), não no caminho da requisição do usuário.
+
+    Args:
+        max_paginas: teto de segurança para o crawl da listagem.
+
+    Returns:
+        (anuncios, metricas) — metricas instrumenta o custo real da coleta:
+        páginas lidas, requisições, erros, latência p50/p95 e tempo total.
+    """
+    inicio = time.monotonic()
+    sessao = _criar_sessao()
+    data_coleta = date.today().isoformat()
+    latencias: list[float] = []
+
+    def _fetch(url: str) -> Optional[str]:
+        t0 = time.monotonic()
+        html = _requisitar(sessao, url)
+        latencias.append(time.monotonic() - t0)
+        return html
+
+    # ── Passo 1: crawl completo da listagem ──────────────────────────────────
+    urls_detalhe: list[str] = []
+    paginas_lidas = 0
+    erros_listagem = 0
+
+    for pagina in range(1, max_paginas + 1):
+        url_pagina = _url_listagem(pagina)
+        logger.info("[ateliedocarro] listagem página %d — %s", pagina, url_pagina)
+
+        html = _fetch(url_pagina)
+        if html is None:
+            erros_listagem += 1
+            logger.warning("[ateliedocarro] falha na listagem página %d.", pagina)
+            break  # listagem sequencial: falha aqui encerra o crawl
+
+        paginas_lidas += 1
+        for card in parsear_listagem_html(html, data_coleta):
+            if card.url not in urls_detalhe:
+                urls_detalhe.append(card.url)
+
+        if not _tem_proxima_pagina(html):
+            logger.info("[ateliedocarro] última página da listagem: %d.", pagina)
+            break
+
+        time.sleep(RATE_LIMIT_SEGUNDOS)
+
+    logger.info(
+        "[ateliedocarro] listagem completa: %d página(s), %d anúncio(s).",
+        paginas_lidas, len(urls_detalhe),
+    )
+
+    # ── Passo 2: fetch de cada página de detalhe ─────────────────────────────
+    anuncios: list[Anuncio] = []
+    erros_detalhe = 0
+    descartados = 0  # detalhe sem preço válido ou sem modelo
+
+    for i, url in enumerate(urls_detalhe, start=1):
+        time.sleep(RATE_LIMIT_SEGUNDOS)
+        logger.info("[ateliedocarro] detalhe %d/%d: %s", i, len(urls_detalhe), url)
+
+        html = _fetch(url)
+        if html is None:
+            erros_detalhe += 1
+            continue
+
+        anuncio = parsear_detalhe_html(html, url, data_coleta)
+        if anuncio is None:
+            descartados += 1
+        else:
+            anuncios.append(anuncio)
+
+    tempo_total = time.monotonic() - inicio
+    lat_ordenadas = sorted(latencias)
+    metricas = {
+        "fonte": FONTE,
+        "data_coleta": data_coleta,
+        "paginas_listagem": paginas_lidas,
+        "urls_detalhe": len(urls_detalhe),
+        "anuncios_validos": len(anuncios),
+        "descartados_sem_preco_ou_modelo": descartados,
+        "erros_listagem": erros_listagem,
+        "erros_detalhe": erros_detalhe,
+        "requisicoes": len(latencias),
+        "latencia_p50_s": round(lat_ordenadas[len(lat_ordenadas) // 2], 2) if lat_ordenadas else None,
+        "latencia_p95_s": round(lat_ordenadas[int(len(lat_ordenadas) * 0.95)], 2) if lat_ordenadas else None,
+        "tempo_total_s": round(tempo_total, 1),
+        "segundos_por_anuncio": round(tempo_total / len(anuncios), 2) if anuncios else None,
+    }
+    logger.info("[ateliedocarro] coleta completa: %s", metricas)
+    return anuncios, metricas
+
+
 # ────────────────────────────────────────────────
 # Parsers puros — testáveis sem I/O
 # ────────────────────────────────────────────────

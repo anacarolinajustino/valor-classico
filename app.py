@@ -29,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.catalog.loader import carregar_catalogo
 from src.connectors.ateliedocarro import buscar as ateliedocarro_buscar
+from src.connectors.circuitodeleiloes import buscar as circuitodeleiloes_buscar
 from src.connectors.maxicar import buscar as maxicar_buscar
 from src.connectors.superantigo import buscar as superantigo_buscar
 from src.pipeline.deduplicator import deduplicar
@@ -156,27 +157,35 @@ def api_buscar():
     logger.info("Busca: marca=%s modelo=%s ano=%s paginas=%d", marca, modelo, ano_filtro, paginas)
 
     anuncios = []
+    vendas_leilao = []
     fontes_com_dados: list[str] = []
     fontes_com_falha: list[str] = []
 
-    # Conectores ativos — rodam em paralelo
+    # Conectores ativos — rodam em paralelo.
+    # O Circuito de Leilões produz PREÇO REALIZADO: fica fora do pipeline de
+    # anúncios e vira o bloco separado `sinal_leilao` na resposta (Story 5.1).
     _CONECTORES = [
         ("Maxicar", maxicar_buscar),
         ("Super Antigo", superantigo_buscar),
         ("Ateliê do Carro", ateliedocarro_buscar),
     ]
+    _FONTE_LEILAO = "Circuito de Leilões"
 
     t0 = time.monotonic()
-    with ThreadPoolExecutor(max_workers=len(_CONECTORES)) as pool:
+    with ThreadPoolExecutor(max_workers=len(_CONECTORES) + 1) as pool:
         futures = {
             pool.submit(fn, marca, modelo, paginas): nome
             for nome, fn in _CONECTORES
         }
+        futures[pool.submit(circuitodeleiloes_buscar, marca, modelo)] = _FONTE_LEILAO
         for future in as_completed(futures):
             nome = futures[future]
             try:
                 itens = future.result()
-                anuncios.extend(itens)
+                if nome == _FONTE_LEILAO:
+                    vendas_leilao = itens
+                else:
+                    anuncios.extend(itens)
                 if itens:
                     fontes_com_dados.append(nome)
             except Exception as exc:
@@ -188,7 +197,7 @@ def api_buscar():
         time.monotonic() - t0, len(anuncios), fontes_com_dados,
     )
 
-    if not anuncios and fontes_com_falha:
+    if not anuncios and not vendas_leilao and fontes_com_falha:
         return jsonify({"erro": "Falha em todas as fontes. Tente novamente em instantes."}), 503
 
     # Filtrar por ano, se solicitado
@@ -234,6 +243,31 @@ def api_buscar():
                     "fonte": a.fonte or "",
                 })
 
+    # Sinal de leilão (preço realizado) — separado dos anúncios (Story 5.1).
+    # Não entra na média de anúncios nem no filtro de outliers: amostra pequena
+    # e tipo de preço distinto (lance vencedor homologado vs. preço pedido).
+    vendas_validas = [v for v in vendas_leilao if validar(v)]
+    sinal_leilao: dict = {
+        "considerado": bool(vendas_validas),
+        "tipo_preco": "realizado",
+        "fonte": "Circuito de Leilões (Picelli Leilões)",
+    }
+    if vendas_validas:
+        s_leilao = calcular(vendas_validas)
+        sinal_leilao.update({
+            "media": s_leilao["media"],
+            "mediana": s_leilao["mediana"],
+            "minimo": s_leilao["minimo"],
+            "maximo": s_leilao["maximo"],
+            "amostra": s_leilao["amostra"],
+            "vendas": [
+                {"titulo": v.titulo, "preco": v.preco, "ano": v.ano, "url": v.url}
+                for v in sorted(
+                    vendas_validas, key=lambda v: v.ano or 0, reverse=True
+                )
+            ],
+        })
+
     # Persiste histórico e log de busca (fire-and-forget, não bloqueia resposta)
     try:
         for linha in linhas:
@@ -260,6 +294,7 @@ def api_buscar():
         "linhas": linhas,
         "total_amostra": total_amostra,
         "anuncios": anuncios_lista,
+        "sinal_leilao": sinal_leilao,
         "fontes_ativas": fontes_com_dados,
         "fontes_com_falha": fontes_com_falha,
     })

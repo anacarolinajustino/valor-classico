@@ -7,6 +7,7 @@ Responsabilidades:
   - Registrar log de buscas para ranking "mais pesquisados".
   - Consultar série histórica de preços para um modelo.
   - Consultar ranking de modelos mais pesquisados.
+  - Armazenar anúncios brutos coletados em batch (upsert por fonte+url).
 
 Localização do banco: instance/valor_classico.db
 """
@@ -59,6 +60,25 @@ CREATE TABLE IF NOT EXISTS search_log (
 
 CREATE INDEX IF NOT EXISTS idx_search_log
     ON search_log (marca, modelo);
+
+CREATE TABLE IF NOT EXISTS anuncios (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    fonte          TEXT    NOT NULL,
+    url            TEXT    NOT NULL,
+    titulo         TEXT    NOT NULL,
+    marca          TEXT,
+    modelo         TEXT,
+    ano            INTEGER,
+    preco          REAL,
+    primeira_vista TEXT    NOT NULL,
+    ultima_vista   TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_anuncios_fonte_url
+    ON anuncios (fonte, url);
+
+CREATE INDEX IF NOT EXISTS idx_anuncios_lookup
+    ON anuncios (marca, modelo, ano);
 """
 
 
@@ -118,6 +138,61 @@ def upsert_preco(
             preco_medio, preco_mediano, preco_min, preco_max,
             amostra, fonte, data,
         ))
+
+
+def upsert_anuncios(
+    anuncios: list[Any],
+    hoje: str | None = None,
+    db_path: Path | None = None,
+) -> dict[str, int]:
+    """
+    Insere ou atualiza anúncios brutos coletados em batch.
+
+    Chave de identidade: (fonte, url). Anúncio já conhecido tem preço, título
+    e demais campos atualizados e `ultima_vista` renovada — `primeira_vista`
+    é preservada. Isso permite detectar anúncios que saíram do ar (ultima_vista
+    antiga) e variação de preço por anúncio entre coletas.
+
+    Args:
+        anuncios: objetos com atributos do contrato canônico (Anuncio).
+        hoje:     data ISO da coleta (default: hoje).
+
+    Returns:
+        {"novos": N, "atualizados": M}
+    """
+    data = hoje or date.today().isoformat()
+    sql = """
+        INSERT INTO anuncios
+            (fonte, url, titulo, marca, modelo, ano, preco, primeira_vista, ultima_vista)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (fonte, url)
+        DO UPDATE SET
+            titulo       = excluded.titulo,
+            marca        = excluded.marca,
+            modelo       = excluded.modelo,
+            ano          = excluded.ano,
+            preco        = excluded.preco,
+            ultima_vista = excluded.ultima_vista
+    """
+    novos = 0
+    atualizados = 0
+    with _connect(db_path) as conn:
+        for a in anuncios:
+            existe = conn.execute(
+                "SELECT 1 FROM anuncios WHERE fonte = ? AND url = ?",
+                (a.fonte, a.url),
+            ).fetchone()
+            conn.execute(sql, (
+                a.fonte, a.url, a.titulo,
+                (a.marca or "").upper() or None,
+                (a.modelo or "").upper() or None,
+                a.ano, a.preco, data, data,
+            ))
+            if existe:
+                atualizados += 1
+            else:
+                novos += 1
+    return {"novos": novos, "atualizados": atualizados}
 
 
 def log_search(

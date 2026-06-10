@@ -51,15 +51,9 @@
 
             <div class="field-group">
               <label for="input-modelo">Modelo</label>
-              <input
-                id="input-modelo"
-                type="text"
-                placeholder="Ex: Kombi"
-                autocomplete="off"
-                list="list-modelo"
-                disabled
-              />
-              <datalist id="list-modelo"></datalist>
+              <select id="input-modelo" disabled>
+                <option value="">Selecione o modelo…</option>
+              </select>
               <span id="modelo-error" class="field-error hidden">Por favor, escolha um modelo</span>
             </div>
 
@@ -138,6 +132,34 @@
           <span class="confidence-badge" id="confidence-badge"></span>
         </p>
 
+        <!-- Sinal de leilão — preço realizado, separado dos anúncios -->
+        <div id="leilao-card" class="leilao-card hidden">
+          <div class="leilao-header">
+            <span class="leilao-badge">⚖ Preço realizado em leilão</span>
+            <span class="leilao-fonte" id="leilao-fonte">—</span>
+          </div>
+          <p class="leilao-explain">Lances vencedores homologados — aqui o mercado definiu o preço, não o vendedor.</p>
+          <div class="leilao-stats">
+            <div class="leilao-stat">
+              <span class="leilao-stat-label">Média realizada</span>
+              <span class="leilao-stat-value" id="leilao-media">—</span>
+            </div>
+            <div class="leilao-stat">
+              <span class="leilao-stat-label">Mediana</span>
+              <span class="leilao-stat-value" id="leilao-mediana">—</span>
+            </div>
+            <div class="leilao-stat">
+              <span class="leilao-stat-label">Faixa</span>
+              <span class="leilao-stat-value" id="leilao-faixa">—</span>
+            </div>
+            <div class="leilao-stat">
+              <span class="leilao-stat-label">Vendas</span>
+              <span class="leilao-stat-value" id="leilao-amostra">—</span>
+            </div>
+          </div>
+          <ul id="leilao-vendas" class="leilao-vendas"></ul>
+        </div>
+
         <!-- Links dos anúncios — visível apenas quando ano for filtrado -->
         <details id="result-anuncios" class="anuncios-details hidden">
           <summary class="anuncios-summary">Ver anúncios encontrados (<span id="anuncios-count">0</span>)</summary>
@@ -200,6 +222,11 @@
           <span class="source-status source-status--active">Ativa</span>
           <strong>Ateliê do Carro</strong>
           <span>loja referência em restauração</span>
+        </div>
+        <div class="source-card source-card--active">
+          <span class="source-status source-status--active">Ativa</span>
+          <strong>Circuito de Leilões</strong>
+          <span>preços realizados via Picelli Leilões</span>
         </div>
         <div class="source-card source-card--planned">
           <span class="source-status source-status--planned">Em breve</span>

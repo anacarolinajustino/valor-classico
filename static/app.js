@@ -10,7 +10,6 @@ const inputModelo   = document.getElementById('input-modelo');
 const inputAno      = document.getElementById('input-ano');
 const btnBuscar     = document.getElementById('btn-buscar');
 const btnLimpar     = document.getElementById('btn-limpar');
-const listModelo    = document.getElementById('list-modelo');
 
 const resultSection = document.getElementById('result-section');
 const resultLoading = document.getElementById('result-loading');
@@ -59,17 +58,14 @@ function scrollToResult() {
 })();
 
 // ── Gatilho: marca selecionada → carrega modelos ──
-let debounceTimer = null;
-
 inputMarca.addEventListener('change', () => {
   const marca = inputMarca.value.trim();
 
   // Resetar campos dependentes
-  inputModelo.value = '';
+  inputModelo.innerHTML = '<option value="">Selecione o modelo…</option>';
   inputModelo.disabled = true;
   inputAno.innerHTML = '<option value="">Todos</option>';
   inputAno.disabled = true;
-  listModelo.innerHTML = '';
 
   if (!marca) return;
 
@@ -83,12 +79,12 @@ async function carregarModelos(marca) {
     const data = await res.json();
     const modelos = data.modelos || [];
 
-    listModelo.innerHTML = '';
     modelos.forEach(m => {
       const opt = document.createElement('option');
+      opt.value = m;
       // Capitaliza cada palavra para melhor leitura
-      opt.value = m.split(' ').map(p => p.charAt(0) + p.slice(1).toLowerCase()).join(' ');
-      listModelo.appendChild(opt);
+      opt.textContent = m.split(' ').map(p => p.charAt(0) + p.slice(1).toLowerCase()).join(' ');
+      inputModelo.appendChild(opt);
     });
 
     if (modelos.length > 0) {
@@ -101,10 +97,8 @@ async function carregarModelos(marca) {
   }
 }
 
-// ── Gatilho: modelo preenchido → habilita ano ────
-inputModelo.addEventListener('focus', () => inputModelo.select());
-
-inputModelo.addEventListener('input', () => {
+// ── Gatilho: modelo selecionado → habilita ano ────
+inputModelo.addEventListener('change', () => {
   document.getElementById('modelo-error')?.classList.add('hidden');
   const marca  = inputMarca.value.trim();
   const modelo = inputModelo.value.trim();
@@ -112,10 +106,9 @@ inputModelo.addEventListener('input', () => {
   inputAno.innerHTML = '<option value="">Todos</option>';
   inputAno.disabled = true;
 
-  if (!marca || modelo.length < 2) return;
+  if (!marca || !modelo) return;
 
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => carregarAnos(marca, modelo), 400);
+  carregarAnos(marca, modelo);
 });
 
 async function carregarAnos(marca, modelo) {
@@ -142,11 +135,10 @@ async function carregarAnos(marca, modelo) {
 // ── Limpar ─────────────────────────────────────────
 btnLimpar.addEventListener('click', () => {
   inputMarca.value  = '';
-  inputModelo.value = '';
+  inputModelo.innerHTML = '<option value="">Selecione o modelo…</option>';
   inputModelo.disabled = true;
   inputAno.innerHTML = '<option value="">Todos</option>';
   inputAno.disabled = true;
-  listModelo.innerHTML = '';
   setResultVisible(false);
   inputMarca.focus();
   // Dispara change manualmente para garantir reset de estado
@@ -194,7 +186,9 @@ form.addEventListener('submit', async (e) => {
     }
 
     const linhas = data.linhas || [];
-    if (linhas.length === 0) {
+    const sinalLeilao = data.sinal_leilao || null;
+    const temLeilao = Boolean(sinalLeilao && sinalLeilao.considerado);
+    if (linhas.length === 0 && !temLeilao) {
       showOnly(resultEmpty);
       return;
     }
@@ -220,6 +214,13 @@ form.addEventListener('submit', async (e) => {
       `;
       tbody.appendChild(tr);
     });
+
+    // Tabela e contagem só fazem sentido quando há anúncios de preço pedido
+    document.querySelector('.year-table-wrap').classList.toggle('hidden', linhas.length === 0);
+    document.querySelector('.result-sample').classList.toggle('hidden', linhas.length === 0);
+
+    // Sinal de leilão — preço realizado, exibido separado dos anúncios
+    renderSinalLeilao(sinalLeilao);
 
     // Total de amostras + badge de confiança
     const totalAmostra = data.total_amostra || 0;
@@ -279,6 +280,42 @@ form.addEventListener('submit', async (e) => {
     btnBuscar.disabled = false;
   }
 });
+
+// ── Sinal de leilão — preço realizado (separado dos anúncios) ──
+function renderSinalLeilao(sinal) {
+  const card = document.getElementById('leilao-card');
+  if (!sinal || !sinal.considerado) {
+    card.classList.add('hidden');
+    return;
+  }
+
+  document.getElementById('leilao-fonte').textContent = sinal.fonte || '';
+  document.getElementById('leilao-media').textContent = fmt(sinal.media);
+  document.getElementById('leilao-mediana').textContent = fmt(sinal.mediana);
+  document.getElementById('leilao-faixa').textContent =
+    sinal.minimo === sinal.maximo ? fmt(sinal.minimo) : `${fmt(sinal.minimo)} – ${fmt(sinal.maximo)}`;
+  document.getElementById('leilao-amostra').textContent = sinal.amostra ?? '—';
+
+  const lista = document.getElementById('leilao-vendas');
+  lista.innerHTML = '';
+  (sinal.vendas || []).forEach(v => {
+    const li   = document.createElement('li');
+    const link = document.createElement('a');
+    link.href   = /^https?:\/\//.test(v.url) ? v.url : '#';
+    link.target = '_blank';
+    link.rel    = 'noopener noreferrer';
+    link.textContent = v.titulo || v.url;
+
+    const preco = document.createElement('span');
+    preco.className = 'leilao-venda-preco';
+    preco.textContent = fmt(v.preco);
+
+    li.append(link, preco);
+    lista.appendChild(li);
+  });
+
+  card.classList.remove('hidden');
+}
 
 // ── Segurança: escape HTML para evitar XSS ────────
 function escHtml(str) {

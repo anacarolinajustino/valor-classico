@@ -1,8 +1,8 @@
 ---
 title: "Sprint 1 - Portal First"
-status: in-progress
+status: done
 created: 2026-05-29
-updated: 2026-05-30
+updated: 2026-06-10
 ---
 
 # Sprint 1 - Portal First (C04, C05, C06)
@@ -15,7 +15,7 @@ Colocar em funcionamento os conectores iniciais de portais/loja especializada pa
 
 1. C04 Maxicar — ✅ concluido (2026-05-30)
 2. C05 Super Antigo — ✅ concluido (2026-05-30)
-3. C06 Atelie do Carro — 🔲 pendente
+3. C06 Atelie do Carro — ✅ concluido (2026-06-10)
 
 ## Progresso
 
@@ -39,16 +39,21 @@ Colocar em funcionamento os conectores iniciais de portais/loja especializada pa
 - Degradação graciosa implementada no `app.py`: falha do Super Antigo não derruba resposta.
 - `fontes_ativas` e `fontes_com_falha` dinâmicos na resposta da API.
 
-### 🔲 C06 Atelie do Carro — pendente
+### ✅ C06 Atelie do Carro — concluido
+
+- Conector implementado em `src/connectors/ateliedocarro.py` com métricas de latência/volume.
+- Testes de snapshot: `tests/test_ateliedocarro_parser.py`, todos passando.
+- Integrado ao agregador em `app.py` junto com Maxicar e Super Antigo.
+- Investigações documentadas em `investigations/` (busca vazia e caso Kombi).
 
 ## Sequencia de execucao
 
 - [x] 1. Preparar adapters baseados no contrato canonico (INF-01) e pipeline comum (INF-02).
 - [x] 2. Implementar parser Maxicar + testes de snapshot.
 - [x] 3. Implementar parser Super Antigo + testes de snapshot.
-- [ ] 4. Implementar parser Atelie do Carro + testes de snapshot.
-- [ ] 5. Integrar os 3 conectores no agregador de consulta.
-- [ ] 6. Publicar metricas operacionais (sucesso/falha/latencia/volume).
+- [x] 4. Implementar parser Atelie do Carro + testes de snapshot.
+- [x] 5. Integrar os 3 conectores no agregador de consulta.
+- [x] 6. Publicar metricas operacionais (sucesso/falha/latencia/volume).
 
 ## Definition of Done da sprint
 
