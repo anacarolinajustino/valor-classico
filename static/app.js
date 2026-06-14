@@ -289,12 +289,34 @@ function renderSinalLeilao(sinal) {
     return;
   }
 
+  const filtroNota = document.getElementById('leilao-filtro-nota');
+
   document.getElementById('leilao-fonte').textContent = sinal.fonte || '';
   document.getElementById('leilao-media').textContent = fmt(sinal.media);
   document.getElementById('leilao-mediana').textContent = fmt(sinal.mediana);
   document.getElementById('leilao-faixa').textContent =
     sinal.minimo === sinal.maximo ? fmt(sinal.minimo) : `${fmt(sinal.minimo)} – ${fmt(sinal.maximo)}`;
   document.getElementById('leilao-amostra').textContent = sinal.amostra ?? '—';
+
+  const foraFiltro = sinal.itens_excluidos_por_filtro || 0;
+  const semAno = sinal.itens_sem_ano || 0;
+  const notas = [];
+  if (sinal.contexto_filtro) {
+    notas.push(sinal.contexto_filtro);
+  }
+  if (foraFiltro > 0) {
+    notas.push(`${foraFiltro} venda(s) de leilão ficaram fora do filtro atual.`);
+  }
+  if (semAno > 0) {
+    notas.push(`${semAno} venda(s) sem ano ficaram fora da tabela por consistência de filtro.`);
+  }
+  if (notas.length > 0) {
+    filtroNota.textContent = notas.join(' ');
+    filtroNota.classList.remove('hidden');
+  } else {
+    filtroNota.textContent = '';
+    filtroNota.classList.add('hidden');
+  }
 
   const lista = document.getElementById('leilao-vendas');
   lista.innerHTML = '';
@@ -308,7 +330,8 @@ function renderSinalLeilao(sinal) {
 
     const preco = document.createElement('span');
     preco.className = 'leilao-venda-preco';
-    preco.textContent = fmt(v.preco);
+    const anoTxt = Number.isInteger(v.ano) ? ` · ${v.ano}` : '';
+    preco.textContent = `${fmt(v.preco)}${anoTxt}`;
 
     li.append(link, preco);
     lista.appendChild(li);
