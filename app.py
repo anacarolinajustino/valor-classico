@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 
@@ -28,14 +27,12 @@ from flask import Flask, jsonify, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.catalog.loader import carregar_catalogo
-from src.connectors.ateliedocarro import buscar as ateliedocarro_buscar
-from src.connectors.circuitodeleiloes import buscar as circuitodeleiloes_buscar
-from src.connectors.maxicar import buscar as maxicar_buscar
-from src.connectors.superantigo import buscar as superantigo_buscar
 from src.pipeline.deduplicator import deduplicar
 from src.pipeline.normalizer import normalizar_texto
 from src.pipeline.outlier_filter import filtrar_outliers
 from src.pipeline.persistence import (
+    ANO_CORTE_CLASSICO,
+    buscar_anuncios,
     get_historico,
     get_mais_pesquisados,
     init_db,
@@ -86,10 +83,10 @@ def _anos_para_marca_modelo(marca_norm: str, modelo_norm: str) -> list[int]:
     """
     anos = catalogo.get((marca_norm, modelo_norm), set())
     if anos:
-        ano_limite = date.today().year - 20
+        ano_limite = min(date.today().year - 20, ANO_CORTE_CLASSICO)
         if max(anos) < ano_limite:
             anos = anos | set(range(max(anos) + 1, ano_limite + 1))
-    return sorted(anos)
+    return sorted(a for a in anos if a <= ANO_CORTE_CLASSICO)
 
 
 # ──────────────────────────────────────────────────────
@@ -154,55 +151,22 @@ def api_buscar():
         except ValueError:
             return jsonify({"erro": f"Ano inválido: '{ano_raw}'"}), 400
 
-    logger.info("Busca: marca=%s modelo=%s ano=%s paginas=%d", marca, modelo, ano_filtro, paginas)
-
-    anuncios = []
-    vendas_leilao = []
-    fontes_com_dados: list[str] = []
-    fontes_com_falha: list[str] = []
-
-    # Conectores ativos — rodam em paralelo.
-    # O Circuito de Leilões produz PREÇO REALIZADO: fica fora do pipeline de
-    # anúncios e vira o bloco separado `sinal_leilao` na resposta (Story 5.1).
-    _CONECTORES = [
-        ("Maxicar", maxicar_buscar),
-        ("Super Antigo", superantigo_buscar),
-        ("Ateliê do Carro", ateliedocarro_buscar),
-    ]
-    _FONTE_LEILAO = "Circuito de Leilões"
+    logger.info("Busca: marca=%s modelo=%s ano=%s", marca, modelo, ano_filtro)
 
     t0 = time.monotonic()
-    with ThreadPoolExecutor(max_workers=len(_CONECTORES) + 1) as pool:
-        futures = {
-            pool.submit(fn, marca, modelo, paginas): nome
-            for nome, fn in _CONECTORES
-        }
-        futures[pool.submit(circuitodeleiloes_buscar, marca, modelo)] = _FONTE_LEILAO
-        for future in as_completed(futures):
-            nome = futures[future]
-            try:
-                itens = future.result()
-                if nome == _FONTE_LEILAO:
-                    vendas_leilao = itens
-                else:
-                    anuncios.extend(itens)
-                if itens:
-                    fontes_com_dados.append(nome)
-            except Exception as exc:
-                logger.warning("[api_buscar] falha em %s: %s", nome, exc)
-                fontes_com_falha.append(nome)
+    todos = buscar_anuncios(marca, modelo, ano_filtro)
+
+    # Circuito de Leilões = preço realizado → bloco separado sinal_leilao
+    anuncios = [a for a in todos if a.fonte != "circuitodeleiloes"]
+    vendas_leilao = [a for a in todos if a.fonte == "circuitodeleiloes"]
+
+    fontes_com_dados = sorted({a.fonte for a in todos})
+    fontes_com_falha: list[str] = []
 
     logger.info(
-        "[api_buscar] coleta paralela concluída em %.1fs — %d anúncio(s) de %s",
-        time.monotonic() - t0, len(anuncios), fontes_com_dados,
+        "[api_buscar] banco local: %d anúncio(s) em %.3fs — fontes: %s",
+        len(todos), time.monotonic() - t0, fontes_com_dados,
     )
-
-    if not anuncios and not vendas_leilao and fontes_com_falha:
-        return jsonify({"erro": "Falha em todas as fontes. Tente novamente em instantes."}), 503
-
-    # Filtrar por ano, se solicitado
-    if ano_filtro:
-        anuncios = [a for a in anuncios if a.ano == ano_filtro]
 
     # Pipeline de qualidade
     anuncios = [a for a in anuncios if validar(a)]

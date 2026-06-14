@@ -1,0 +1,1024 @@
+{
+  "props": {
+    "pageProps": {
+      "ads": [
+        {
+          "subject": "Volkswagen Fusca 1300 1979",
+          "priceValue": "R$ 25.000",
+          "oldPrice": null,
+          "professionalAd": false,
+          "listId": 1432880566,
+          "lastBumpAgeSecs": "66595",
+          "categoryName": "Carros, vans e utilitários",
+          "fixedOnTop": false,
+          "isFavorited": false,
+          "hasRealEstateHighlight": false,
+          "priceReductionBadge": false,
+          "view360": {
+            "url": null
+          },
+          "images": [
+            {
+              "original": "https://img.olx.com.br/images/17/175524313846258.jpg",
+              "originalWebp": "https://img.olx.com.br/images/17/175524313846258.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/17/171599791303687.jpg",
+              "originalWebp": "https://img.olx.com.br/images/17/171599791303687.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/18/189507679747609.jpg",
+              "originalWebp": "https://img.olx.com.br/images/18/189507679747609.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/18/184554075304437.jpg",
+              "originalWebp": "https://img.olx.com.br/images/18/184554075304437.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/18/183539556882175.jpg",
+              "originalWebp": "https://img.olx.com.br/images/18/183539556882175.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/64/640693744053986.jpg",
+              "originalWebp": "https://img.olx.com.br/images/64/640693744053986.webp"
+            }
+          ],
+          "videoCount": 0,
+          "location": "Jacareí -  SP",
+          "properties": [
+            {
+              "name": "category",
+              "value": "Carros, vans e utilitários"
+            },
+            {
+              "name": "vehicle_model",
+              "value": "Volkswagen 1300"
+            },
+            {
+              "name": "vehicle_brand",
+              "value": "Volkswagen"
+            },
+            {
+              "name": "cartype",
+              "value": "Hatch"
+            },
+            {
+              "name": "regdate",
+              "value": "1979"
+            },
+            {
+              "name": "mileage",
+              "value": "54000"
+            },
+            {
+              "name": "motorpower",
+              "value": "1.3"
+            },
+            {
+              "name": "fuel",
+              "value": "Gasolina"
+            },
+            {
+              "name": "gearbox",
+              "value": "Manual"
+            },
+            {
+              "name": "car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "carcolor",
+              "value": "Branco"
+            },
+            {
+              "name": "doors",
+              "value": "2 portas"
+            },
+            {
+              "name": "end_tag",
+              "value": "4"
+            },
+            {
+              "name": "owner",
+              "value": "Não"
+            },
+            {
+              "name": "exchange",
+              "value": "Não"
+            },
+            {
+              "name": "car_features",
+              "value": "Som"
+            },
+            {
+              "name": "gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "owner_manual",
+              "value": "Não"
+            },
+            {
+              "name": "extra_key",
+              "value": "Sim"
+            },
+            {
+              "name": "dealership_review",
+              "value": "Não"
+            },
+            {
+              "name": "warranty",
+              "value": "Não"
+            },
+            {
+              "name": "has_gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "has_auction",
+              "value": "Não"
+            },
+            {
+              "name": "has_paid_ipva",
+              "value": "Sim"
+            },
+            {
+              "name": "has_with_fine",
+              "value": "Não"
+            },
+            {
+              "name": "has_hydraulic_steering",
+              "value": "Não"
+            },
+            {
+              "name": "is_settled",
+              "value": "Sim"
+            },
+            {
+              "name": "is_funded",
+              "value": "Não"
+            },
+            {
+              "name": "indexed_financial_status",
+              "value": "Quitado"
+            },
+            {
+              "name": "documentation_and_regularization",
+              "value": "IPVA Pago"
+            },
+            {
+              "name": "conservation_and_warranty",
+              "value": "Chave reserva"
+            },
+            {
+              "name": "indexed_car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "on_autos_fair",
+              "value": "Não"
+            }
+          ],
+          "searchCategoryLevelZero": 2000,
+          "searchCategoryLevelOne": 2020,
+          "olxPay": {
+            "enabled": false,
+            "dynamicBadgeProps": [],
+            "transactionalBadges": [],
+            "installments": [],
+            "transactionalSellerRating": 5,
+            "transactionalSellerName": "Eduardo"
+          },
+          "zapDetails": null,
+          "matchingAds": null,
+          "olxDelivery": {
+            "enabled": false
+          },
+          "vehicleTags": [],
+          "carSpecificData": {
+            "hasAutosInspectionReport": false
+          },
+          "price": "R$ 25.000",
+          "userGoogleReviewsVisible": false,
+          "userGoogleRating": null,
+          "isFeatured": false,
+          "listingCategoryId": "2020",
+          "isChatEnabled": true,
+          "url": "https://sp.olx.com.br/vale-do-paraiba-e-litoral-norte/autos-e-pecas/carros-vans-e-utilitarios/volkswagen-fusca-1300-1979-1432880566",
+          "date": 1781379250,
+          "imageCount": 6,
+          "category": "Carros, vans e utilitários",
+          "position": 0,
+          "isOnline": false,
+          "olxPayBadgeEnabled": false,
+          "olxDeliveryBadgeEnabled": false,
+          "installments": false,
+          "vehicleReportEnabled": false,
+          "vehicleHasInspectionReport": false,
+          "vehiclePills": [
+            {
+              "label": "Não aceita troca"
+            }
+          ],
+          "locationDetails": {
+            "municipality": "Jacareí",
+            "ddd": "12",
+            "neighbourhood": "Vila Zezé",
+            "uf": "SP"
+          }
+        },
+        {
+          "subject": "Volkswagen Fusca Fusca (gasolina) 1981",
+          "priceValue": "R$ 18.000",
+          "oldPrice": "R$ 22.000",
+          "professionalAd": false,
+          "listId": 1510076938,
+          "lastBumpAgeSecs": "0",
+          "categoryName": "Carros, vans e utilitários",
+          "fixedOnTop": false,
+          "isFavorited": false,
+          "hasRealEstateHighlight": false,
+          "priceReductionBadge": false,
+          "view360": {
+            "url": null
+          },
+          "images": [
+            {
+              "original": "https://img.olx.com.br/images/89/898638297840278.jpg",
+              "originalWebp": "https://img.olx.com.br/images/89/898638297840278.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/89/893630178559037.jpg",
+              "originalWebp": "https://img.olx.com.br/images/89/893630178559037.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/89/891659417026839.jpg",
+              "originalWebp": "https://img.olx.com.br/images/89/891659417026839.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/89/897672775833074.jpg",
+              "originalWebp": "https://img.olx.com.br/images/89/897672775833074.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/89/899659652118883.jpg",
+              "originalWebp": "https://img.olx.com.br/images/89/899659652118883.webp"
+            }
+          ],
+          "videoCount": 0,
+          "location": "Uberlândia -  MG",
+          "properties": [
+            {
+              "name": "category",
+              "value": "Carros, vans e utilitários"
+            },
+            {
+              "name": "vehicle_model",
+              "value": "Volkswagen (álcool)"
+            },
+            {
+              "name": "vehicle_brand",
+              "value": "Volkswagen"
+            },
+            {
+              "name": "regdate",
+              "value": "1981"
+            },
+            {
+              "name": "mileage",
+              "value": "144000"
+            },
+            {
+              "name": "motorpower",
+              "value": "1.3"
+            },
+            {
+              "name": "fuel",
+              "value": "Gasolina"
+            },
+            {
+              "name": "car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "carcolor",
+              "value": "Cinza"
+            },
+            {
+              "name": "end_tag",
+              "value": "7"
+            },
+            {
+              "name": "financial",
+              "value": "IPVA Pago"
+            },
+            {
+              "name": "has_gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "has_auction",
+              "value": "Não"
+            },
+            {
+              "name": "has_paid_ipva",
+              "value": "Sim"
+            },
+            {
+              "name": "has_with_fine",
+              "value": "Não"
+            },
+            {
+              "name": "has_hydraulic_steering",
+              "value": "Não"
+            },
+            {
+              "name": "is_settled",
+              "value": "Sim"
+            },
+            {
+              "name": "is_funded",
+              "value": "Não"
+            },
+            {
+              "name": "indexed_financial_status",
+              "value": "Quitado"
+            },
+            {
+              "name": "documentation_and_regularization",
+              "value": "IPVA Pago"
+            },
+            {
+              "name": "conservation_and_warranty",
+              "value": "0"
+            },
+            {
+              "name": "indexed_car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "on_autos_fair",
+              "value": "Não"
+            }
+          ],
+          "searchCategoryLevelZero": 2000,
+          "searchCategoryLevelOne": 2020,
+          "olxPay": {
+            "enabled": false,
+            "dynamicBadgeProps": [],
+            "transactionalBadges": [],
+            "installments": [],
+            "transactionalSellerRating": null,
+            "transactionalSellerName": "Fernando"
+          },
+          "zapDetails": null,
+          "matchingAds": null,
+          "olxDelivery": {
+            "enabled": false
+          },
+          "vehicleTags": [],
+          "carSpecificData": {
+            "hasAutosInspectionReport": false
+          },
+          "price": "R$ 18.000",
+          "userGoogleReviewsVisible": false,
+          "userGoogleRating": null,
+          "isFeatured": false,
+          "listingCategoryId": "2020",
+          "isChatEnabled": true,
+          "url": "https://mg.olx.com.br/regiao-de-uberlandia-e-uberaba/autos-e-pecas/carros-vans-e-utilitarios/volkswagen-fusca-fusca-gasolina-1981-1510076938",
+          "date": 1781307314,
+          "imageCount": 5,
+          "category": "Carros, vans e utilitários",
+          "position": 1,
+          "isOnline": false,
+          "olxPayBadgeEnabled": false,
+          "olxDeliveryBadgeEnabled": false,
+          "installments": false,
+          "vehicleReportEnabled": false,
+          "vehicleHasInspectionReport": false,
+          "vehiclePills": [
+            {
+              "label": "IPVA pago"
+            }
+          ],
+          "locationDetails": {
+            "municipality": "Uberlândia",
+            "ddd": "34",
+            "neighbourhood": "Novo Mundo",
+            "uf": "MG"
+          }
+        },
+        {
+          "subject": "Volkswagen Fusca Fusca (gasolina) 1994",
+          "priceValue": "R$ 50.000",
+          "oldPrice": null,
+          "professionalAd": false,
+          "listId": 1510393889,
+          "lastBumpAgeSecs": "0",
+          "categoryName": "Carros, vans e utilitários",
+          "fixedOnTop": false,
+          "isFavorited": false,
+          "hasRealEstateHighlight": false,
+          "priceReductionBadge": false,
+          "view360": {
+            "url": null
+          },
+          "images": [
+            {
+              "original": "https://img.olx.com.br/images/95/951686536784073.jpg",
+              "originalWebp": "https://img.olx.com.br/images/95/951686536784073.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/96/967687291652529.jpg",
+              "originalWebp": "https://img.olx.com.br/images/96/967687291652529.webp"
+            }
+          ],
+          "videoCount": 0,
+          "location": "Maricá -  RJ",
+          "properties": [
+            {
+              "name": "category",
+              "value": "Carros, vans e utilitários"
+            },
+            {
+              "name": "vehicle_model",
+              "value": "Volkswagen (álcool)"
+            },
+            {
+              "name": "vehicle_brand",
+              "value": "Volkswagen"
+            },
+            {
+              "name": "cartype",
+              "value": "Sedã"
+            },
+            {
+              "name": "regdate",
+              "value": "1994"
+            },
+            {
+              "name": "mileage",
+              "value": "4000"
+            },
+            {
+              "name": "fuel",
+              "value": "Gasolina"
+            },
+            {
+              "name": "gearbox",
+              "value": "Manual"
+            },
+            {
+              "name": "car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "carcolor",
+              "value": "Branco"
+            },
+            {
+              "name": "doors",
+              "value": "2 portas"
+            },
+            {
+              "name": "owner",
+              "value": "Não"
+            },
+            {
+              "name": "exchange",
+              "value": "Não"
+            },
+            {
+              "name": "gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "owner_manual",
+              "value": "Não"
+            },
+            {
+              "name": "extra_key",
+              "value": "Não"
+            },
+            {
+              "name": "dealership_review",
+              "value": "Não"
+            },
+            {
+              "name": "warranty",
+              "value": "Não"
+            },
+            {
+              "name": "has_gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "has_auction",
+              "value": "Não"
+            },
+            {
+              "name": "has_paid_ipva",
+              "value": "Não"
+            },
+            {
+              "name": "has_with_fine",
+              "value": "Não"
+            },
+            {
+              "name": "has_hydraulic_steering",
+              "value": "Não"
+            },
+            {
+              "name": "is_settled",
+              "value": "Sim"
+            },
+            {
+              "name": "is_funded",
+              "value": "Não"
+            },
+            {
+              "name": "indexed_financial_status",
+              "value": "Quitado"
+            },
+            {
+              "name": "documentation_and_regularization",
+              "value": "0"
+            },
+            {
+              "name": "conservation_and_warranty",
+              "value": "0"
+            },
+            {
+              "name": "indexed_car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "on_autos_fair",
+              "value": "Não"
+            }
+          ],
+          "searchCategoryLevelZero": 2000,
+          "searchCategoryLevelOne": 2020,
+          "olxPay": {
+            "enabled": false,
+            "dynamicBadgeProps": [],
+            "transactionalBadges": [],
+            "installments": [],
+            "transactionalSellerRating": null,
+            "transactionalSellerName": "Leandro L."
+          },
+          "zapDetails": null,
+          "matchingAds": null,
+          "olxDelivery": {
+            "enabled": false
+          },
+          "vehicleTags": [],
+          "carSpecificData": {
+            "hasAutosInspectionReport": false
+          },
+          "price": "R$ 50.000",
+          "userGoogleReviewsVisible": false,
+          "userGoogleRating": null,
+          "isFeatured": false,
+          "listingCategoryId": "2020",
+          "isChatEnabled": true,
+          "url": "https://rj.olx.com.br/rio-de-janeiro-e-regiao/autos-e-pecas/carros-vans-e-utilitarios/volkswagen-fusca-fusca-gasolina-1994-1510393889",
+          "date": 1781445274,
+          "imageCount": 2,
+          "category": "Carros, vans e utilitários",
+          "position": 2,
+          "isOnline": false,
+          "olxPayBadgeEnabled": false,
+          "olxDeliveryBadgeEnabled": false,
+          "installments": false,
+          "vehicleReportEnabled": false,
+          "vehicleHasInspectionReport": false,
+          "vehiclePills": [
+            {
+              "label": "Não aceita troca"
+            }
+          ],
+          "locationDetails": {
+            "municipality": "Maricá",
+            "ddd": "21",
+            "neighbourhood": "Ubatiba",
+            "uf": "RJ"
+          }
+        },
+        {
+          "subject": "Volkswagen Fusca Fusca (gasolina) 1972",
+          "priceValue": "R$ 19.500",
+          "oldPrice": null,
+          "professionalAd": false,
+          "listId": 1510392910,
+          "lastBumpAgeSecs": "0",
+          "categoryName": "Carros, vans e utilitários",
+          "fixedOnTop": false,
+          "isFavorited": false,
+          "hasRealEstateHighlight": false,
+          "priceReductionBadge": false,
+          "view360": {
+            "url": null
+          },
+          "images": [
+            {
+              "original": "https://img.olx.com.br/images/46/461665770532905.jpg",
+              "originalWebp": "https://img.olx.com.br/images/46/461665770532905.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/47/476680772394975.jpg",
+              "originalWebp": "https://img.olx.com.br/images/47/476680772394975.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/48/489628178197135.jpg",
+              "originalWebp": "https://img.olx.com.br/images/48/489628178197135.webp"
+            }
+          ],
+          "videoCount": 0,
+          "location": "Rolândia -  PR",
+          "properties": [
+            {
+              "name": "category",
+              "value": "Carros, vans e utilitários"
+            },
+            {
+              "name": "vehicle_model",
+              "value": "Volkswagen (álcool)"
+            },
+            {
+              "name": "vehicle_brand",
+              "value": "Volkswagen"
+            },
+            {
+              "name": "cartype",
+              "value": "Sedã"
+            },
+            {
+              "name": "regdate",
+              "value": "1972"
+            },
+            {
+              "name": "mileage",
+              "value": "11111"
+            },
+            {
+              "name": "motorpower",
+              "value": "1.5"
+            },
+            {
+              "name": "fuel",
+              "value": "Gasolina"
+            },
+            {
+              "name": "car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "carcolor",
+              "value": "Outra"
+            },
+            {
+              "name": "doors",
+              "value": "2 portas"
+            },
+            {
+              "name": "owner",
+              "value": "Não"
+            },
+            {
+              "name": "owner_manual",
+              "value": "Não"
+            },
+            {
+              "name": "extra_key",
+              "value": "Não"
+            },
+            {
+              "name": "dealership_review",
+              "value": "Não"
+            },
+            {
+              "name": "warranty",
+              "value": "Não"
+            },
+            {
+              "name": "has_gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "has_auction",
+              "value": "Não"
+            },
+            {
+              "name": "has_paid_ipva",
+              "value": "Não"
+            },
+            {
+              "name": "has_with_fine",
+              "value": "Não"
+            },
+            {
+              "name": "has_hydraulic_steering",
+              "value": "Não"
+            },
+            {
+              "name": "is_settled",
+              "value": "Sim"
+            },
+            {
+              "name": "is_funded",
+              "value": "Não"
+            },
+            {
+              "name": "indexed_financial_status",
+              "value": "Quitado"
+            },
+            {
+              "name": "documentation_and_regularization",
+              "value": "0"
+            },
+            {
+              "name": "conservation_and_warranty",
+              "value": "0"
+            },
+            {
+              "name": "indexed_car_steering",
+              "value": "Mecânica"
+            },
+            {
+              "name": "on_autos_fair",
+              "value": "Não"
+            }
+          ],
+          "searchCategoryLevelZero": 2000,
+          "searchCategoryLevelOne": 2020,
+          "olxPay": {
+            "enabled": false,
+            "dynamicBadgeProps": [],
+            "transactionalBadges": [],
+            "installments": [],
+            "transactionalSellerRating": null,
+            "transactionalSellerName": "Natalia"
+          },
+          "zapDetails": null,
+          "matchingAds": null,
+          "olxDelivery": {
+            "enabled": false
+          },
+          "vehicleTags": [],
+          "carSpecificData": {
+            "hasAutosInspectionReport": false
+          },
+          "price": "R$ 19.500",
+          "userGoogleReviewsVisible": false,
+          "userGoogleRating": null,
+          "isFeatured": false,
+          "listingCategoryId": "2020",
+          "isChatEnabled": true,
+          "url": "https://pr.olx.com.br/regiao-de-londrina/autos-e-pecas/carros-vans-e-utilitarios/volkswagen-fusca-fusca-gasolina-1972-1510392910",
+          "date": 1781444853,
+          "imageCount": 3,
+          "category": "Carros, vans e utilitários",
+          "position": 3,
+          "isOnline": false,
+          "olxPayBadgeEnabled": false,
+          "olxDeliveryBadgeEnabled": false,
+          "installments": false,
+          "vehicleReportEnabled": false,
+          "vehicleHasInspectionReport": false,
+          "vehiclePills": [],
+          "locationDetails": {
+            "municipality": "Rolândia",
+            "ddd": "43",
+            "neighbourhood": "Conjunto Habitacional San Fernando",
+            "uf": "PR"
+          }
+        },
+        {
+          "subject": "Volkswagen Fusca (álcool) 1976",
+          "priceValue": "R$ 10.000",
+          "oldPrice": null,
+          "professionalAd": false,
+          "listId": 1510390063,
+          "lastBumpAgeSecs": "0",
+          "categoryName": "Carros, vans e utilitários",
+          "fixedOnTop": false,
+          "isFavorited": false,
+          "hasRealEstateHighlight": false,
+          "priceReductionBadge": false,
+          "view360": {
+            "url": null
+          },
+          "images": [
+            {
+              "original": "https://img.olx.com.br/images/86/869628173708133.jpg",
+              "originalWebp": "https://img.olx.com.br/images/86/869628173708133.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/87/878603296798813.jpg",
+              "originalWebp": "https://img.olx.com.br/images/87/878603296798813.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/89/891678654825724.jpg",
+              "originalWebp": "https://img.olx.com.br/images/89/891678654825724.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/90/901693414626862.jpg",
+              "originalWebp": "https://img.olx.com.br/images/90/901693414626862.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/92/924689178560389.jpg",
+              "originalWebp": "https://img.olx.com.br/images/92/924689178560389.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/94/949631418236147.jpg",
+              "originalWebp": "https://img.olx.com.br/images/94/949631418236147.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/95/954674776786367.jpg",
+              "originalWebp": "https://img.olx.com.br/images/95/954674776786367.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/97/973648176513529.jpg",
+              "originalWebp": "https://img.olx.com.br/images/97/973648176513529.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/99/997614779832264.jpg",
+              "originalWebp": "https://img.olx.com.br/images/99/997614779832264.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/10/107647772339022.jpg",
+              "originalWebp": "https://img.olx.com.br/images/10/107647772339022.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/12/124604413058815.jpg",
+              "originalWebp": "https://img.olx.com.br/images/12/124604413058815.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/13/138671413537420.jpg",
+              "originalWebp": "https://img.olx.com.br/images/13/138671413537420.webp"
+            },
+            {
+              "original": "https://img.olx.com.br/images/15/154616418579768.jpg",
+              "originalWebp": "https://img.olx.com.br/images/15/154616418579768.webp"
+            }
+          ],
+          "videoCount": 0,
+          "location": "Brasília -  DF",
+          "properties": [
+            {
+              "name": "category",
+              "value": "Carros, vans e utilitários"
+            },
+            {
+              "name": "vehicle_model",
+              "value": "Volkswagen (álcool)"
+            },
+            {
+              "name": "vehicle_brand",
+              "value": "Volkswagen"
+            },
+            {
+              "name": "regdate",
+              "value": "1976"
+            },
+            {
+              "name": "mileage",
+              "value": "300000"
+            },
+            {
+              "name": "fuel",
+              "value": "Álcool"
+            },
+            {
+              "name": "gearbox",
+              "value": "Manual"
+            },
+            {
+              "name": "carcolor",
+              "value": "Amarelo"
+            },
+            {
+              "name": "owner",
+              "value": "Não"
+            },
+            {
+              "name": "financial",
+              "value": "Com multas"
+            },
+            {
+              "name": "owner_manual",
+              "value": "Não"
+            },
+            {
+              "name": "extra_key",
+              "value": "Não"
+            },
+            {
+              "name": "dealership_review",
+              "value": "Não"
+            },
+            {
+              "name": "warranty",
+              "value": "Não"
+            },
+            {
+              "name": "has_gnv_kit",
+              "value": "Não"
+            },
+            {
+              "name": "has_auction",
+              "value": "Não"
+            },
+            {
+              "name": "has_paid_ipva",
+              "value": "Não"
+            },
+            {
+              "name": "has_with_fine",
+              "value": "Sim"
+            },
+            {
+              "name": "has_hydraulic_steering",
+              "value": "Não"
+            },
+            {
+              "name": "is_settled",
+              "value": "Sim"
+            },
+            {
+              "name": "is_funded",
+              "value": "Não"
+            },
+            {
+              "name": "indexed_financial_status",
+              "value": "Quitado"
+            },
+            {
+              "name": "documentation_and_regularization",
+              "value": "Com multas"
+            },
+            {
+              "name": "conservation_and_warranty",
+              "value": "0"
+            },
+            {
+              "name": "on_autos_fair",
+              "value": "Não"
+            }
+          ],
+          "searchCategoryLevelZero": 2000,
+          "searchCategoryLevelOne": 2020,
+          "olxPay": {
+            "enabled": false,
+            "dynamicBadgeProps": [],
+            "transactionalBadges": [],
+            "installments": [],
+            "transactionalSellerRating": null,
+            "transactionalSellerName": "Ivone C."
+          },
+          "zapDetails": null,
+          "matchingAds": null,
+          "olxDelivery": {
+            "enabled": false
+          },
+          "vehicleTags": [],
+          "carSpecificData": {
+            "hasAutosInspectionReport": false
+          },
+          "price": "R$ 10.000",
+          "userGoogleReviewsVisible": false,
+          "userGoogleRating": null,
+          "isFeatured": false,
+          "listingCategoryId": "2020",
+          "isChatEnabled": true,
+          "url": "https://df.olx.com.br/distrito-federal-e-regiao/autos-e-pecas/carros-vans-e-utilitarios/volkswagen-fusca-alcool-1976-1510390063",
+          "date": 1781443702,
+          "imageCount": 13,
+          "category": "Carros, vans e utilitários",
+          "position": 4,
+          "isOnline": true,
+          "olxPayBadgeEnabled": false,
+          "olxDeliveryBadgeEnabled": false,
+          "installments": false,
+          "vehicleReportEnabled": false,
+          "vehicleHasInspectionReport": false,
+          "vehiclePills": [
+            {
+              "label": "Com multa"
+            }
+          ],
+          "locationDetails": {
+            "municipality": "Brasília",
+            "ddd": "61",
+            "neighbourhood": "Setor Oeste (Gama)",
+            "uf": "DF"
+          }
+        }
+      ],
+      "pageIndex": 1,
+      "totalOfAds": 2856,
+      "pageSize": 50
+    }
+  }
+}

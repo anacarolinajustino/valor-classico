@@ -1,0 +1,9 @@
+fonte,data_coleta,paginas_listagem,urls_detalhe,anuncios_validos,descartados_sem_preco_ou_modelo,erros_listagem,erros_detalhe,requisicoes,latencia_p50_s,latencia_p95_s,tempo_total_s,segundos_por_anuncio,banco_novos,banco_atualizados
+ateliedocarro,2026-06-14,7,82,77,5,0,0,89,0.36,0.51,124.7,1.62,77,0
+maxicar,2026-06-14,3,46,46,0,0,0,3,0.04,0.17,2.5,0.05,46,0
+circuitodeleiloes,2026-06-14,1,46,44,2,0,0,1,,,0.2,0.0,44,0
+superantigo,2026-06-14,7,161,161,0,0,0,7,,,19.0,0.12,161,0
+olx,2026-06-14,0,0,0,0,0,1,0,0,,,32.0,,0,0
+olx,2026-06-14,2,74,74,13,11,0,0,2,1.0,1.0,6.1,0.08,74,0
+olx,fusca,2026-06-14,3,135,135,21,14,0,0,3,1.0,1.62,12.8,0.1,135,0
+olx,categoria,2000,2026-06-14,2,4,4,14,95,0,0,2,3.29,3.29,10.7,2.67,4,0

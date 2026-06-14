@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 """
-Ingestão batch completa do Ateliê do Carro → SQLite.
+Ingestão batch completa do Circuito de Leilões → SQLite.
 
-Spike do modelo "1 fonte/dia, revisita mensal": coleta TODOS os anúncios do
-site, salva na tabela `anuncios` (upsert por fonte+url) e imprime as métricas
-de custo da coleta (tempo total, latências, erros) em JSON.
-Grava também uma linha em data/coletas_log.csv para histórico de runs.
+Coleta todos os lotes vendidos da categoria Veículos Antigos via API Supabase
+(Picelli Leilões). Muito rápido: 1–2 requisições JSON.
 
 Uso:
-    python scripts/ingest_ateliedocarro.py
-    python scripts/ingest_ateliedocarro.py --max-paginas 5   # rodada parcial
+    python scripts/ingest_circuitodeleiloes.py
 """
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import logging
@@ -21,13 +17,11 @@ import sys
 import warnings
 from pathlib import Path
 
-# Suprimir avisos de SSL (aceitável para spike/demo local)
 warnings.filterwarnings("ignore")
 
-# Adicionar raiz do projeto ao path para imports relativos funcionarem
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.connectors.ateliedocarro import coletar_completo
+from src.connectors.circuitodeleiloes import coletar_completo
 from src.pipeline import persistence
 
 LOG_CSV = Path(__file__).parent.parent / "data" / "coletas_log.csv"
@@ -43,13 +37,6 @@ def _gravar_csv(metricas: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Ingestão batch do Ateliê do Carro")
-    parser.add_argument(
-        "--max-paginas", type=int, default=100,
-        help="Teto de páginas da listagem a percorrer (default: 100)",
-    )
-    args = parser.parse_args()
-
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -57,7 +44,7 @@ def main() -> int:
     )
 
     persistence.init_db()
-    anuncios, metricas = coletar_completo(max_paginas=args.max_paginas)
+    anuncios, metricas = coletar_completo()
     resultado = persistence.upsert_anuncios(anuncios)
 
     metricas["banco_novos"] = resultado["novos"]

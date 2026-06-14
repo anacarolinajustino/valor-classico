@@ -86,6 +86,106 @@ _PREFIXOS_IMPORTACAO = {"IMP", "I"}
 # Interface pública
 # ────────────────────────────────────────────────
 
+def coletar_completo(limite_por_pagina: int = 500) -> tuple[list[Anuncio], dict]:
+    """
+    Coleta TODOS os lotes vendidos da categoria Veículos Antigos (batch).
+
+    Pagina a API Supabase com offset até esgotar os resultados.
+
+    Returns:
+        (anuncios, metricas)
+    """
+    inicio = time.monotonic()
+    data_coleta = date.today().isoformat()
+    lotes_total: list[dict] = []
+    offset = 0
+    requisicoes = 0
+    erros = 0
+
+    while True:
+        params = {
+            "select": "id,slug,title,status,highest_bid_value,bid_count,updated_at",
+            "category_id": f"eq.{CATEGORIA_VEICULOS_ANTIGOS}",
+            "status": "eq.vendido",
+            "highest_bid_value": "gt.0",
+            "order": "updated_at.desc",
+            "limit": str(limite_por_pagina),
+            "offset": str(offset),
+        }
+        requisicoes += 1
+        lotes = _requisitar(f"{API_BASE}/public_lots", params)
+
+        if lotes is None:
+            erros += 1
+            logger.warning("[circuitodeleiloes] falha na requisição offset=%d.", offset)
+            break
+
+        lotes_total.extend(lotes)
+        logger.info(
+            "[circuitodeleiloes] offset=%d → %d lotes (acumulado: %d)",
+            offset, len(lotes), len(lotes_total),
+        )
+
+        if len(lotes) < limite_por_pagina:
+            break
+        offset += limite_por_pagina
+
+    # Converter todos os lotes em Anuncio sem filtro de marca/modelo
+    anuncios: list[Anuncio] = []
+    descartados = 0
+    vistos: set[str] = set()
+
+    for lote in lotes_total:
+        if lote.get("status") != "vendido":
+            continue
+        preco = lote.get("highest_bid_value")
+        if not preco or preco <= 0:
+            continue
+        lote_id = str(lote.get("id", ""))
+        if lote_id in vistos:
+            continue
+        vistos.add(lote_id)
+
+        titulo = (lote.get("title") or "").strip()
+        marca, modelo, ano = parsear_titulo(titulo)
+
+        if not modelo:
+            descartados += 1
+            continue
+
+        slug = lote.get("slug") or lote_id
+        anuncios.append(Anuncio(
+            titulo=titulo,
+            preco=float(preco),
+            marca=marca,
+            modelo=modelo,
+            ano=ano,
+            versao=None,
+            url=f"{SITE_BASE}/lote/{slug}",
+            fonte=FONTE,
+            data_coleta=data_coleta,
+        ))
+
+    tempo_total = time.monotonic() - inicio
+    metricas = {
+        "fonte": FONTE,
+        "data_coleta": data_coleta,
+        "paginas_listagem": requisicoes,
+        "urls_detalhe": len(lotes_total),
+        "anuncios_validos": len(anuncios),
+        "descartados_sem_preco_ou_modelo": descartados,
+        "erros_listagem": erros,
+        "erros_detalhe": 0,
+        "requisicoes": requisicoes,
+        "latencia_p50_s": None,
+        "latencia_p95_s": None,
+        "tempo_total_s": round(tempo_total, 1),
+        "segundos_por_anuncio": round(tempo_total / len(anuncios), 2) if anuncios else None,
+    }
+    logger.info("[circuitodeleiloes] coleta completa: %s", metricas)
+    return anuncios, metricas
+
+
 def buscar(marca: str, modelo: str, paginas: int = 1) -> list[Anuncio]:
     """
     Busca preços realizados (lotes vendidos) por marca e modelo.

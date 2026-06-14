@@ -63,6 +63,114 @@ _SLUG_PARA_MARCA: dict[str, str] = {
 }
 
 
+def coletar_completo(max_paginas: int = 200) -> tuple[list[Anuncio], dict]:
+    """
+    Coleta TODOS os anúncios do Super Antigo (batch sem filtro de marca/modelo).
+
+    Usa Playwright para navegar pelo SPA e paginar via botão "próxima página".
+
+    Returns:
+        (anuncios, metricas)
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "Playwright não instalado. Execute: pip install playwright && "
+            "python -m playwright install chromium"
+        ) from exc
+
+    inicio = time.monotonic()
+    data_coleta = date.today().isoformat()
+    anuncios: list[Anuncio] = []
+    seen_urls: set[str] = set()
+    paginas_lidas = 0
+    erros = 0
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
+            pw_page = ctx.new_page()
+
+            url_inicial = f"{BASE_URL}{LISTING_PATH}?vehicleType=car&page=1&limit=24"
+            logger.info("[superantigo] navegando para %s", url_inicial)
+            pw_page.goto(url_inicial, timeout=TIMEOUT_PAGINA, wait_until="networkidle")
+
+            for pagina in range(1, max_paginas + 1):
+                try:
+                    pw_page.wait_for_selector(
+                        "a[href^='/veiculos/carro/']",
+                        timeout=TIMEOUT_SELECTOR,
+                    )
+                except Exception:
+                    logger.warning("[superantigo] timeout aguardando cards na página %d.", pagina)
+                    erros += 1
+                    break
+
+                html = pw_page.content()
+                itens = parsear_listagem_html(html, data_coleta)
+                paginas_lidas += 1
+
+                novos = 0
+                for a in itens:
+                    if a.url not in seen_urls:
+                        seen_urls.add(a.url)
+                        anuncios.append(a)
+                        novos += 1
+
+                logger.info(
+                    "[superantigo] página %d: %d card(s), %d novo(s) (total: %d)",
+                    pagina, len(itens), novos, len(anuncios),
+                )
+
+                # Página incompleta = última página (sem precisar clicar)
+                if len(itens) < 24:
+                    logger.info("[superantigo] página incompleta — última página (%d).", pagina)
+                    break
+
+                # Próxima página
+                avancar = pw_page.query_selector("a[aria-label='Ir para a próxima página']")
+                if not avancar:
+                    logger.info("[superantigo] sem botão próxima página (%d).", pagina)
+                    break
+                disabled = avancar.get_attribute("disabled")
+                aria_disabled = avancar.get_attribute("aria-disabled")
+                if disabled is not None or aria_disabled == "true":
+                    logger.info("[superantigo] última página atingida (%d).", pagina)
+                    break
+
+                # Click via JS: evita bloqueio do header fixo
+                pw_page.evaluate("(el) => el.click()", avancar)
+                pw_page.wait_for_load_state("networkidle", timeout=15_000)
+                time.sleep(RATE_LIMIT_SEGUNDOS)
+
+            browser.close()
+
+    except Exception as exc:
+        logger.error("[superantigo] erro durante coleta: %s", exc)
+        raise
+
+    tempo_total = time.monotonic() - inicio
+    metricas = {
+        "fonte": FONTE,
+        "data_coleta": data_coleta,
+        "paginas_listagem": paginas_lidas,
+        "urls_detalhe": len(seen_urls),
+        "anuncios_validos": len(anuncios),
+        "descartados_sem_preco_ou_modelo": 0,
+        "erros_listagem": erros,
+        "erros_detalhe": 0,
+        "requisicoes": paginas_lidas,
+        "latencia_p50_s": None,
+        "latencia_p95_s": None,
+        "tempo_total_s": round(tempo_total, 1),
+        "segundos_por_anuncio": round(tempo_total / len(anuncios), 2) if anuncios else None,
+    }
+    logger.info("[superantigo] coleta completa: %s", metricas)
+    return anuncios, metricas
+
+
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     """
     Busca anúncios no Super Antigo por marca e modelo.
