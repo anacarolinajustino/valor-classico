@@ -27,6 +27,7 @@ _DB_PATH = _INSTANCE_DIR / "valor_classico.db"
 
 CHART_MIN_DIAS = 5    # mínimo de dias distintos para exibir gráfico
 CHART_MAX_PONTOS = 10  # máximo de pontos retornados por série
+ANO_CORTE_CLASSICO = 2000  # apenas veículos até este ano são exibidos
 
 # ── DDL ───────────────────────────────────────────────────────────────────────
 
@@ -274,6 +275,66 @@ def get_historico(
         "chart_min_dias": CHART_MIN_DIAS,
         "series": series,
     }
+
+
+def buscar_anuncios(
+    marca: str,
+    modelo: str,
+    ano: int | None = None,
+    db_path: Path | None = None,
+) -> list:
+    """
+    Consulta anúncios do banco local por marca e modelo.
+
+    Matching de modelo é fuzzy (LIKE bilateral): casa "KOMBI" com "KOMBI LUXO"
+    e vice-versa. Retorna objetos Anuncio prontos para o pipeline de stats.
+    """
+    from src.pipeline.schema import Anuncio
+
+    marca_upper = marca.strip().upper()
+    modelo_upper = modelo.strip().upper()
+
+    sql = """
+        SELECT fonte, url, titulo, marca, modelo, ano, preco, ultima_vista
+        FROM anuncios
+        WHERE UPPER(marca) = ?
+          AND (
+              UPPER(modelo) = ?
+              OR UPPER(modelo) LIKE ?
+              OR ? LIKE '%' || UPPER(modelo) || '%'
+          )
+          AND (? IS NULL OR ano = ?)
+          AND (ano IS NULL OR ano <= ?)
+        ORDER BY ano DESC, preco ASC
+    """
+    params = (
+        marca_upper,
+        modelo_upper,
+        f"%{modelo_upper}%",
+        modelo_upper,
+        ano,
+        ano,
+        ANO_CORTE_CLASSICO,
+    )
+
+    with _connect(db_path) as conn:
+        rows = conn.execute(sql, params).fetchall()
+
+    return [
+        Anuncio(
+            titulo=r["titulo"] or "",
+            preco=r["preco"],
+            marca=r["marca"] or "",
+            modelo=r["modelo"] or "",
+            ano=r["ano"],
+            versao=None,
+            url=r["url"] or "",
+            fonte=r["fonte"] or "",
+            data_coleta=r["ultima_vista"] or date.today().isoformat(),
+        )
+        for r in rows
+        if r["preco"] and r["preco"] > 0
+    ]
 
 
 def get_mais_pesquisados(

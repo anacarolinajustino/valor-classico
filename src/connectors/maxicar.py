@@ -74,6 +74,83 @@ BACKOFF_SEGUNDOS = 2.0
 RATE_LIMIT_SEGUNDOS = 1.0  # mínimo entre requisições
 
 
+def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
+    """
+    Coleta TODOS os anúncios do Maxicar (ingestão batch), sem filtro.
+
+    Passe único: o WooCommerce exibe preço+título na listagem, sem necessidade
+    de buscar páginas de detalhe individualmente.
+
+    Returns:
+        (anuncios, metricas)
+    """
+    import statistics
+    inicio = time.monotonic()
+    sessao = _criar_sessao()
+    data_coleta = date.today().isoformat()
+    latencias: list[float] = []
+
+    def _fetch(url: str) -> Optional[str]:
+        t0 = time.monotonic()
+        html, _ = _requisitar(sessao, url)
+        latencias.append(time.monotonic() - t0)
+        return html
+
+    anuncios: list[Anuncio] = []
+    seen_urls: set[str] = set()
+    paginas_lidas = 0
+    erros = 0
+    descartados = 0
+
+    for pagina in range(1, max_paginas + 1):
+        url_pagina = _url_listagem_completa(pagina)
+        logger.info("[maxicar] listagem página %d — %s", pagina, url_pagina)
+
+        html = _fetch(url_pagina)
+        if html is None:
+            erros += 1
+            logger.warning("[maxicar] falha na listagem página %d.", pagina)
+            break
+
+        paginas_lidas += 1
+        itens = _parsear_listagem(html, data_coleta)
+
+        for a in itens:
+            if a.url in seen_urls:
+                continue
+            seen_urls.add(a.url)
+            if a.preco and a.modelo:
+                anuncios.append(a)
+            else:
+                descartados += 1
+
+        if not _tem_proxima_pagina(html, pagina):
+            logger.info("[maxicar] última página da listagem: %d.", pagina)
+            break
+
+        time.sleep(RATE_LIMIT_SEGUNDOS)
+
+    tempo_total = time.monotonic() - inicio
+    lat_ord = sorted(latencias)
+    metricas = {
+        "fonte": FONTE,
+        "data_coleta": data_coleta,
+        "paginas_listagem": paginas_lidas,
+        "urls_detalhe": len(seen_urls),
+        "anuncios_validos": len(anuncios),
+        "descartados_sem_preco_ou_modelo": descartados,
+        "erros_listagem": erros,
+        "erros_detalhe": 0,
+        "requisicoes": len(latencias),
+        "latencia_p50_s": round(lat_ord[len(lat_ord) // 2], 2) if lat_ord else None,
+        "latencia_p95_s": round(lat_ord[int(len(lat_ord) * 0.95)], 2) if lat_ord else None,
+        "tempo_total_s": round(tempo_total, 1),
+        "segundos_por_anuncio": round(tempo_total / len(anuncios), 2) if anuncios else None,
+    }
+    logger.info("[maxicar] coleta completa: %s", metricas)
+    return anuncios, metricas
+
+
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     """
     Busca anúncios no Maxicar por marca e modelo.
@@ -178,6 +255,13 @@ def _criar_sessao() -> requests.Session:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     })
     return sessao
+
+
+def _url_listagem_completa(pagina: int) -> str:
+    """Monta URL da listagem completa sem filtro de busca."""
+    if pagina == 1:
+        return BASE_URL
+    return f"{BASE_URL}page/{pagina}/"
 
 
 def _url_pagina(termo: str, pagina: int) -> str:

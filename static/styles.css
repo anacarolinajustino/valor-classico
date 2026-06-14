@@ -291,6 +291,11 @@ a { color: inherit; text-decoration: none; }
   padding-right: 36px;
 }
 
+.field-group select option {
+  color: var(--vc-ink);
+  background: var(--vc-white);
+}
+
 .field-group input:focus,
 .field-group select:focus {
   outline: none;

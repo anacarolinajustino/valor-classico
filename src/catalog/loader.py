@@ -18,8 +18,8 @@ from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
 
-# Caminho padrão do CSV do catálogo
-CSV_PADRAO = Path("/Users/ana.justino/Downloads/base_dados_webmotors.csv")
+# Caminho padrão do CSV do catálogo — relativo à raiz do projeto
+CSV_PADRAO = Path(__file__).parent.parent.parent / "data" / "base_dados_webmotors.csv"
 
 # Suplemento manual: modelos ausentes do CSV principal.
 # Chaves já normalizadas (uppercase, sem acento). Ranges = anos de produção no Brasil.
