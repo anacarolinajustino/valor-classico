@@ -1204,10 +1204,20 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 20px;
 }
 
+.admin-section-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
 .admin-section-hint {
   font-size: 14px;
   color: var(--vc-ink-muted);
-  margin-bottom: 20px;
+  margin: 0;
+  flex: 1;
 }
 
 /* Stats cards */

@@ -67,8 +67,6 @@ CONNECTOR_MODULES: dict[str, str] = {
     "franzveiculosantigos":   "src.connectors.franzveiculosantigos",
     "gustavobrasil":          "src.connectors.gustavobrasil",
     "abcclassificados":       "src.connectors.abcclassificados",
-    "veterancarclub":         "src.connectors.veterancarclub",
-    "peruzzoveiculos":        "src.connectors.peruzzoveiculos",
     "salvajoli":              "src.connectors.salvajoli",
     "miguelveiculosjf":       "src.connectors.miguelveiculosjf",
     "interclassicos":         "src.connectors.interclassicos",
@@ -359,6 +357,30 @@ def admin_coletar():
     except Exception as exc:
         logger.error("admin_coletar %s erro: %s", fonte, exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/coletar-todos", methods=["POST"])
+def admin_coletar_todos():
+    """Dispara coleta de todas as fontes em sequência; retorna resultado agregado."""
+    resultados = []
+    for fonte, mod_path in CONNECTOR_MODULES.items():
+        try:
+            mod = importlib.import_module(mod_path)
+            anuncios_coletados, metricas = mod.coletar_completo()
+            resultado_db = upsert_anuncios(anuncios_coletados)
+            logger.info("coletar_todos %s: %s", fonte, metricas)
+            resultados.append({
+                "fonte": fonte,
+                "ok": True,
+                "metricas": metricas,
+                "resultado": resultado_db,
+            })
+        except Exception as exc:
+            logger.error("coletar_todos %s erro: %s", fonte, exc, exc_info=True)
+            resultados.append({"fonte": fonte, "ok": False, "erro": str(exc)})
+
+    total_novos = sum(r.get("resultado", {}).get("novos", 0) for r in resultados if r.get("ok"))
+    return jsonify({"resultados": resultados, "total_novos": total_novos})
 
 
 if __name__ == "__main__":

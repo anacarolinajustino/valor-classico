@@ -1,10 +1,12 @@
 """
 Conector Salvajoli.
 Site: https://www.salvajoli.com.br
-Motor: WordPress custom (blog-style listings)
+Motor: WordPress custom (não WooCommerce padrão)
 Estratégia: requests + BeautifulSoup
-Seletores: div.post-modern-title.titulo-carro > a (título), small (preço),
-           paginação via ?page=N
+  - Listagem: /produtos/categoria/a-venda com paginação /page/N/
+  - Título: texto direto de div.post-modern-title.titulo-carro (antes do <br>)
+  - Preço: <small> dentro do mesmo div
+  - Link: <a> pai do div
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 FONTE = "salvajoli"
 BASE_URL = "https://www.salvajoli.com.br"
-LISTING_PATH = "/estoque"
+LISTING_PATH = "/produtos/categoria/a-venda"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -44,7 +46,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     seen: set[str] = set()
 
     for pg in range(1, paginas + 1):
-        url = f"{BASE_URL}{LISTING_PATH}?page={pg}" if pg > 1 else f"{BASE_URL}{LISTING_PATH}"
+        url = f"{BASE_URL}{LISTING_PATH}/page/{pg}/" if pg > 1 else f"{BASE_URL}{LISTING_PATH}"
         html = _requisitar(sessao, url)
         if html is None:
             break
@@ -74,7 +76,7 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
     paginas_ok = 0
 
     for pg in range(1, max_paginas + 1):
-        url = f"{BASE_URL}{LISTING_PATH}?page={pg}" if pg > 1 else f"{BASE_URL}{LISTING_PATH}"
+        url = f"{BASE_URL}{LISTING_PATH}/page/{pg}/" if pg > 1 else f"{BASE_URL}{LISTING_PATH}"
         html = _requisitar(sessao, url)
         if html is None:
             erros += 1
@@ -110,27 +112,27 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
 
-    for card in soup.find_all("div", class_=lambda c: c and "post-modern-header" in c):
-        # Título
-        titulo_tag = card.select_one("div.post-modern-title a") or card.select_one(".titulo-carro a") or card.find("a")
-        titulo = titulo_tag.get_text(strip=True) if titulo_tag else ""
+    for div in soup.select("div.post-modern-title.titulo-carro"):
+        # Título: texto direto do div, antes do <br>
+        titulo = ""
+        for node in div.children:
+            if hasattr(node, "name") and node.name == "br":
+                break
+            if isinstance(node, str):
+                titulo += node.strip()
+        titulo = titulo.strip()
         if not titulo:
             continue
 
-        # Preço via <small> ou span com preço
-        preco = None
-        small = card.find("small")
-        if small:
-            preco = normalizar_preco(small.get_text(strip=True))
-        if not preco:
-            preco_tag = card.find(class_=lambda c: c and "preco" in c.lower() if c else False)
-            if preco_tag:
-                preco = normalizar_preco(preco_tag.get_text(strip=True))
+        # Preço: dentro do <small> no mesmo div
+        small = div.find("small")
+        preco = normalizar_preco(small.get_text(strip=True)) if small else None
         if not preco or preco <= 0:
             continue
 
-        link = titulo_tag if titulo_tag and titulo_tag.name == "a" else card.find("a", href=True)
-        url_anuncio = link["href"] if link and link.has_attr("href") else ""
+        # Link: <a> pai direto do div
+        link = div.parent
+        url_anuncio = link.get("href", "") if link and link.name == "a" else ""
         if url_anuncio and not url_anuncio.startswith("http"):
             url_anuncio = BASE_URL + url_anuncio
 

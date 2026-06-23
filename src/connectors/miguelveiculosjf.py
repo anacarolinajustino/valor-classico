@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 FONTE = "miguelveiculosjf"
 BASE_URL = "https://www.miguelveiculosjf.com.br"
-LISTING_PATH = "/estoque/carros-antigos-classicos"
+LISTING_PATH = "/veiculos/"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -35,7 +35,7 @@ BACKOFF = 2.0
 RATE_LIMIT = 1.5
 
 _URL_PATTERN = re.compile(
-    r"/veiculo/carro/(?P<marca>[^/]+)/(?P<modelo>[^/]+)/[^/]+/(?P<ano>\d{4})/\d+/"
+    r"/veiculo/carro/(?P<marca>[^/]+)/(?P<modelo>[^/]+)/[^/]+/(?P<ano>\d{4})(?:-\d{4})?/\d+/"
 )
 
 
@@ -129,15 +129,26 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
                 modelo_url = m.group("modelo").replace("-", " ").upper()
                 ano_url = int(m.group("ano"))
 
-        titulo_tag = item.find(["h2", "h3", "h4", "strong"])
+        titulo_tag = item.find(["h2", "h3", "h4", "h5", "strong"])
         titulo = titulo_tag.get_text(strip=True) if titulo_tag else (
             f"{marca_url} {modelo_url} {ano_url}" if marca_url else ""
         )
         if not titulo:
             continue
 
-        preco_tag = item.select_one(".preco") or item.select_one(".valor") or item.find("b")
-        preco = normalizar_preco(preco_tag.get_text(strip=True)) if preco_tag else None
+        preco_tag = (
+            item.select_one("span.preco-atual")
+            or item.select_one(".preco")
+            or item.select_one(".valor")
+            or item.find("b")
+        )
+        # Fallback: data-preco no elemento de leads
+        if not preco_tag:
+            leads = item.select_one("ul.leads[data-preco]")
+            preco_raw = leads["data-preco"] if leads else None
+        else:
+            preco_raw = preco_tag.get_text(strip=True)
+        preco = normalizar_preco(preco_raw) if preco_raw else None
         if not preco or preco <= 0:
             continue
 

@@ -1,9 +1,10 @@
 """
 Conector The Garage.
 Site: https://thegarage.com.br
-Motor: Bootstrap custom
-Estratégia: requests + BeautifulSoup (server-side)
-Seletores: div.car-list cards
+Motor: WordPress custom (carros CPT)
+Estratégia: requests + BeautifulSoup
+  - Listagem: /carros/ → div.car-list > article (título no h2/h3/texto)
+  - Preço: ausente na listagem; buscado na página de detalhe via <dd> com "R$"
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 FONTE = "thegarage"
 BASE_URL = "https://thegarage.com.br"
-LISTING_PATH = "/veiculos"
+LISTING_PATH = "/carros/"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -32,6 +33,7 @@ TIMEOUT = 20
 MAX_RETRIES = 2
 BACKOFF = 2.0
 RATE_LIMIT = 1.5
+DETAIL_RATE_LIMIT = 0.8
 
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
@@ -43,11 +45,11 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     seen: set[str] = set()
 
     for pg in range(1, paginas + 1):
-        url = f"{BASE_URL}{LISTING_PATH}?page={pg}"
+        url = f"{BASE_URL}{LISTING_PATH}page/{pg}/" if pg > 1 else f"{BASE_URL}{LISTING_PATH}"
         html = _requisitar(sessao, url)
         if html is None:
             break
-        for a in _parsear(html, data_coleta):
+        for a in _parsear_listagem(sessao, html, data_coleta):
             if a.url in seen:
                 continue
             titulo_norm = normalizar_texto(a.titulo)
@@ -73,13 +75,13 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
     paginas_ok = 0
 
     for pg in range(1, max_paginas + 1):
-        url = f"{BASE_URL}{LISTING_PATH}?page={pg}"
+        url = f"{BASE_URL}{LISTING_PATH}page/{pg}/" if pg > 1 else f"{BASE_URL}{LISTING_PATH}"
         html = _requisitar(sessao, url)
         if html is None:
             erros += 1
             break
 
-        items = _parsear(html, data_coleta)
+        items = _parsear_listagem(sessao, html, data_coleta)
         if not items:
             break
 
@@ -105,33 +107,27 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
     return anuncios, metricas
 
 
-def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
+def _parsear_listagem(sessao: requests.Session, html: str, data_coleta: str) -> list[Anuncio]:
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
 
-    # Tenta div.car-list e variações comuns de card Bootstrap
-    cards = soup.select("div.car-list") or soup.select("div.card") or soup.select("article")
-
-    for item in cards:
-        titulo_tag = item.find(["h2", "h3", "h4"]) or item.find("a")
-        titulo = titulo_tag.get_text(strip=True) if titulo_tag else ""
+    for art in soup.select("div.car-list > article"):
+        titulo_tag = art.find(["h2", "h3", "h4"])
+        titulo = titulo_tag.get_text(strip=True) if titulo_tag else art.get_text(separator=" ", strip=True)[:80]
         if not titulo:
             continue
 
-        preco_tag = (
-            item.select_one(".preco")
-            or item.select_one(".price")
-            or item.select_one(".valor")
-            or item.find("b")
-        )
-        preco = normalizar_preco(preco_tag.get_text(strip=True)) if preco_tag else None
-        if not preco or preco <= 0:
-            continue
-
-        link = item.find("a", href=True)
+        link = art.find("a", href=True)
         url_anuncio = link["href"] if link else ""
+        if not url_anuncio:
+            continue
         if url_anuncio and not url_anuncio.startswith("http"):
             url_anuncio = BASE_URL + url_anuncio
+
+        # Preço na página de detalhe
+        preco = _buscar_preco_detalhe(sessao, url_anuncio)
+        if not preco or preco <= 0:
+            continue
 
         marca, modelo, ano = inferir_marca_modelo_ano(titulo)
         if not modelo:
@@ -142,7 +138,25 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
             ano=ano, versao=None, url=url_anuncio, fonte=FONTE,
             data_coleta=data_coleta,
         ))
+        time.sleep(DETAIL_RATE_LIMIT)
+
     return anuncios
+
+
+def _buscar_preco_detalhe(sessao: requests.Session, url: str) -> Optional[float]:
+    html = _requisitar(sessao, url)
+    if not html:
+        return None
+    soup = BeautifulSoup(html, "lxml")
+    # Preço em <dd> que contém "R$"
+    for dd in soup.find_all("dd"):
+        txt = dd.get_text(strip=True)
+        if "R$" in txt:
+            return normalizar_preco(txt)
+    # Fallback: qualquer tag com R$
+    for tag in soup.find_all(string=lambda t: t and "R$" in t):
+        return normalizar_preco(tag.strip())
+    return None
 
 
 def _tem_proxima(html: str) -> bool:

@@ -140,5 +140,57 @@ async function coletar(fonte) {
   }
 }
 
+// ── Coletar todos ──────────────────────────────
+async function coletarTodos() {
+  const btn = document.getElementById('btn-coletar-todos');
+  btn.disabled = true;
+  btn.textContent = 'Coletando…';
+
+  // Marca todos os cards como "em fila"
+  document.querySelectorAll('.admin-source-status').forEach(el => {
+    el.textContent = '⏳';
+    el.className = 'admin-source-status admin-source-status--loading';
+  });
+  document.querySelectorAll('.admin-btn-coletar').forEach(b => b.disabled = true);
+
+  log('Iniciando coleta de <strong>todas as fontes</strong>…');
+
+  try {
+    const res  = await fetch('/admin/api/coletar-todos', { method: 'POST' });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.erro || `HTTP ${res.status}`);
+
+    (data.resultados || []).forEach(r => {
+      const status = document.getElementById(`status-${r.fonte}`);
+      if (!status) return;
+      if (r.ok) {
+        const m = r.metricas || {};
+        const db = r.resultado || {};
+        status.textContent = '✓';
+        status.className = 'admin-source-status admin-source-status--ok';
+        log(
+          `<strong>${r.fonte}</strong> — ${db.novos ?? '?'} novos · ${m.anuncios_validos ?? '?'} anúncios · ${m.tempo_total_s ?? '?'}s`,
+          'ok',
+        );
+      } else {
+        status.textContent = '✗';
+        status.className = 'admin-source-status admin-source-status--erro';
+        log(`Erro em <strong>${r.fonte}</strong>: ${r.erro}`, 'erro');
+      }
+    });
+
+    log(`Coleta concluída. Total novos: <strong>${data.total_novos ?? 0}</strong>`, 'ok');
+    await carregarStatus();
+
+  } catch (err) {
+    log(`Erro ao coletar todos: ${err.message}`, 'erro');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Coletar todos';
+    document.querySelectorAll('.admin-btn-coletar').forEach(b => b.disabled = false);
+  }
+}
+
 // ── Init ───────────────────────────────────────
 carregarStatus();

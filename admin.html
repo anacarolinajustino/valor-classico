@@ -67,7 +67,12 @@
     <!-- Coleta por fonte -->
     <section class="admin-section">
       <h2 class="admin-section-title">Coleta por fonte</h2>
-      <p class="admin-section-hint">Clique em <strong>Coletar</strong> para disparar a coleta de uma fonte. A coleta é executada no servidor e pode levar alguns minutos.</p>
+      <div class="admin-section-actions">
+        <p class="admin-section-hint">Clique em <strong>Coletar</strong> para disparar uma fonte, ou use o botão abaixo para coletar todas de uma vez.</p>
+        <button class="btn btn-primary" id="btn-coletar-todos" onclick="coletarTodos()">
+          Coletar todos
+        </button>
+      </div>
       <div class="admin-source-grid" id="admin-source-grid">
         <!-- preenchido por admin.js -->
         <p class="admin-loading-text">Carregando fontes…</p>

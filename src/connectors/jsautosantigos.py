@@ -10,7 +10,7 @@ from src.pipeline.schema import Anuncio
 
 FONTE = "jsautosantigos"
 BASE_URL = "https://www.jsautosantigos.com.br"
-LISTING_PATH = "/shop/"
+LISTING_PATH = "/categoria-produto/veiculos/"
 
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
