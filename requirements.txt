@@ -5,4 +5,5 @@ pytest>=8.0.0
 flask>=3.0.0
 playwright>=1.44.0
 gunicorn>=21.0.0
+psycopg2-binary>=2.9.0
 
