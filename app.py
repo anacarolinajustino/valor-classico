@@ -79,6 +79,20 @@ CONNECTOR_MODULES: dict[str, str] = {
     "webmotors":              "src.connectors.webmotors",
 }
 
+# Fontes que retornaram zero resultados no último diagnóstico (2026-06-23).
+# Mantidas no mapa para permitir coleta manual de teste; puladas no "Coletar todos".
+FONTES_INATIVAS: set[str] = {
+    "pastorecc",
+    "franzveiculosantigos",
+    "gustavobrasil",
+    "interclassicos",
+    "classicospremium",
+    "brunelliveiculosantigos",
+    "socarrao",
+    "lartdelautomobile",
+    "webmotors",
+}
+
 catalogo = carregar_catalogo()
 logger.info("Catálogo pronto: %d entradas marca+modelo", len(catalogo))
 
@@ -338,12 +352,18 @@ def admin_anuncios():
 def admin_status():
     try:
         stats = get_db_stats()
-        stats["connectors"] = sorted(CONNECTOR_MODULES.keys())
+        stats["connectors"] = [
+            {"nome": f, "ativo": f not in FONTES_INATIVAS}
+            for f in sorted(CONNECTOR_MODULES.keys())
+        ]
         return jsonify(stats)
     except Exception as exc:
         logger.warning("admin_status erro: %s", exc)
         return jsonify({"erro": str(exc), "total_anuncios": 0, "por_fonte": [],
-                        "connectors": sorted(CONNECTOR_MODULES.keys())}), 500
+                        "connectors": [
+                            {"nome": f, "ativo": f not in FONTES_INATIVAS}
+                            for f in sorted(CONNECTOR_MODULES.keys())
+                        ]}), 500
 
 
 @app.route("/admin/api/anuncios")

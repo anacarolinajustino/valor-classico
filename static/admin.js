@@ -80,15 +80,28 @@ function renderSourceGrid(connectors) {
     return;
   }
 
-  connectors.forEach(fonte => {
+  // Ativas primeiro, inativas ao final
+  const sorted = [...connectors].sort((a, b) => {
+    const aAtivo = typeof a === 'object' ? a.ativo : true;
+    const bAtivo = typeof b === 'object' ? b.ativo : true;
+    if (aAtivo === bAtivo) return 0;
+    return aAtivo ? -1 : 1;
+  });
+
+  sorted.forEach(item => {
+    const fonte = typeof item === 'object' ? item.nome : item;
+    const ativo = typeof item === 'object' ? item.ativo : true;
+
     const card = document.createElement('div');
-    card.className = 'admin-source-card';
+    card.className = 'admin-source-card' + (ativo ? '' : ' admin-source-card--inativa');
     card.id = `card-${fonte}`;
+    card.dataset.ativo = ativo ? 'true' : 'false';
 
     card.innerHTML = `
       <div class="admin-source-top">
         <div class="admin-source-info">
           <span class="admin-source-nome">${fonte}</span>
+          ${ativo ? '' : '<span class="admin-badge-inativa">inativa</span>'}
         </div>
         <button class="btn btn-outline btn-sm admin-btn-coletar"
                 id="btn-${fonte}"
@@ -153,7 +166,7 @@ async function coletarTodos() {
   btn.disabled = true;
   document.querySelectorAll('.admin-btn-coletar').forEach(b => b.disabled = true);
 
-  const fontes = Array.from(document.querySelectorAll('.admin-source-card'))
+  const fontes = Array.from(document.querySelectorAll('.admin-source-card[data-ativo="true"]'))
     .map(card => card.id.replace('card-', ''))
     .filter(Boolean);
 

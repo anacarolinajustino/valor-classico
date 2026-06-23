@@ -1310,9 +1310,23 @@ a { color: inherit; text-decoration: none; }
   transition: border-color 0.2s;
 }
 
-.admin-source-card--loading { border-color: var(--vc-accent); }
-.admin-source-card--ok      { border-color: #2E7D32; }
-.admin-source-card--erro    { border-color: #C0392B; }
+.admin-source-card--loading  { border-color: var(--vc-accent); }
+.admin-source-card--ok       { border-color: #2E7D32; }
+.admin-source-card--erro     { border-color: #C0392B; }
+.admin-source-card--inativa  { opacity: 0.5; }
+.admin-source-card--inativa .admin-source-nome { color: var(--vc-ink-muted); }
+
+.admin-badge-inativa {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--vc-ink-muted);
+  background: var(--vc-border);
+  border-radius: 3px;
+  padding: 1px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
 
 .admin-source-top {
   display: flex;
