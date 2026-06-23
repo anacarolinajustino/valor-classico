@@ -93,6 +93,7 @@ def carregar_catalogo(caminho: Optional[Path] = None) -> dict[tuple[str, str], s
     except FileNotFoundError:
         logger.warning("CSV do catálogo não encontrado: %s", caminho_csv)
         _catalogo = {}
+        _versoes = {}
 
     for chave, anos_sup in _SUPLEMENTO.items():
         _catalogo.setdefault(chave, set()).update(anos_sup)
@@ -145,8 +146,7 @@ def match_anuncio(anuncio: Anuncio, caminho: Optional[Path] = None) -> Anuncio:
         modelos_da_marca = [chave[1] for chave in catalogo if chave[0] == melhor_marca]
         melhor_modelo = _melhor_fuzzy(modelo_norm, modelos_da_marca, threshold=0.80)
         if melhor_modelo:
-            versao_canonical = _normalizar_versao(melhor_marca, melhor_modelo, anuncio.ano, anuncio.versao)
-            return _com_match(anuncio, "medium", "fuzzy", versao_canonical)
+            return _com_match(anuncio, "medium", "fuzzy", None)
 
     return _com_match(anuncio, "unmatched", "none", None)
 
@@ -168,6 +168,8 @@ def _normalizar_versao(
     if not candidatos:
         return None
     versao_norm = normalizar_texto(versao)
+    if not versao_norm:
+        return None
     if versao_norm in candidatos:
         return versao_norm
     return _melhor_fuzzy(versao_norm, candidatos, threshold=0.75)

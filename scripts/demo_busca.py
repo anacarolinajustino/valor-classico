@@ -29,7 +29,7 @@ from src.pipeline.outlier_filter import filtrar_outliers
 from src.pipeline.schema import validar
 from src.pipeline.stats import calcular
 
-CSV_CATALOGO = Path("/Users/ana.justino/Downloads/base_dados_webmotors.csv")
+CSV_CATALOGO = Path(__file__).parent.parent / "data" / "base_marcamodelo.csv"
 
 
 def configurar_logging(verbose: bool) -> None:
