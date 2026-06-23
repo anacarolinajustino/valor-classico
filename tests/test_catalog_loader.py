@@ -1,7 +1,7 @@
 """
 Testes do carregador de catálogo (catalog/loader.py).
 
-Usa amostra real do CSV Webmotors para validar carregamento e matching.
+Usa o CSV canônico em data/base_marcamodelo.csv para validar carregamento e matching.
 """
 import pytest
 from pathlib import Path
@@ -9,7 +9,7 @@ from pathlib import Path
 from src.catalog.loader import carregar_catalogo, match_anuncio, resetar_cache
 from src.pipeline.schema import Anuncio
 
-CSV_PATH = Path("/Users/ana.justino/Downloads/base_dados_webmotors.csv")
+CSV_PATH = Path(__file__).parent.parent / "data" / "base_marcamodelo.csv"
 
 
 def _anuncio(marca, modelo, ano=None):
