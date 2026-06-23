@@ -32,11 +32,8 @@ API_URL = "https://www.webmotors.com.br/api/search/car"
 SITE_BASE = "https://www.webmotors.com.br"
 ANO_MAXIMO_CLASSICO = 2000
 QUANTIDADE_POR_PAGINA = 24
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
+# UA do app mobile Android — contorna PerimeterX que bloqueia browsers headless
+USER_AGENT = "com.webmotors.app/5.0 (Android 13; Pixel 6)"
 TIMEOUT = 20
 MAX_RETRIES = 2
 BACKOFF = 2.0
@@ -259,11 +256,8 @@ def _criar_sessao() -> requests.Session:
     s = requests.Session()
     s.headers.update({
         "User-Agent": USER_AGENT,
-        "Accept": "application/json, text/plain, */*",
+        "Accept": "application/json",
         "Accept-Language": "pt-BR,pt;q=0.9",
-        "Referer": "https://www.webmotors.com.br/",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://www.webmotors.com.br",
     })
     return s
 
@@ -272,8 +266,16 @@ def _requisitar(sessao: requests.Session, params: dict) -> Optional[dict]:
     for i in range(1, MAX_RETRIES + 1):
         try:
             r = sessao.get(API_URL, params=params, timeout=TIMEOUT)
+            if r.status_code == 403:
+                logger.warning("[webmotors] bloqueado por PerimeterX (403)")
+                return None
             r.raise_for_status()
-            return r.json()
+            data = r.json()
+            # PerimeterX retorna 200 com JSON de challenge quando bloqueia
+            if isinstance(data, dict) and "appId" in data and "jsClientSrc" in data:
+                logger.warning("[webmotors] resposta é challenge PerimeterX, não dados")
+                return None
+            return data
         except requests.RequestException as exc:
             logger.warning("[webmotors] tentativa %d/%d: %s", i, MAX_RETRIES, exc)
             if i < MAX_RETRIES:
