@@ -23,6 +23,17 @@ function clearLog() {
   logEl.innerHTML = '<p class="admin-log-placeholder">Nenhuma coleta iniciada nesta sessão.</p>';
 }
 
+// ── Helpers de progresso por card ──────────────
+function setCardEstado(fonte, estado, mensagem = '') {
+  const card = document.getElementById(`card-${fonte}`);
+  if (!card) return;
+  card.classList.remove('admin-source-card--loading', 'admin-source-card--ok', 'admin-source-card--erro');
+  if (estado) card.classList.add(`admin-source-card--${estado}`);
+
+  const msg = document.getElementById(`progmsg-${fonte}`);
+  if (msg) msg.textContent = mensagem;
+}
+
 // ── Status do banco ────────────────────────────
 async function carregarStatus() {
   try {
@@ -32,12 +43,10 @@ async function carregarStatus() {
     document.getElementById('stat-total').textContent  = (data.total_anuncios ?? 0).toLocaleString('pt-BR');
     document.getElementById('stat-fontes').textContent = (data.por_fonte || []).length;
 
-    // Última atualização: a mais recente de todas as fontes
     const datas = (data.por_fonte || []).map(f => f.last_update).filter(Boolean);
     document.getElementById('stat-ultima').textContent =
       datas.length ? datas.sort().reverse()[0].slice(0, 10) : '—';
 
-    // Tabela de fontes com dados
     const tbody = document.getElementById('admin-fonte-tbody');
     tbody.innerHTML = '';
     (data.por_fonte || []).forEach(f => {
@@ -53,7 +62,6 @@ async function carregarStatus() {
       document.getElementById('admin-fonte-lista').style.display = '';
     }
 
-    // Grade de fontes para coleta
     renderSourceGrid(data.connectors || []);
 
   } catch (err) {
@@ -78,30 +86,32 @@ function renderSourceGrid(connectors) {
     card.id = `card-${fonte}`;
 
     card.innerHTML = `
-      <div class="admin-source-info">
-        <span class="admin-source-nome">${fonte}</span>
-        <span class="admin-source-status" id="status-${fonte}"></span>
+      <div class="admin-source-top">
+        <div class="admin-source-info">
+          <span class="admin-source-nome">${fonte}</span>
+        </div>
+        <button class="btn btn-outline btn-sm admin-btn-coletar"
+                id="btn-${fonte}"
+                onclick="coletar('${fonte}')">
+          Coletar
+        </button>
       </div>
-      <button class="btn btn-outline btn-sm admin-btn-coletar"
-              id="btn-${fonte}"
-              onclick="coletar('${fonte}')">
-        Coletar
-      </button>
+      <div class="admin-progress-wrap">
+        <div class="admin-progress-bar" id="prog-${fonte}"></div>
+      </div>
+      <div class="admin-progress-msg" id="progmsg-${fonte}"></div>
     `;
     grid.appendChild(card);
   });
 }
 
-// ── Coleta ─────────────────────────────────────
+// ── Coleta individual ──────────────────────────
 async function coletar(fonte) {
-  const btn    = document.getElementById(`btn-${fonte}`);
-  const status = document.getElementById(`status-${fonte}`);
-
+  const btn = document.getElementById(`btn-${fonte}`);
   btn.disabled = true;
   btn.textContent = 'Coletando…';
-  status.textContent = '⏳';
-  status.className = 'admin-source-status admin-source-status--loading';
 
+  setCardEstado(fonte, 'loading', 'Coletando…');
   log(`Iniciando coleta: <strong>${fonte}</strong>…`);
 
   try {
@@ -112,27 +122,24 @@ async function coletar(fonte) {
     });
     const data = await res.json();
 
-    if (!res.ok) {
-      throw new Error(data.erro || `HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(data.erro || `HTTP ${res.status}`);
 
     const m = data.metricas || {};
     const r = data.resultado || {};
-    status.textContent = '✓';
-    status.className = 'admin-source-status admin-source-status--ok';
+    const resumo = [
+      m.anuncios_validos != null ? `${m.anuncios_validos} anúncios` : null,
+      r.novos != null            ? `${r.novos} novos`               : null,
+      r.atualizados != null      ? `${r.atualizados} atualizados`   : null,
+      m.tempo_total_s != null    ? `${m.tempo_total_s}s`            : null,
+    ].filter(Boolean).join(' · ');
 
-    log(
-      `<strong>${fonte}</strong> — ${r.novos ?? '?'} novos, ${r.atualizados ?? '?'} atualizados · `
-      + `${m.paginas_listagem ?? '?'} páginas · ${m.tempo_total_s ?? '?'}s`,
-      'ok',
-    );
+    setCardEstado(fonte, 'ok', resumo);
+    log(`<strong>${fonte}</strong> — ${resumo}`, 'ok');
 
-    // Recarrega status após coleta
     await carregarStatus();
 
   } catch (err) {
-    status.textContent = '✗';
-    status.className = 'admin-source-status admin-source-status--erro';
+    setCardEstado(fonte, 'erro', err.message);
     log(`Erro em <strong>${fonte}</strong>: ${err.message}`, 'erro');
   } finally {
     btn.disabled = false;
@@ -141,15 +148,11 @@ async function coletar(fonte) {
 }
 
 // ── Coletar todos ──────────────────────────────
-// Chama coletar(fonte) sequencialmente para cada fonte, evitando timeout
-// de requisição única longa no servidor.
 async function coletarTodos() {
   const btn = document.getElementById('btn-coletar-todos');
   btn.disabled = true;
-  btn.textContent = 'Coletando…';
   document.querySelectorAll('.admin-btn-coletar').forEach(b => b.disabled = true);
 
-  // Coleta lista de fontes dos cards já renderizados
   const fontes = Array.from(document.querySelectorAll('.admin-source-card'))
     .map(card => card.id.replace('card-', ''))
     .filter(Boolean);
@@ -162,17 +165,21 @@ async function coletarTodos() {
     return;
   }
 
-  log(`Iniciando coleta de <strong>${fontes.length} fontes</strong> em sequência…`);
-  let totalNovos = 0;
+  // Reseta todos os cards para idle antes de começar
+  fontes.forEach(f => setCardEstado(f, '', ''));
 
-  for (const fonte of fontes) {
-    await coletar(fonte);
-    // coletar() já loga e atualiza o status do card individualmente
-    // Pequena pausa entre fontes para não sobrecarregar o servidor
-    await new Promise(r => setTimeout(r, 500));
+  log(`Iniciando coleta de <strong>${fontes.length} fontes</strong> em sequência…`);
+
+  for (let i = 0; i < fontes.length; i++) {
+    btn.textContent = `Coletando… ${i + 1}/${fontes.length}`;
+    await coletar(fontes[i]);
+    await new Promise(r => setTimeout(r, 300));
   }
 
-  log(`Coleta de todas as fontes concluída.`, 'ok');
+  const ok   = fontes.filter(f => document.getElementById(`card-${f}`)?.classList.contains('admin-source-card--ok')).length;
+  const erro = fontes.filter(f => document.getElementById(`card-${f}`)?.classList.contains('admin-source-card--erro')).length;
+  log(`Coleta concluída — <strong>${ok} com sucesso</strong>, ${erro} com erro.`, ok > 0 ? 'ok' : 'erro');
+
   btn.disabled = false;
   btn.textContent = 'Coletar todos';
   document.querySelectorAll('.admin-btn-coletar').forEach(b => b.disabled = false);

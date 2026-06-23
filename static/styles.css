@@ -1295,19 +1295,30 @@ a { color: inherit; text-decoration: none; }
 /* Source grid */
 .admin-source-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
 
 .admin-source-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   background: var(--vc-white);
   border: 1px solid var(--vc-border);
   border-radius: var(--radius);
   padding: 14px 18px;
+  transition: border-color 0.2s;
+}
+
+.admin-source-card--loading { border-color: var(--vc-accent); }
+.admin-source-card--ok      { border-color: #2E7D32; }
+.admin-source-card--erro    { border-color: #C0392B; }
+
+.admin-source-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .admin-source-info {
@@ -1326,14 +1337,73 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 
-.admin-source-status {
-  font-size: 16px;
-  flex-shrink: 0;
+/* Barra de progresso */
+.admin-progress-wrap {
+  height: 5px;
+  background: var(--vc-border);
+  border-radius: 3px;
+  overflow: hidden;
+  display: none;
 }
 
-.admin-source-status--loading { color: var(--vc-accent); }
-.admin-source-status--ok      { color: #2E7D32; }
-.admin-source-status--erro    { color: #C0392B; }
+.admin-source-card--loading .admin-progress-wrap,
+.admin-source-card--ok      .admin-progress-wrap,
+.admin-source-card--erro    .admin-progress-wrap {
+  display: block;
+}
+
+.admin-progress-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 3px;
+}
+
+.admin-source-card--loading .admin-progress-bar {
+  width: 100%;
+  background: linear-gradient(
+    90deg,
+    var(--vc-accent) 0%,
+    #a0522d 40%,
+    var(--vc-accent) 80%
+  );
+  background-size: 200% 100%;
+  animation: prog-slide 1.4s linear infinite;
+}
+
+.admin-source-card--ok .admin-progress-bar {
+  width: 100%;
+  background: #2E7D32;
+  animation: none;
+}
+
+.admin-source-card--erro .admin-progress-bar {
+  width: 100%;
+  background: #C0392B;
+  animation: none;
+}
+
+@keyframes prog-slide {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Mensagem de resultado abaixo da barra */
+.admin-progress-msg {
+  font-size: 12px;
+  min-height: 0;
+  line-height: 1.4;
+  display: none;
+}
+
+.admin-source-card--loading .admin-progress-msg,
+.admin-source-card--ok      .admin-progress-msg,
+.admin-source-card--erro    .admin-progress-msg {
+  display: block;
+}
+
+.admin-source-card--loading .admin-progress-msg { color: var(--vc-ink-muted); }
+.admin-source-card--ok      .admin-progress-msg { color: #2E7D32; font-weight: 600; }
+.admin-source-card--erro    .admin-progress-msg { color: #C0392B; font-weight: 600; }
 
 .admin-btn-coletar {
   flex-shrink: 0;
