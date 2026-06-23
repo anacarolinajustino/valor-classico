@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: valor-classico
+    runtime: python
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: pip install -r requirements.txt && playwright install chromium
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: valor-classico-db
+          property: connectionString
+
+databases:
+  - name: valor-classico-db
+    plan: free
+    region: frankfurt
