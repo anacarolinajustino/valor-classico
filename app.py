@@ -38,6 +38,7 @@ from src.pipeline.persistence import (
     get_historico,
     get_mais_pesquisados,
     init_db,
+    listar_anuncios,
     log_search,
     upsert_anuncios,
     upsert_preco,
@@ -324,6 +325,11 @@ def admin():
     return send_from_directory(".", "admin.html")
 
 
+@app.route("/admin/anuncios")
+def admin_anuncios():
+    return send_from_directory(".", "anuncios.html")
+
+
 # ──────────────────────────────────────────────────────
 # Admin API
 # ──────────────────────────────────────────────────────
@@ -338,6 +344,34 @@ def admin_status():
         logger.warning("admin_status erro: %s", exc)
         return jsonify({"erro": str(exc), "total_anuncios": 0, "por_fonte": [],
                         "connectors": sorted(CONNECTOR_MODULES.keys())}), 500
+
+
+@app.route("/admin/api/anuncios")
+def admin_api_anuncios():
+    fonte     = request.args.get("fonte",     "").strip() or None
+    marca     = request.args.get("marca",     "").strip() or None
+    modelo    = request.args.get("modelo",    "").strip() or None
+    q         = request.args.get("q",         "").strip() or None
+    order_by  = request.args.get("order_by",  "ultima_vista").strip()
+    order_dir = request.args.get("order_dir", "desc").strip()
+    try:
+        page      = max(1, int(request.args.get("page", 1)))
+        page_size = min(200, max(10, int(request.args.get("page_size", 50))))
+        ano_raw   = request.args.get("ano", "").strip()
+        ano       = int(ano_raw) if ano_raw else None
+    except ValueError:
+        return jsonify({"erro": "Parâmetros inválidos"}), 400
+
+    try:
+        result = listar_anuncios(
+            fonte=fonte, marca=marca, modelo=modelo, ano=ano, q=q,
+            order_by=order_by, order_dir=order_dir,
+            page=page, page_size=page_size,
+        )
+        return jsonify(result)
+    except Exception as exc:
+        logger.error("admin_api_anuncios erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
 
 
 @app.route("/admin/api/coletar", methods=["POST"])

@@ -352,6 +352,81 @@ def get_db_stats() -> dict[str, Any]:
     return {"total_anuncios": total, "por_fonte": por_fonte}
 
 
+def listar_anuncios(
+    fonte: str | None = None,
+    marca: str | None = None,
+    modelo: str | None = None,
+    ano: int | None = None,
+    q: str | None = None,
+    order_by: str = "ultima_vista",
+    order_dir: str = "desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict[str, Any]:
+    """
+    Retorna anúncios paginados com filtros opcionais.
+    Usado pelo painel /admin/anuncios.
+    """
+    allowed_order = {"ultima_vista", "preco", "ano", "marca", "modelo", "fonte", "titulo"}
+    if order_by not in allowed_order:
+        order_by = "ultima_vista"
+    direction = "DESC" if order_dir.lower() == "desc" else "ASC"
+
+    conditions = ["1=1"]
+    params: list[Any] = []
+
+    if fonte:
+        conditions.append("fonte = %s")
+        params.append(fonte)
+    if marca:
+        conditions.append("UPPER(marca) = %s")
+        params.append(marca.strip().upper())
+    if modelo:
+        conditions.append("UPPER(modelo) LIKE %s")
+        params.append(f"%{modelo.strip().upper()}%")
+    if ano:
+        conditions.append("ano = %s")
+        params.append(ano)
+    if q:
+        conditions.append("(UPPER(titulo) LIKE %s OR UPPER(marca) LIKE %s OR UPPER(modelo) LIKE %s)")
+        like = f"%{q.strip().upper()}%"
+        params.extend([like, like, like])
+
+    where = " AND ".join(conditions)
+    offset = (page - 1) * page_size
+
+    sql_count = f"SELECT COUNT(*) AS total FROM anuncios WHERE {where}"
+    sql_rows  = f"""
+        SELECT id, fonte, url, titulo, marca, modelo, ano, preco, ultima_vista
+        FROM anuncios
+        WHERE {where}
+        ORDER BY {order_by} {direction} NULLS LAST
+        LIMIT %s OFFSET %s
+    """
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql_count, params)
+            total = cur.fetchone()["total"]
+            cur.execute(sql_rows, params + [page_size, offset])
+            rows = [dict(r) for r in cur.fetchall()]
+
+    fontes_sql = "SELECT DISTINCT fonte FROM anuncios ORDER BY fonte"
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(fontes_sql)
+            fontes = [r["fonte"] for r in cur.fetchall()]
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": max(1, -(-total // page_size)),
+        "rows": rows,
+        "fontes_disponiveis": fontes,
+    }
+
+
 def get_mais_pesquisados(
     limit: int = 10,
 ) -> dict[str, Any]:

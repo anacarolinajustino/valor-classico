@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Anúncios coletados</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="https://static.wixstatic.com/media/976048_be0ac7e9e21a4c26b8793c97177078aa~mv2.png/v1/fill/w_366,h_148,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Logo%20Valor%20Cl%C3%A1ssico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <span class="admin-badge-header">Painel Administrativo</span>
+      <nav class="header-nav">
+        <a href="/">Início</a>
+        <a href="/admin">Painel</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main container">
+
+    <div class="admin-page-header">
+      <h1 class="admin-title">Anúncios coletados</h1>
+      <p class="admin-sub">Todos os anúncios armazenados no banco, com link para a página original.</p>
+    </div>
+
+    <!-- Filtros -->
+    <section class="admin-section an-filters-section">
+      <div class="an-filters">
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="filter-q">Buscar</label>
+          <input type="text" id="filter-q" class="an-filter-input" placeholder="título, marca ou modelo…" />
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="filter-fonte">Fonte</label>
+          <select id="filter-fonte" class="an-filter-select">
+            <option value="">Todas</option>
+          </select>
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="filter-marca">Marca</label>
+          <input type="text" id="filter-marca" class="an-filter-input" placeholder="ex: VW" />
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="filter-modelo">Modelo</label>
+          <input type="text" id="filter-modelo" class="an-filter-input" placeholder="ex: Fusca" />
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="filter-ano">Ano</label>
+          <input type="number" id="filter-ano" class="an-filter-input an-filter-input--short" placeholder="ex: 1975" min="1900" max="2000" />
+        </div>
+        <button class="btn btn-primary an-filter-btn" id="btn-filtrar" onclick="buscar(1)">Filtrar</button>
+        <button class="btn btn-ghost an-filter-btn" id="btn-limpar" onclick="limparFiltros()">Limpar</button>
+      </div>
+    </section>
+
+    <!-- Sumário e controles de paginação (topo) -->
+    <div class="an-toolbar">
+      <span class="an-total" id="an-total">—</span>
+      <div class="an-page-size-wrap">
+        <label class="an-filter-label" for="filter-page-size">Por página</label>
+        <select id="filter-page-size" class="an-filter-select an-filter-select--sm" onchange="buscar(1)">
+          <option value="25">25</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Tabela -->
+    <section class="admin-section an-table-section">
+      <div class="an-table-wrap">
+        <table class="an-table" id="an-table">
+          <thead>
+            <tr>
+              <th class="an-th an-th--sortable" data-col="fonte"        onclick="ordenar('fonte')">Fonte        <span class="an-sort-icon" id="sort-fonte"></span></th>
+              <th class="an-th">Título</th>
+              <th class="an-th an-th--sortable" data-col="marca"        onclick="ordenar('marca')">Marca        <span class="an-sort-icon" id="sort-marca"></span></th>
+              <th class="an-th an-th--sortable" data-col="modelo"       onclick="ordenar('modelo')">Modelo       <span class="an-sort-icon" id="sort-modelo"></span></th>
+              <th class="an-th an-th--sortable an-th--num" data-col="ano"   onclick="ordenar('ano')">Ano          <span class="an-sort-icon" id="sort-ano"></span></th>
+              <th class="an-th an-th--sortable an-th--num" data-col="preco" onclick="ordenar('preco')">Preço        <span class="an-sort-icon" id="sort-preco"></span></th>
+              <th class="an-th an-th--sortable" data-col="ultima_vista" onclick="ordenar('ultima_vista')">Coletado     <span class="an-sort-icon" id="sort-ultima_vista">↓</span></th>
+            </tr>
+          </thead>
+          <tbody id="an-tbody">
+            <tr><td colspan="7" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Paginação (rodapé) -->
+    <div class="an-pagination" id="an-pagination"></div>
+
+  </main>
+
+  <footer id="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-vc">VC</span>
+        <p>Valor Clássico · Painel interno</p>
+      </div>
+      <div class="footer-links">
+        <p>© 2026 Valor Clássico</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/anuncios.js"></script>
+</body>
+</html>
