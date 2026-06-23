@@ -77,6 +77,7 @@ CONNECTOR_MODULES: dict[str, str] = {
     "thegarage":              "src.connectors.thegarage",
     "socarrao":               "src.connectors.socarrao",
     "lartdelautomobile":      "src.connectors.lartdelautomobile",
+    "webmotors":              "src.connectors.webmotors",
 }
 
 catalogo = carregar_catalogo()
