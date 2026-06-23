@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Painel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="https://static.wixstatic.com/media/976048_be0ac7e9e21a4c26b8793c97177078aa~mv2.png/v1/fill/w_366,h_148,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Logo%20Valor%20Cl%C3%A1ssico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <span class="admin-badge-header">Painel Administrativo</span>
+      <nav class="header-nav">
+        <a href="/">Início</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main container">
+
+    <div class="admin-page-header">
+      <h1 class="admin-title">Painel de Coleta</h1>
+      <p class="admin-sub">Gerencie as coletas de dados de cada fonte e monitore o estado do banco.</p>
+    </div>
+
+    <!-- Status do banco -->
+    <section class="admin-section">
+      <h2 class="admin-section-title">Status do banco de dados</h2>
+      <div class="admin-stats-grid" id="admin-stats">
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Total de anúncios</span>
+          <span class="admin-stat-value" id="stat-total">—</span>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Fontes com dados</span>
+          <span class="admin-stat-value" id="stat-fontes">—</span>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Última atualização</span>
+          <span class="admin-stat-value" id="stat-ultima">—</span>
+        </div>
+      </div>
+
+      <!-- Detalhamento por fonte -->
+      <div class="admin-fonte-lista" id="admin-fonte-lista" style="display:none">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Fonte</th>
+              <th>Anúncios</th>
+              <th>Última coleta</th>
+            </tr>
+          </thead>
+          <tbody id="admin-fonte-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Coleta por fonte -->
+    <section class="admin-section">
+      <h2 class="admin-section-title">Coleta por fonte</h2>
+      <p class="admin-section-hint">Clique em <strong>Coletar</strong> para disparar a coleta de uma fonte. A coleta é executada no servidor e pode levar alguns minutos.</p>
+      <div class="admin-source-grid" id="admin-source-grid">
+        <!-- preenchido por admin.js -->
+        <p class="admin-loading-text">Carregando fontes…</p>
+      </div>
+    </section>
+
+    <!-- Log de coleta -->
+    <section class="admin-section">
+      <h2 class="admin-section-title">Log de coleta</h2>
+      <div class="admin-log" id="admin-log">
+        <p class="admin-log-placeholder">Nenhuma coleta iniciada nesta sessão.</p>
+      </div>
+      <button class="btn btn-ghost admin-clear-log" id="btn-clear-log" onclick="clearLog()">Limpar log</button>
+    </section>
+
+  </main>
+
+  <footer id="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-vc">VC</span>
+        <p>Valor Clássico · Painel interno</p>
+      </div>
+      <div class="footer-links">
+        <p>© 2026 Valor Clássico</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>

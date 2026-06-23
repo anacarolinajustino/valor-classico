@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Resultado</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="https://static.wixstatic.com/media/976048_be0ac7e9e21a4c26b8793c97177078aa~mv2.png/v1/fill/w_366,h_148,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Logo%20Valor%20Cl%C3%A1ssico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <nav class="header-nav">
+        <a href="/#how-it-works">Como funciona</a>
+        <a href="/#data-sources">Fontes</a>
+        <a href="/#footer">Contato</a>
+        <a href="/admin">Painel</a>
+      </nav>
+      <a href="/" class="btn btn-outline btn-sm">← Nova busca</a>
+    </div>
+  </header>
+
+  <!-- LOADING -->
+  <div id="estado-loading" class="estado-fullscreen">
+    <div class="spinner"></div>
+    <p>Consultando base de dados…</p>
+  </div>
+
+  <!-- ERRO -->
+  <div id="estado-erro" class="estado-fullscreen hidden">
+    <span class="estado-icon">⚠</span>
+    <p id="erro-msg">Ocorreu um erro.</p>
+    <a href="/" class="btn btn-primary" style="margin-top:16px">Nova busca</a>
+  </div>
+
+  <!-- SEM RESULTADOS -->
+  <div id="estado-vazio" class="estado-fullscreen hidden">
+    <span class="estado-icon">🔍</span>
+    <p>Nenhum dado encontrado para essa combinação.</p>
+    <p class="estado-hint">Tente ampliar a busca removendo o filtro de ano, ou aguarde a próxima coleta.</p>
+    <a href="/" class="btn btn-primary" style="margin-top:16px">Nova busca</a>
+  </div>
+
+  <!-- RESULTADO -->
+  <main id="estado-resultado" class="hidden">
+
+    <!-- Hero: nome do carro -->
+    <section class="res-hero">
+      <div class="hero-overlay"></div>
+      <div class="container res-hero-inner">
+        <p class="res-eyebrow">Referência de mercado · Carros antigos · Brasil</p>
+        <h1 class="res-titulo" id="res-titulo">—</h1>
+        <p class="res-fontes" id="res-fontes">Fontes: —</p>
+      </div>
+    </section>
+
+    <!-- Faixa de valores — elemento principal -->
+    <section class="faixa-section">
+      <div class="container">
+        <p class="faixa-label">Faixa de valores de mercado</p>
+
+        <div class="faixa-display">
+          <div class="faixa-polo">
+            <span class="faixa-valor" id="faixa-min">—</span>
+            <span class="faixa-polo-label">mínimo</span>
+          </div>
+          <div class="faixa-barra" aria-hidden="true"></div>
+          <div class="faixa-polo faixa-polo--max">
+            <span class="faixa-valor" id="faixa-max">—</span>
+            <span class="faixa-polo-label">máximo</span>
+          </div>
+        </div>
+
+        <!-- Stats de suporte -->
+        <div class="faixa-stats">
+          <div class="faixa-stat">
+            <span class="faixa-stat-label">Mediana</span>
+            <span class="faixa-stat-value" id="faixa-mediana">—</span>
+          </div>
+          <div class="faixa-stat">
+            <span class="faixa-stat-label">Anúncios na amostra</span>
+            <span class="faixa-stat-value" id="faixa-amostras">—</span>
+          </div>
+          <div class="faixa-stat faixa-stat--badge">
+            <span class="faixa-stat-label">Confiança</span>
+            <span class="confidence-badge" id="faixa-confianca"></span>
+          </div>
+        </div>
+
+        <!-- Data da última coleta -->
+        <p class="faixa-data" id="faixa-data"></p>
+      </div>
+    </section>
+
+    <!-- Sinal de leilão -->
+    <section class="container" id="leilao-section">
+      <div id="leilao-card" class="leilao-card hidden">
+        <div class="leilao-header">
+          <span class="leilao-badge">⚖ Preço realizado em leilão</span>
+          <span class="leilao-fonte" id="leilao-fonte">—</span>
+        </div>
+        <p class="leilao-explain">Lances vencedores homologados — aqui o mercado definiu o preço, não o vendedor.</p>
+        <p id="leilao-filtro-nota" class="leilao-filtro-nota hidden"></p>
+        <div class="leilao-stats">
+          <div class="leilao-stat">
+            <span class="leilao-stat-label">Média realizada</span>
+            <span class="leilao-stat-value" id="leilao-media">—</span>
+          </div>
+          <div class="leilao-stat">
+            <span class="leilao-stat-label">Mediana</span>
+            <span class="leilao-stat-value" id="leilao-mediana">—</span>
+          </div>
+          <div class="leilao-stat">
+            <span class="leilao-stat-label">Faixa</span>
+            <span class="leilao-stat-value" id="leilao-faixa">—</span>
+          </div>
+          <div class="leilao-stat">
+            <span class="leilao-stat-label">Vendas</span>
+            <span class="leilao-stat-value" id="leilao-amostra">—</span>
+          </div>
+        </div>
+        <ul id="leilao-vendas" class="leilao-vendas"></ul>
+      </div>
+    </section>
+
+    <!-- Detalhamento por ano (colapsível) -->
+    <section class="container" id="tabela-section">
+      <details class="ano-breakdown" id="ano-details">
+        <summary class="ano-breakdown-summary">Ver detalhamento por ano</summary>
+        <div class="year-table-wrap" style="margin-top:16px">
+          <table class="year-table">
+            <thead>
+              <tr>
+                <th>Ano</th>
+                <th>Preço médio</th>
+                <th>Mediana</th>
+                <th>Mínimo</th>
+                <th>Máximo</th>
+                <th>Amostras</th>
+              </tr>
+            </thead>
+            <tbody id="year-tbody"></tbody>
+          </table>
+        </div>
+      </details>
+
+      <!-- Anúncios individuais — só quando filtrado por ano -->
+      <details id="result-anuncios" class="anuncios-details hidden" style="margin-top:16px">
+        <summary class="anuncios-summary">Ver anúncios encontrados (<span id="anuncios-count">0</span>)</summary>
+        <ul id="anuncios-list" class="anuncios-list"></ul>
+      </details>
+    </section>
+
+    <!-- CTA -->
+    <div class="res-cta container">
+      <a href="/" class="btn btn-primary">Nova pesquisa</a>
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer id="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-vc">VC</span>
+        <p>Valor Clássico · Referência de mercado para automóveis antigos brasileiros</p>
+      </div>
+      <div class="footer-links">
+        <p>contato@valorclassico.com.br</p>
+        <p>© 2026 Valor Clássico · Todos os direitos reservados</p>
+        <p class="footer-lgpd">Coletamos apenas dados de preço e veículo. Nenhum dado pessoal de anunciantes é armazenado.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/resultado.js"></script>
+</body>
+</html>

@@ -15,6 +15,7 @@ Query params de /api/buscar:
 """
 from __future__ import annotations
 
+import importlib
 import logging
 import sys
 import time
@@ -33,10 +34,12 @@ from src.pipeline.outlier_filter import filtrar_outliers
 from src.pipeline.persistence import (
     ANO_CORTE_CLASSICO,
     buscar_anuncios,
+    get_db_stats,
     get_historico,
     get_mais_pesquisados,
     init_db,
     log_search,
+    upsert_anuncios,
     upsert_preco,
 )
 from src.pipeline.schema import validar
@@ -51,6 +54,31 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__, static_folder="static")
 
 # Pré-carrega catálogo na inicialização para evitar latência na primeira busca
+# Mapa de todos os conectores disponíveis para o painel admin
+CONNECTOR_MODULES: dict[str, str] = {
+    "olx":                    "src.connectors.olx",
+    "maxicar":                "src.connectors.maxicar",
+    "superantigo":            "src.connectors.superantigo",
+    "ateliedocarro":          "src.connectors.ateliedocarro",
+    "circuitodeleiloes":      "src.connectors.circuitodeleiloes",
+    "ggsveiculosantigos":     "src.connectors.ggsveiculosantigos",
+    "pastorecc":              "src.connectors.pastorecc",
+    "jsautosantigos":         "src.connectors.jsautosantigos",
+    "franzveiculosantigos":   "src.connectors.franzveiculosantigos",
+    "gustavobrasil":          "src.connectors.gustavobrasil",
+    "abcclassificados":       "src.connectors.abcclassificados",
+    "veterancarclub":         "src.connectors.veterancarclub",
+    "peruzzoveiculos":        "src.connectors.peruzzoveiculos",
+    "salvajoli":              "src.connectors.salvajoli",
+    "miguelveiculosjf":       "src.connectors.miguelveiculosjf",
+    "interclassicos":         "src.connectors.interclassicos",
+    "classicospremium":       "src.connectors.classicospremium",
+    "brunelliveiculosantigos":"src.connectors.brunelliveiculosantigos",
+    "thegarage":              "src.connectors.thegarage",
+    "socarrao":               "src.connectors.socarrao",
+    "lartdelautomobile":      "src.connectors.lartdelautomobile",
+}
+
 catalogo = carregar_catalogo()
 logger.info("Catálogo pronto: %d entradas marca+modelo", len(catalogo))
 
@@ -281,6 +309,55 @@ def api_mais_pesquisados():
     except ValueError:
         limit = 10
     return jsonify(get_mais_pesquisados(limit=limit))
+
+
+# ──────────────────────────────────────────────────────
+# Páginas HTML
+# ──────────────────────────────────────────────────────
+
+@app.route("/resultado")
+def resultado():
+    return send_from_directory(".", "resultado.html")
+
+
+@app.route("/admin")
+def admin():
+    return send_from_directory(".", "admin.html")
+
+
+# ──────────────────────────────────────────────────────
+# Admin API
+# ──────────────────────────────────────────────────────
+
+@app.route("/admin/api/status")
+def admin_status():
+    try:
+        stats = get_db_stats()
+        stats["connectors"] = sorted(CONNECTOR_MODULES.keys())
+        return jsonify(stats)
+    except Exception as exc:
+        logger.warning("admin_status erro: %s", exc)
+        return jsonify({"erro": str(exc), "total_anuncios": 0, "por_fonte": [],
+                        "connectors": sorted(CONNECTOR_MODULES.keys())}), 500
+
+
+@app.route("/admin/api/coletar", methods=["POST"])
+def admin_coletar():
+    body = request.get_json(silent=True) or {}
+    fonte = (body.get("fonte") or "").strip()
+
+    if not fonte or fonte not in CONNECTOR_MODULES:
+        return jsonify({"erro": f"Fonte desconhecida: '{fonte}'"}), 400
+
+    try:
+        mod = importlib.import_module(CONNECTOR_MODULES[fonte])
+        anuncios_coletados, metricas = mod.coletar_completo()
+        resultado_db = upsert_anuncios(anuncios_coletados)
+        logger.info("admin_coletar %s: %s → %s", fonte, metricas, resultado_db)
+        return jsonify({"metricas": metricas, "resultado": resultado_db})
+    except Exception as exc:
+        logger.error("admin_coletar %s erro: %s", fonte, exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
 
 
 if __name__ == "__main__":

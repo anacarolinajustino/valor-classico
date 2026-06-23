@@ -23,6 +23,7 @@
         <a href="#how-it-works">Como funciona</a>
         <a href="#data-sources">Fontes</a>
         <a href="#footer">Contato</a>
+        <a href="/admin">Painel</a>
       </nav>
       <a href="https://wa.me/5511999999999" class="btn btn-outline btn-sm" target="_blank" rel="noopener">WhatsApp</a>
     </div>
@@ -66,108 +67,13 @@
           </div>
 
           <div class="search-actions">
-            <button type="submit" class="btn btn-primary" id="btn-buscar">Calcular média</button>
+            <button type="submit" class="btn btn-primary" id="btn-buscar">Pesquisar</button>
             <button type="button" class="btn btn-ghost" id="btn-limpar">Limpar</button>
           </div>
 
           <p class="search-trust">Baseado em anúncios reais de fontes especializadas · Atualizado continuamente</p>
         </form>
       </div><!-- /search-card -->
-    </div>
-  </section>
-
-  <!-- ╔══════════════════════════════════════╗ -->
-  <!-- ║  BLOCO DE RESULTADO                  ║ -->
-  <!-- ╚══════════════════════════════════════╝ -->
-  <section id="result-section" class="result-section hidden" aria-live="polite">
-    <div class="container">
-
-      <!-- Estado: carregando -->
-      <div id="result-loading" class="result-state hidden">
-        <div class="spinner"></div>
-        <p>Consultando fontes de mercado…</p>
-      </div>
-
-      <!-- Estado: erro -->
-      <div id="result-error" class="result-state result-state--error hidden">
-        <span class="result-icon">⚠</span>
-        <p id="result-error-msg">Ocorreu um erro na consulta.</p>
-      </div>
-
-      <!-- Estado: sem resultados -->
-      <div id="result-empty" class="result-state hidden">
-        <span class="result-icon">🔍</span>
-        <p>Nenhum anúncio encontrado para essa combinação. Tente com filtros diferentes.</p>
-      </div>
-
-      <!-- Estado: resultado -->
-      <div id="result-data" class="hidden">
-        <div class="result-header">
-          <div>
-            <h2 class="result-title" id="result-title">—</h2>
-            <p class="result-subtitle">Referência de mercado · <span id="result-fontes">—</span></p>
-          </div>
-
-        </div>
-
-        <!-- Tabela de preços por ano -->
-        <div class="year-table-wrap">
-          <table class="year-table" id="year-table">
-            <thead>
-              <tr>
-                <th>Ano</th>
-                <th>Preço médio</th>
-                <th>Mediana</th>
-                <th>Mínimo</th>
-                <th>Máximo</th>
-                <th>Amostras</th>
-              </tr>
-            </thead>
-            <tbody id="year-tbody"></tbody>
-          </table>
-        </div>
-
-        <p class="result-sample">
-          <strong id="result-total-amostra">—</strong> anúncio(s) válidos no total
-          <span class="confidence-badge" id="confidence-badge"></span>
-        </p>
-
-        <!-- Sinal de leilão — preço realizado, separado dos anúncios -->
-        <div id="leilao-card" class="leilao-card hidden">
-          <div class="leilao-header">
-            <span class="leilao-badge">⚖ Preço realizado em leilão</span>
-            <span class="leilao-fonte" id="leilao-fonte">—</span>
-          </div>
-          <p class="leilao-explain">Lances vencedores homologados — aqui o mercado definiu o preço, não o vendedor.</p>
-          <p id="leilao-filtro-nota" class="leilao-filtro-nota hidden"></p>
-          <div class="leilao-stats">
-            <div class="leilao-stat">
-              <span class="leilao-stat-label">Média realizada</span>
-              <span class="leilao-stat-value" id="leilao-media">—</span>
-            </div>
-            <div class="leilao-stat">
-              <span class="leilao-stat-label">Mediana</span>
-              <span class="leilao-stat-value" id="leilao-mediana">—</span>
-            </div>
-            <div class="leilao-stat">
-              <span class="leilao-stat-label">Faixa</span>
-              <span class="leilao-stat-value" id="leilao-faixa">—</span>
-            </div>
-            <div class="leilao-stat">
-              <span class="leilao-stat-label">Vendas</span>
-              <span class="leilao-stat-value" id="leilao-amostra">—</span>
-            </div>
-          </div>
-          <ul id="leilao-vendas" class="leilao-vendas"></ul>
-        </div>
-
-        <!-- Links dos anúncios — visível apenas quando ano for filtrado -->
-        <details id="result-anuncios" class="anuncios-details hidden">
-          <summary class="anuncios-summary">Ver anúncios encontrados (<span id="anuncios-count">0</span>)</summary>
-          <ul id="anuncios-list" class="anuncios-list"></ul>
-        </details>
-      </div><!-- /result-data -->
-
     </div>
   </section>
 

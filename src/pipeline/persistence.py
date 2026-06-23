@@ -333,6 +333,25 @@ def buscar_anuncios(
     ]
 
 
+def get_db_stats() -> dict[str, Any]:
+    """Retorna estatísticas gerais do banco para o painel admin."""
+    sql_total = "SELECT COUNT(*) AS total FROM anuncios"
+    sql_fontes = """
+        SELECT fonte, COUNT(*) AS count, MAX(ultima_vista) AS last_update
+        FROM anuncios
+        GROUP BY fonte
+        ORDER BY count DESC
+    """
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql_total)
+            total = cur.fetchone()["total"]
+            cur.execute(sql_fontes)
+            por_fonte = [dict(r) for r in cur.fetchall()]
+
+    return {"total_anuncios": total, "por_fonte": por_fonte}
+
+
 def get_mais_pesquisados(
     limit: int = 10,
 ) -> dict[str, Any]:
