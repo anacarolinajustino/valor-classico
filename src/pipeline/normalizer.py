@@ -10,26 +10,49 @@ from typing import Optional
 
 def normalizar_preco(valor_bruto: str) -> Optional[float]:
     """
-    Converte string de preço em float.
+    Converte string de preço em float detectando automaticamente o formato.
 
     Exemplos aceitos:
-        'R$180.000,00'  -> 180000.0
+        'R$180.000,00'  -> 180000.0   (BR: ponto=milhar, vírgula=decimal)
+        'R$27,500.00'   -> 27500.0    (US: vírgula=milhar, ponto=decimal)
         '180.000,00'    -> 180000.0
         '180000'        -> 180000.0
         'Consulte'      -> None
-        ''              -> None
     """
     if not valor_bruto or not valor_bruto.strip():
         return None
 
-    # Remover símbolo de moeda e espaços
-    limpo = re.sub(r"[R$\s]", "", valor_bruto, flags=re.IGNORECASE)
+    # Remove símbolo de moeda, letras e espaços; mantém dígitos, ponto e vírgula
+    limpo = re.sub(r"[^\d.,]", "", valor_bruto)
 
-    # Formato brasileiro: 180.000,00 → remover pontos de milhar, trocar vírgula por ponto
-    if "," in limpo:
-        limpo = limpo.replace(".", "").replace(",", ".")
-    else:
-        limpo = limpo.replace(".", "")
+    if not limpo:
+        return None
+
+    has_comma = "," in limpo
+    has_dot   = "." in limpo
+
+    if has_comma and has_dot:
+        # O separador que aparece por último é sempre o decimal
+        if limpo.rfind(".") > limpo.rfind(","):
+            # Formato americano: 27,500.00 → vírgula=milhar, ponto=decimal
+            limpo = limpo.replace(",", "")
+        else:
+            # Formato brasileiro: 180.000,00 → ponto=milhar, vírgula=decimal
+            limpo = limpo.replace(".", "").replace(",", ".")
+    elif has_comma:
+        after = limpo.rsplit(",", 1)[-1]
+        if len(after) == 3:
+            # Vírgula de milhar: 27,500 → 27500
+            limpo = limpo.replace(",", "")
+        else:
+            # Vírgula decimal: 27,50 → 27.50
+            limpo = limpo.replace(",", ".")
+    elif has_dot:
+        after = limpo.rsplit(".", 1)[-1]
+        if len(after) == 3 and limpo.count(".") == 1:
+            # Ponto de milhar ambíguo: 27.500 → 27500 (valores de carro raramente têm casas decimais)
+            limpo = limpo.replace(".", "")
+        # else: ponto decimal normal, mantém
 
     try:
         resultado = float(limpo)
