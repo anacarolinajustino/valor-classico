@@ -119,7 +119,8 @@ function renderSourceGrid(connectors) {
 }
 
 // ── Coleta individual ──────────────────────────
-async function coletar(fonte) {
+// Retorna true em sucesso, false em erro.
+async function coletar(fonte, { atualizarStatus = true } = {}) {
   const btn = document.getElementById(`btn-${fonte}`);
   btn.disabled = true;
   btn.textContent = 'Coletando…';
@@ -127,6 +128,7 @@ async function coletar(fonte) {
   setCardEstado(fonte, 'loading', 'Coletando…');
   log(`Iniciando coleta: <strong>${fonte}</strong>…`);
 
+  let sucesso = false;
   try {
     const res  = await fetch('/admin/api/coletar', {
       method: 'POST',
@@ -148,8 +150,9 @@ async function coletar(fonte) {
 
     setCardEstado(fonte, 'ok', resumo);
     log(`<strong>${fonte}</strong> — ${resumo}`, 'ok');
+    sucesso = true;
 
-    await carregarStatus();
+    if (atualizarStatus) await carregarStatus();
 
   } catch (err) {
     setCardEstado(fonte, 'erro', err.message);
@@ -158,6 +161,7 @@ async function coletar(fonte) {
     btn.disabled = false;
     btn.textContent = 'Coletar';
   }
+  return sucesso;
 }
 
 // ── Coletar todos ──────────────────────────────
@@ -183,14 +187,18 @@ async function coletarTodos() {
 
   log(`Iniciando coleta de <strong>${fontes.length} fontes</strong> em sequência…`);
 
+  let ok = 0;
+  let erro = 0;
+
   for (let i = 0; i < fontes.length; i++) {
     btn.textContent = `Coletando… ${i + 1}/${fontes.length}`;
-    await coletar(fontes[i]);
+    const sucesso = await coletar(fontes[i], { atualizarStatus: false });
+    if (sucesso) ok++; else erro++;
     await new Promise(r => setTimeout(r, 300));
   }
 
-  const ok   = fontes.filter(f => document.getElementById(`card-${f}`)?.classList.contains('admin-source-card--ok')).length;
-  const erro = fontes.filter(f => document.getElementById(`card-${f}`)?.classList.contains('admin-source-card--erro')).length;
+  await carregarStatus();
+
   log(`Coleta concluída — <strong>${ok} com sucesso</strong>, ${erro} com erro.`, ok > 0 ? 'ok' : 'erro');
 
   btn.disabled = false;
