@@ -5,13 +5,15 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    buildCommand: pip install -r requirements.txt && python -m playwright install chromium
+    buildCommand: pip install -r requirements.txt && PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install --with-deps chromium
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: valor-classico-db
           property: connectionString
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "0"
 
 databases:
   - name: valor-classico-db

@@ -86,7 +86,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
             pw_page = ctx.new_page()
 
@@ -179,7 +179,7 @@ def coletar_categoria(
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
             pw_page = ctx.new_page()
 
@@ -300,7 +300,7 @@ def coletar_completo(max_paginas: int = 50, termo: str = TERMO_BATCH) -> tuple[l
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
             pw_page = ctx.new_page()
             anuncios, parcial = _varrer_termo(pw_page, termo, max_paginas, data_coleta, seen_urls)
@@ -372,7 +372,7 @@ def coletar_sweep(
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
             pw_page = ctx.new_page()
 
