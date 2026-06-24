@@ -53,16 +53,14 @@ async function buscar() {
       return;
     }
 
-    const linhas      = data.linhas || [];
-    const sinalLeilao = data.sinal_leilao || null;
-    const temLeilao   = Boolean(sinalLeilao?.considerado);
+    const linhas = data.linhas || [];
 
-    if (linhas.length === 0 && !temLeilao) {
+    if (linhas.length === 0) {
       mostrar(elVazio);
       return;
     }
 
-    renderizar(data, linhas, sinalLeilao);
+    renderizar(data, linhas);
     mostrar(elResultado);
 
   } catch (err) {
@@ -73,7 +71,7 @@ async function buscar() {
 }
 
 // ── Renderização ───────────────────────────────────────────
-function renderizar(data, linhas, sinalLeilao) {
+function renderizar(data, linhas) {
   const consulta = data.consulta || {};
 
   // Título
@@ -177,48 +175,6 @@ function renderizar(data, linhas, sinalLeilao) {
     detAnuncios.classList.add('hidden');
   }
 
-  // Sinal de leilão
-  renderLeilao(sinalLeilao);
-}
-
-function renderLeilao(sinal) {
-  const card = document.getElementById('leilao-card');
-  if (!sinal?.considerado) { card.classList.add('hidden'); return; }
-
-  document.getElementById('leilao-fonte').textContent   = sinal.fonte || '';
-  document.getElementById('leilao-media').textContent   = fmt(sinal.media);
-  document.getElementById('leilao-mediana').textContent = fmt(sinal.mediana);
-  document.getElementById('leilao-amostra').textContent = sinal.amostra ?? '—';
-  document.getElementById('leilao-faixa').textContent   =
-    sinal.minimo === sinal.maximo ? fmt(sinal.minimo) : `${fmt(sinal.minimo)} – ${fmt(sinal.maximo)}`;
-
-  const filtroNota = document.getElementById('leilao-filtro-nota');
-  const notas = [sinal.contexto_filtro].filter(Boolean);
-  if (notas.length) {
-    filtroNota.textContent = notas.join(' ');
-    filtroNota.classList.remove('hidden');
-  } else {
-    filtroNota.classList.add('hidden');
-  }
-
-  const lista = document.getElementById('leilao-vendas');
-  lista.innerHTML = '';
-  (sinal.vendas || []).forEach(v => {
-    const li   = document.createElement('li');
-    const link = document.createElement('a');
-    link.href   = /^https?:\/\//.test(v.url) ? v.url : '#';
-    link.target = '_blank'; link.rel = 'noopener noreferrer';
-    link.textContent = v.titulo || v.url;
-
-    const preco = document.createElement('span');
-    preco.className = 'leilao-venda-preco';
-    preco.textContent = `${fmt(v.preco)}${Number.isInteger(v.ano) ? ' · ' + v.ano : ''}`;
-
-    li.append(link, preco);
-    lista.appendChild(li);
-  });
-
-  card.classList.remove('hidden');
 }
 
 // ── Inicia ─────────────────────────────────────

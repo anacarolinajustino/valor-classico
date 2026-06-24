@@ -69,7 +69,6 @@ CONNECTOR_MODULES: dict[str, str] = {
     "maxicar":                "src.connectors.maxicar",
     "superantigo":            "src.connectors.superantigo",
     "ateliedocarro":          "src.connectors.ateliedocarro",
-    "circuitodeleiloes":      "src.connectors.circuitodeleiloes",
     "ggsveiculosantigos":     "src.connectors.ggsveiculosantigos",
     "pastorecc":              "src.connectors.pastorecc",
     "jsautosantigos":         "src.connectors.jsautosantigos",
@@ -201,11 +200,7 @@ def api_buscar():
 
     t0 = time.monotonic()
     todos = buscar_anuncios(marca, modelo, ano_filtro)
-
-    # Circuito de Leilões = preço realizado → bloco separado sinal_leilao
-    anuncios = [a for a in todos if a.fonte != "circuitodeleiloes"]
-    vendas_leilao = [a for a in todos if a.fonte == "circuitodeleiloes"]
-
+    anuncios = todos
     fontes_com_dados = sorted({a.fonte for a in todos})
     fontes_com_falha: list[str] = []
 
@@ -253,31 +248,6 @@ def api_buscar():
                     "fonte": a.fonte or "",
                 })
 
-    # Sinal de leilão (preço realizado) — separado dos anúncios (Story 5.1).
-    # Não entra na média de anúncios nem no filtro de outliers: amostra pequena
-    # e tipo de preço distinto (lance vencedor homologado vs. preço pedido).
-    vendas_validas = [v for v in vendas_leilao if validar(v)]
-    sinal_leilao: dict = {
-        "considerado": bool(vendas_validas),
-        "tipo_preco": "realizado",
-        "fonte": "Circuito de Leilões (Picelli Leilões)",
-    }
-    if vendas_validas:
-        s_leilao = calcular(vendas_validas)
-        sinal_leilao.update({
-            "media": s_leilao["media"],
-            "mediana": s_leilao["mediana"],
-            "minimo": s_leilao["minimo"],
-            "maximo": s_leilao["maximo"],
-            "amostra": s_leilao["amostra"],
-            "vendas": [
-                {"titulo": v.titulo, "preco": v.preco, "ano": v.ano, "url": v.url}
-                for v in sorted(
-                    vendas_validas, key=lambda v: v.ano or 0, reverse=True
-                )
-            ],
-        })
-
     # Persiste histórico e log de busca (fire-and-forget, não bloqueia resposta)
     try:
         for linha in linhas:
@@ -304,7 +274,6 @@ def api_buscar():
         "linhas": linhas,
         "total_amostra": total_amostra,
         "anuncios": anuncios_lista,
-        "sinal_leilao": sinal_leilao,
         "fontes_ativas": fontes_com_dados,
         "fontes_com_falha": fontes_com_falha,
     })
