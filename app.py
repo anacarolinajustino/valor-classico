@@ -84,6 +84,13 @@ CONNECTOR_MODULES: dict[str, str] = {
     "socarrao":               "src.connectors.socarrao",
     "lartdelautomobile":      "src.connectors.lartdelautomobile",
     "webmotors":              "src.connectors.webmotors",
+    # Novas fontes (2026-06-24)
+    "classiccarbr":           "src.connectors.classiccarbr",
+    "reginaldodecampinas":    "src.connectors.reginaldodecampinas",
+    "carangoslegais":         "src.connectors.carangoslegais",
+    "armazemdovovo":          "src.connectors.armazemdovovo",
+    "eduardoveiculosantigos": "src.connectors.eduardoveiculosantigos",
+    "estacaoraridades":       "src.connectors.estacaoraridades",
 }
 
 # Fontes bloqueadas ou sem listing de preços (2026-06-23).
@@ -94,6 +101,7 @@ FONTES_INATIVAS: set[str] = {
     "brunelliveiculosantigos", # servidor down (timeout)
     "socarrao",                # API REST bloqueada (403 Forbidden)
     "webmotors",               # bloqueado por PerimeterX (403)
+    "armazemdovovo",           # bloqueado por Cloudflare (403 Forbidden)
 }
 
 catalogo = carregar_catalogo()
