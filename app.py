@@ -18,9 +18,12 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
+import threading
 import time
+import uuid
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from flask import Flask, jsonify, request, send_from_directory
 
@@ -51,6 +54,11 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Armazena tarefas de coleta assíncronas em memória.
+# Chave: task_id (UUID). Valor: dict com status, metricas, etc.
+_tasks: dict[str, dict[str, Any]] = {}
+_tasks_lock = threading.Lock()
 
 app = Flask(__name__, static_folder="static")
 
@@ -392,21 +400,53 @@ def admin_api_anuncios():
 
 @app.route("/admin/api/coletar", methods=["POST"])
 def admin_coletar():
+    """
+    Inicia coleta em background e retorna task_id imediatamente.
+    O cliente deve consultar /admin/api/coletar-status/<task_id> para obter o resultado.
+    """
     body = request.get_json(silent=True) or {}
     fonte = (body.get("fonte") or "").strip()
 
     if not fonte or fonte not in CONNECTOR_MODULES:
         return jsonify({"erro": f"Fonte desconhecida: '{fonte}'"}), 400
 
-    try:
-        mod = importlib.import_module(CONNECTOR_MODULES[fonte])
-        anuncios_coletados, metricas = mod.coletar_completo()
-        resultado_db = upsert_anuncios(anuncios_coletados)
-        logger.info("admin_coletar %s: %s → %s", fonte, metricas, resultado_db)
-        return jsonify({"metricas": metricas, "resultado": resultado_db})
-    except Exception as exc:
-        logger.error("admin_coletar %s erro: %s", fonte, exc, exc_info=True)
-        return jsonify({"erro": str(exc)}), 500
+    task_id = str(uuid.uuid4())
+    with _tasks_lock:
+        _tasks[task_id] = {"status": "running", "fonte": fonte}
+
+    def _run():
+        try:
+            mod = importlib.import_module(CONNECTOR_MODULES[fonte])
+            anuncios_coletados, metricas = mod.coletar_completo()
+            resultado_db = upsert_anuncios(anuncios_coletados)
+            logger.info("admin_coletar %s concluído: %s → %s", fonte, metricas, resultado_db)
+            with _tasks_lock:
+                _tasks[task_id] = {
+                    "status": "done",
+                    "fonte": fonte,
+                    "metricas": metricas,
+                    "resultado": resultado_db,
+                }
+        except Exception as exc:
+            logger.error("admin_coletar %s erro: %s", fonte, exc, exc_info=True)
+            with _tasks_lock:
+                _tasks[task_id] = {
+                    "status": "error",
+                    "fonte": fonte,
+                    "erro": str(exc),
+                }
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"task_id": task_id, "status": "running"})
+
+
+@app.route("/admin/api/coletar-status/<task_id>")
+def admin_coletar_status(task_id):
+    with _tasks_lock:
+        task = _tasks.get(task_id)
+    if task is None:
+        return jsonify({"erro": "Tarefa não encontrada"}), 404
+    return jsonify(task)
 
 
 

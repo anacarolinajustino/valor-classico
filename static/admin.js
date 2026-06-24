@@ -118,7 +118,25 @@ function renderSourceGrid(connectors) {
   });
 }
 
+// ── Polling de tarefa assíncrona ───────────────
+async function _pollTask(taskId, fonte) {
+  const MAX_MS = 10 * 60 * 1000;  // 10 minutos
+  const INTERVAL_MS = 2000;
+  const started = Date.now();
+
+  while (Date.now() - started < MAX_MS) {
+    await new Promise(r => setTimeout(r, INTERVAL_MS));
+    const res = await fetch(`/admin/api/coletar-status/${taskId}`);
+    const data = await res.json();
+    if (data.status === 'done')  return data;
+    if (data.status === 'error') throw new Error(data.erro || 'Erro desconhecido');
+    // status === 'running' → continua esperando
+  }
+  throw new Error('Timeout: coleta demorou mais de 10 minutos');
+}
+
 // ── Coleta individual ──────────────────────────
+// Inicia a coleta em background e faz polling até concluir.
 // Retorna true em sucesso, false em erro.
 async function coletar(fonte, { atualizarStatus = true } = {}) {
   const btn = document.getElementById(`btn-${fonte}`);
@@ -130,14 +148,16 @@ async function coletar(fonte, { atualizarStatus = true } = {}) {
 
   let sucesso = false;
   try {
-    const res  = await fetch('/admin/api/coletar', {
+    const res = await fetch('/admin/api/coletar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fonte }),
     });
-    const data = await res.json();
+    const startData = await res.json();
+    if (!res.ok) throw new Error(startData.erro || `HTTP ${res.status}`);
 
-    if (!res.ok) throw new Error(data.erro || `HTTP ${res.status}`);
+    // Aguarda a tarefa background via polling
+    const data = await _pollTask(startData.task_id, fonte);
 
     const m = data.metricas || {};
     const r = data.resultado || {};
