@@ -79,18 +79,14 @@ CONNECTOR_MODULES: dict[str, str] = {
     "webmotors":              "src.connectors.webmotors",
 }
 
-# Fontes que retornaram zero resultados no último diagnóstico (2026-06-23).
-# Mantidas no mapa para permitir coleta manual de teste; puladas no "Coletar todos".
+# Fontes bloqueadas ou sem listing de preços (2026-06-23).
+# Mantidas no mapa para registro; puladas no "Coletar todos".
 FONTES_INATIVAS: set[str] = {
-    "pastorecc",
-    "franzveiculosantigos",
-    "gustavobrasil",
-    "interclassicos",
-    "classicospremium",
-    "brunelliveiculosantigos",
-    "socarrao",
-    "lartdelautomobile",
-    "webmotors",
+    "franzveiculosantigos",    # site portfólio, sem página de listing
+    "classicospremium",        # preços exibidos como "Consulte", não coletáveis
+    "brunelliveiculosantigos", # servidor down (timeout)
+    "socarrao",                # API REST bloqueada (403 Forbidden)
+    "webmotors",               # bloqueado por PerimeterX (403)
 }
 
 catalogo = carregar_catalogo()

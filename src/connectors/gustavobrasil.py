@@ -1,21 +1,163 @@
 """
 Conector Gustavo Brasil.
 Site: http://gustavobrasil.com.br
-Motor: WordPress + WooCommerce
-Estratégia: requests + BeautifulSoup (server-side rendering)
+Motor: WordPress custom
+Estratégia: requests + BeautifulSoup
+Seletores: div.media-car
 """
 from __future__ import annotations
-from src.connectors._woocommerce import buscar as _buscar, coletar_completo as _coletar
+
+import logging
+import time
+from datetime import date
+from typing import Optional
+
+import requests
+from bs4 import BeautifulSoup
+
+from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
+
+logger = logging.getLogger(__name__)
 
 FONTE = "gustavobrasil"
 BASE_URL = "http://gustavobrasil.com.br"
 LISTING_PATH = "/carros/"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+TIMEOUT = 20
+MAX_RETRIES = 2
+BACKOFF = 2.0
+RATE_LIMIT = 1.5
 
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
-    return _buscar(BASE_URL, LISTING_PATH, FONTE, marca, modelo, paginas)
+    sessao = _criar_sessao()
+    data_coleta = date.today().isoformat()
+    marca_norm = normalizar_texto(marca)
+    modelo_norm = normalizar_texto(modelo)
+    anuncios: list[Anuncio] = []
+    seen: set[str] = set()
+
+    for pg in range(1, paginas + 1):
+        url = f"{BASE_URL}{LISTING_PATH}" if pg == 1 else f"{BASE_URL}{LISTING_PATH}page/{pg}/"
+        html = _requisitar(sessao, url)
+        if html is None:
+            break
+        for a in _parsear(html, data_coleta):
+            if a.url in seen:
+                continue
+            titulo_norm = normalizar_texto(a.titulo)
+            if modelo_norm and modelo_norm not in titulo_norm:
+                continue
+            if marca_norm and a.marca and normalizar_texto(a.marca) != marca_norm and marca_norm not in titulo_norm:
+                continue
+            seen.add(a.url)
+            anuncios.append(a)
+        time.sleep(RATE_LIMIT)
+
+    logger.info("[gustavobrasil] busca: %d anúncio(s)", len(anuncios))
+    return anuncios
 
 
 def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
-    return _coletar(BASE_URL, LISTING_PATH, FONTE, max_paginas)
+    sessao = _criar_sessao()
+    data_coleta = date.today().isoformat()
+    inicio = time.monotonic()
+    anuncios: list[Anuncio] = []
+    seen: set[str] = set()
+    erros = 0
+    paginas_ok = 0
+
+    for pg in range(1, max_paginas + 1):
+        url = f"{BASE_URL}{LISTING_PATH}" if pg == 1 else f"{BASE_URL}{LISTING_PATH}page/{pg}/"
+        html = _requisitar(sessao, url)
+        if html is None:
+            erros += 1
+            break
+
+        items = _parsear(html, data_coleta)
+        if not items:
+            break
+
+        paginas_ok += 1
+        for a in items:
+            if a.url not in seen:
+                seen.add(a.url)
+                anuncios.append(a)
+
+        if not _tem_proxima(html):
+            break
+        time.sleep(RATE_LIMIT)
+
+    metricas = {
+        "fonte": FONTE,
+        "data_coleta": data_coleta,
+        "paginas_listagem": paginas_ok,
+        "anuncios_validos": len(anuncios),
+        "erros_listagem": erros,
+        "tempo_total_s": round(time.monotonic() - inicio, 1),
+    }
+    logger.info("[gustavobrasil] coleta completa: %s", metricas)
+    return anuncios, metricas
+
+
+def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
+    soup = BeautifulSoup(html, "lxml")
+    anuncios: list[Anuncio] = []
+
+    for card in soup.select("div.media-car"):
+        link_tag = card.select_one("h3.media-car-title a")
+        if not link_tag:
+            continue
+
+        titulo = link_tag.get_text(strip=True)
+        url_anuncio = link_tag.get("href", "")
+        if not titulo:
+            continue
+
+        preco_tag = card.select_one("span.single-car-price-home")
+        preco = normalizar_preco(preco_tag.get_text(strip=True)) if preco_tag else None
+        if not preco or preco <= 0:
+            continue
+
+        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        if not modelo:
+            continue
+
+        anuncios.append(Anuncio(
+            titulo=titulo, preco=preco, marca=marca, modelo=modelo,
+            ano=ano, versao=None, url=url_anuncio, fonte=FONTE,
+            data_coleta=data_coleta,
+        ))
+    return anuncios
+
+
+def _tem_proxima(html: str) -> bool:
+    soup = BeautifulSoup(html, "lxml")
+    return bool(soup.find("a", class_="next") or soup.find("a", rel="next"))
+
+
+def _criar_sessao() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept-Language": "pt-BR,pt;q=0.9",
+    })
+    return s
+
+
+def _requisitar(sessao: requests.Session, url: str) -> Optional[str]:
+    for i in range(1, MAX_RETRIES + 1):
+        try:
+            r = sessao.get(url, timeout=TIMEOUT, verify=False)
+            r.raise_for_status()
+            return r.text
+        except requests.RequestException as exc:
+            logger.warning("[gustavobrasil] tentativa %d/%d %s: %s", i, MAX_RETRIES, url, exc)
+            if i < MAX_RETRIES:
+                time.sleep(BACKOFF)
+    return None

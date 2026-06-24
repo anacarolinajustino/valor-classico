@@ -109,23 +109,23 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
 
-    for item in soup.find_all("li", class_="list-group-item"):
-        link = item.find("a", href=True)
-        titulo_tag = item.find(["h2", "h3", "h4", "strong"])
-        titulo = titulo_tag.get_text(strip=True) if titulo_tag else (
-            link.get_text(strip=True) if link else ""
-        )
+    for item in soup.select("div.result-item"):
+        link = item.select_one("h4.result-item-title a") or item.select_one("a[href]")
+        if not link:
+            continue
+
+        titulo = link.get_text(strip=True)
         if not titulo:
             continue
 
-        preco_tag = item.select_one(".price") or item.select_one(".preco") or item.find("b")
+        url_anuncio = link.get("href", "")
+        if url_anuncio and not url_anuncio.startswith("http"):
+            url_anuncio = BASE_URL + "/" + url_anuncio.lstrip("/")
+
+        preco_tag = item.select_one("div.price") or item.select_one(".price")
         preco = normalizar_preco(preco_tag.get_text(strip=True)) if preco_tag else None
         if not preco or preco <= 0:
             continue
-
-        url_anuncio = link["href"] if link else ""
-        if url_anuncio and not url_anuncio.startswith("http"):
-            url_anuncio = BASE_URL + url_anuncio
 
         marca, modelo, ano = inferir_marca_modelo_ano(titulo)
         if not modelo:
