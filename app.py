@@ -91,6 +91,17 @@ CONNECTOR_MODULES: dict[str, str] = {
     "armazemdovovo":          "src.connectors.armazemdovovo",
     "eduardoveiculosantigos": "src.connectors.eduardoveiculosantigos",
     "estacaoraridades":       "src.connectors.estacaoraridades",
+    # Novas fontes (2026-06-24 — lote 2)
+    "berekclassicos":         "src.connectors.berekclassicos",
+    "cia66motorsports":       "src.connectors.cia66motorsports",
+    "escuderiacoqueiro":      "src.connectors.escuderiacoqueiro",
+    "poaparts":               "src.connectors.poaparts",
+    "registro9":              "src.connectors.registro9",
+    "lopesantigos":           "src.connectors.lopesantigos",
+    "lexicar":                "src.connectors.lexicar",
+    "autoclassic":            "src.connectors.autoclassic",
+    "oldcar":                 "src.connectors.oldcar",
+    "ggworld":                "src.connectors.ggworld",
 }
 
 # Fontes bloqueadas ou sem listing de preços (2026-06-23).
@@ -102,6 +113,12 @@ FONTES_INATIVAS: set[str] = {
     "socarrao",                # API REST bloqueada (403 Forbidden)
     "webmotors",               # bloqueado por PerimeterX (403)
     "armazemdovovo",           # bloqueado por Cloudflare (403 Forbidden)
+    "registro9",               # ECONNREFUSED de IPs de cloud (Render/AWS)
+    "lopesantigos",            # ECONNREFUSED de IPs de cloud
+    "lexicar",                 # ECONNREFUSED de IPs de cloud
+    "autoclassic",             # ECONNREFUSED de IPs de cloud
+    "oldcar",                  # bloqueado pelo servidor do Estadão
+    "ggworld",                 # Wix com Load More via JS; sem links individuais
 }
 
 catalogo = carregar_catalogo()
