@@ -1,50 +1,57 @@
 """
 Conector Super Antigo — coleta anúncios de veículos clássicos.
 
-Site: https://www.superantigo.com.br
-Motor: Vite + React SPA (Client-Side Rendering)
-Estratégia: Playwright headless (requests + BS4 retorna shell vazio de ~7.5KB)
+Site: https://superantigo.com.br
+Motor: Vite + React SPA
+Estratégia: requests direto via query params de paginação.
+  URL: /veiculos?showAllTypes=true&page=N&limit=24&sort=newest
+  A resposta pode ser JSON (API REST) ou HTML com dados renderizados.
+  _parsear_resposta() tenta JSON primeiro; fallback para parsear_listagem_html().
 
-Compliance (verificado 2026-05-30):
-- robots.txt: Allow: /veiculos/ ✅  |  Disallow: /api/ (não utilizado)
-- Rate limit: 2s entre páginas (browser é mais custoso que requests)
-- User-Agent realista definido abaixo.
+Compliance (verificado 2026-06-24):
+- robots.txt: Allow: /veiculos/ ✅
+- Rate limit: 1s entre páginas
 
 Separação de responsabilidades:
-- buscar()              → I/O (Playwright), chama parsear_listagem_html()
+- coletar_completo()    → I/O (requests), paginação completa
+- buscar()              → I/O (requests), filtro por marca/modelo
 - parsear_listagem_html() → função pura (BS4), usada nos testes de snapshot
+- _parsear_resposta()   → tenta JSON, cai para HTML
+- _parsear_json()       → parser JSON com detecção de estrutura
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
+import urllib.parse
 from datetime import date
 from typing import Optional
 
+import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
 
-# ────────────────────────────────────────────────
-# Configurações do conector
-# ────────────────────────────────────────────────
 FONTE = "superantigo"
 BASE_URL = "https://www.superantigo.com.br"
+LISTING_BASE = "https://superantigo.com.br"
 LISTING_PATH = "/veiculos"
+DEFAULT_LIMIT = 24
+TIMEOUT = 20
+MAX_RETRIES = 2
+BACKOFF = 2.0
+RATE_LIMIT = 1.0
 USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
-TIMEOUT_PAGINA = 30_000   # ms — timeout do Playwright por navegação
-TIMEOUT_SELECTOR = 15_000  # ms — aguardar cards carregarem
-RATE_LIMIT_SEGUNDOS = 2.0  # entre páginas (browser é pesado)
 
-# Mapeamento slug de URL → nome canônico da marca
 _SLUG_PARA_MARCA: dict[str, str] = {
     "volkswagen": "VOLKSWAGEN",
     "ford": "FORD",
@@ -63,105 +70,65 @@ _SLUG_PARA_MARCA: dict[str, str] = {
 }
 
 
+# ── Interface pública ─────────────────────────────────────────────────────────
+
 def coletar_completo(max_paginas: int = 200) -> tuple[list[Anuncio], dict]:
     """
-    Coleta TODOS os anúncios do Super Antigo (batch sem filtro de marca/modelo).
-
-    Usa Playwright para navegar pelo SPA e paginar via botão "próxima página".
-
-    Returns:
-        (anuncios, metricas)
+    Coleta TODOS os anúncios do Super Antigo via paginação por query params.
+    URL: /veiculos?showAllTypes=true&page=N&limit=24&sort=newest
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright não instalado. Execute: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
-    inicio = time.monotonic()
+    sessao = _criar_sessao()
     data_coleta = date.today().isoformat()
+    inicio = time.monotonic()
     anuncios: list[Anuncio] = []
     seen_urls: set[str] = set()
-    paginas_lidas = 0
+    paginas_ok = 0
     erros = 0
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
-            pw_page = ctx.new_page()
+    for pagina in range(1, max_paginas + 1):
+        url = _url_pagina(pagina)
+        logger.info("[superantigo] página %d — %s", pagina, url)
 
-            url_inicial = f"{BASE_URL}{LISTING_PATH}?vehicleType=car&page=1&limit=24"
-            logger.info("[superantigo] navegando para %s", url_inicial)
-            pw_page.goto(url_inicial, timeout=TIMEOUT_PAGINA, wait_until="networkidle")
+        conteudo = _requisitar(sessao, url)
+        if conteudo is None:
+            erros += 1
+            break
 
-            for pagina in range(1, max_paginas + 1):
-                try:
-                    pw_page.wait_for_selector(
-                        "a[href^='/veiculos/carro/']",
-                        timeout=TIMEOUT_SELECTOR,
-                    )
-                except Exception:
-                    logger.warning("[superantigo] timeout aguardando cards na página %d.", pagina)
-                    erros += 1
-                    break
+        itens = _parsear_resposta(conteudo, data_coleta)
+        if not itens:
+            logger.info("[superantigo] página %d sem resultados — encerrando.", pagina)
+            break
 
-                html = pw_page.content()
-                itens = parsear_listagem_html(html, data_coleta)
-                paginas_lidas += 1
+        paginas_ok += 1
+        novos = 0
+        for a in itens:
+            if a.url not in seen_urls:
+                seen_urls.add(a.url)
+                anuncios.append(a)
+                novos += 1
 
-                novos = 0
-                for a in itens:
-                    if a.url not in seen_urls:
-                        seen_urls.add(a.url)
-                        anuncios.append(a)
-                        novos += 1
+        logger.info(
+            "[superantigo] página %d: %d itens · %d novos (total: %d)",
+            pagina, len(itens), novos, len(anuncios),
+        )
 
-                logger.info(
-                    "[superantigo] página %d: %d card(s), %d novo(s) (total: %d)",
-                    pagina, len(itens), novos, len(anuncios),
-                )
+        if len(itens) < DEFAULT_LIMIT:
+            logger.info("[superantigo] página incompleta — última página (%d).", pagina)
+            break
 
-                # Página incompleta = última página (sem precisar clicar)
-                if len(itens) < 24:
-                    logger.info("[superantigo] página incompleta — última página (%d).", pagina)
-                    break
-
-                # Próxima página
-                avancar = pw_page.query_selector("a[aria-label='Ir para a próxima página']")
-                if not avancar:
-                    logger.info("[superantigo] sem botão próxima página (%d).", pagina)
-                    break
-                disabled = avancar.get_attribute("disabled")
-                aria_disabled = avancar.get_attribute("aria-disabled")
-                if disabled is not None or aria_disabled == "true":
-                    logger.info("[superantigo] última página atingida (%d).", pagina)
-                    break
-
-                # Click via JS: evita bloqueio do header fixo
-                pw_page.evaluate("(el) => el.click()", avancar)
-                pw_page.wait_for_load_state("networkidle", timeout=15_000)
-                time.sleep(RATE_LIMIT_SEGUNDOS)
-
-            browser.close()
-
-    except Exception as exc:
-        logger.error("[superantigo] erro durante coleta: %s", exc)
-        raise
+        time.sleep(RATE_LIMIT)
 
     tempo_total = time.monotonic() - inicio
     metricas = {
         "fonte": FONTE,
         "data_coleta": data_coleta,
-        "paginas_listagem": paginas_lidas,
+        "paginas_listagem": paginas_ok,
         "urls_detalhe": len(seen_urls),
         "anuncios_validos": len(anuncios),
         "descartados_sem_preco_ou_modelo": 0,
         "erros_listagem": erros,
         "erros_detalhe": 0,
-        "requisicoes": paginas_lidas,
+        "requisicoes": paginas_ok + erros,
         "latencia_p50_s": None,
         "latencia_p95_s": None,
         "tempo_total_s": round(tempo_total, 1),
@@ -174,120 +141,52 @@ def coletar_completo(max_paginas: int = 200) -> tuple[list[Anuncio], dict]:
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     """
     Busca anúncios no Super Antigo por marca e modelo.
-
-    Usa Playwright (headless Chromium) para renderizar o SPA e coletar o HTML.
-    Para paginação, clica no botão "próxima página" em vez de navegar por URL
-    (os links de paginação usam href="#" — controle 100% client-side).
-
-    Args:
-        marca:   Nome da marca (ex.: "VOLKSWAGEN"). Usado para pós-filtragem.
-        modelo:  Nome do modelo (ex.: "FUSCA"). Usado no filtro de URL.
-        paginas: Número máximo de páginas a coletar (default 2).
-
-    Returns:
-        Lista de Anuncio normalizados. Anúncios sem preço válido são descartados.
+    Coleta até `paginas` páginas e filtra os resultados por marca/modelo.
     """
-    try:
-        from playwright.sync_api import sync_playwright  # import tardio — opcional
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright não instalado. Execute: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
-    inicio = time.monotonic()
+    sessao = _criar_sessao()
     data_coleta = date.today().isoformat()
     marca_norm = normalizar_texto(marca)
     modelo_norm = normalizar_texto(modelo)
     anuncios: list[Anuncio] = []
+    seen_urls: set[str] = set()
 
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
-            pw_page = ctx.new_page()
+    for pagina in range(1, paginas + 1):
+        url = _url_pagina(pagina)
+        conteudo = _requisitar(sessao, url)
+        if conteudo is None:
+            break
 
-            url_inicial = _url_busca(marca, modelo)
-            logger.info("[superantigo] navegando para %s", url_inicial)
+        itens = _parsear_resposta(conteudo, data_coleta)
+        if not itens:
+            break
 
-            pw_page.goto(url_inicial, timeout=TIMEOUT_PAGINA, wait_until="networkidle")
+        for a in itens:
+            if a.url in seen_urls:
+                continue
+            titulo_norm = normalizar_texto(a.titulo)
+            if modelo_norm and modelo_norm not in titulo_norm:
+                if not a.modelo or modelo_norm not in normalizar_texto(a.modelo):
+                    continue
+            if (marca_norm and a.marca
+                    and normalizar_texto(a.marca) != marca_norm
+                    and marca_norm not in titulo_norm):
+                continue
+            seen_urls.add(a.url)
+            anuncios.append(a)
 
-            for pagina in range(1, paginas + 1):
-                # Aguardar cards carregarem
-                try:
-                    pw_page.wait_for_selector(
-                        "a[href^='/veiculos/carro/']",
-                        timeout=TIMEOUT_SELECTOR,
-                    )
-                except Exception:
-                    logger.warning("[superantigo] timeout aguardando cards na página %d.", pagina)
-                    break
+        if len(itens) < DEFAULT_LIMIT:
+            break
+        time.sleep(RATE_LIMIT)
 
-                html = pw_page.content()
-                itens = parsear_listagem_html(html, data_coleta)
-
-                # Pós-filtragem por marca
-                if marca_norm:
-                    itens = [
-                        a for a in itens
-                        if not a.marca
-                        or normalizar_texto(a.marca) == marca_norm
-                        or marca_norm in normalizar_texto(a.titulo)
-                    ]
-
-                # Pós-filtragem por modelo
-                if modelo_norm:
-                    itens = [
-                        a for a in itens
-                        if not a.modelo
-                        or modelo_norm in normalizar_texto(a.modelo)
-                        or normalizar_texto(a.modelo) in modelo_norm
-                        or modelo_norm in normalizar_texto(a.titulo)
-                    ]
-
-                logger.info("[superantigo] página %d: %d anúncio(s).", pagina, len(itens))
-                anuncios.extend(itens)
-
-                # Avançar para próxima página via click (paginação JS)
-                if pagina < paginas:
-                    avancar = pw_page.query_selector(
-                        "a[aria-label='Ir para a próxima página']"
-                    )
-                    if not avancar:
-                        logger.info("[superantigo] última página atingida (%d).", pagina)
-                        break
-                    # Verificar se botão está desabilitado
-                    disabled = avancar.get_attribute("disabled")
-                    aria_disabled = avancar.get_attribute("aria-disabled")
-                    if disabled is not None or aria_disabled == "true":
-                        logger.info("[superantigo] última página atingida (%d).", pagina)
-                        break
-
-                    avancar.click()
-                    pw_page.wait_for_load_state("networkidle", timeout=10_000)
-                    time.sleep(RATE_LIMIT_SEGUNDOS)
-
-            browser.close()
-
-    except Exception as exc:
-        logger.error("[superantigo] erro durante coleta: %s", exc)
-        raise
-
-    latencia = time.monotonic() - inicio
-    logger.info(
-        "[superantigo] busca concluída: %d anúncio(s) em %.1fs",
-        len(anuncios), latencia,
-    )
+    logger.info("[superantigo] busca: %d anúncio(s)", len(anuncios))
     return anuncios
 
 
-# ────────────────────────────────────────────────
-# Parser puro — testável sem browser
-# ────────────────────────────────────────────────
+# ── Parsers públicos ──────────────────────────────────────────────────────────
 
 def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[Anuncio]:
     """
-    Extrai anúncios de um HTML renderizado da listagem Super Antigo.
+    Extrai anúncios de HTML renderizado da listagem Super Antigo.
 
     Ponto de entrada público para testes de regressão com snapshot.
 
@@ -302,7 +201,6 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     """
     soup = BeautifulSoup(html, "lxml")
 
-    # Coletar links únicos de veículos
     todos_links = soup.select("a[href^='/veiculos/carro/']")
     seen: set[str] = set()
     links_unicos = [
@@ -317,7 +215,6 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         if not href:
             continue
 
-        # Card container (2 níveis acima do <a>: div.relative → card)
         card = link_tag.parent
         if card:
             card = card.parent
@@ -325,18 +222,15 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         if not card:
             continue
 
-        # Seção de conteúdo textual do card (div com classe p-4)
         content = card.find("div", class_=lambda c: c and "p-4" in c.split())
         if not content:
             continue
 
-        # Título
         h3 = content.find("h3")
         titulo = h3.get_text(strip=True) if h3 else ""
         if not titulo:
             continue
 
-        # Preço — regex no texto do card
         card_txt = content.get_text(separator=" ", strip=True)
         preco_match = re.search(r"R\$\s*([\d.,]+)", card_txt)
         preco_bruto = preco_match.group(0) if preco_match else ""
@@ -344,7 +238,6 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         if preco is None or preco <= 0:
             continue
 
-        # Campos da URL: /veiculos/carro/{marca}/{modelo}/{slug-ano-id}
         partes = href.split("/")
         marca = _slug_para_marca(partes[3] if len(partes) > 3 else "")
         modelo_raw = partes[4].replace("-", " ").upper() if len(partes) > 4 else ""
@@ -354,8 +247,6 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         if not modelo_raw:
             continue
 
-        url_anuncio = BASE_URL + href
-
         anuncios.append(
             Anuncio(
                 titulo=titulo,
@@ -364,7 +255,7 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
                 modelo=modelo_raw,
                 ano=ano,
                 versao=None,
-                url=url_anuncio,
+                url=BASE_URL + href,
                 fonte=FONTE,
                 data_coleta=data_coleta,
             )
@@ -373,39 +264,164 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     return anuncios
 
 
-# ────────────────────────────────────────────────
-# Helpers internos
-# ────────────────────────────────────────────────
+# ── Helpers internos ──────────────────────────────────────────────────────────
 
-def _url_busca(marca: str, modelo: str) -> str:
-    """Monta URL de listagem com filtros de marca e modelo."""
-    import urllib.parse
-
-    marca_slug = marca.lower().replace(" ", "-")
-    modelo_slug = modelo.lower().replace(" ", "-")
+def _url_pagina(pagina: int) -> str:
     params = urllib.parse.urlencode({
-        "brand": marca_slug,
-        "model": modelo_slug,
-        "vehicleType": "car",
-        "page": "1",
-        "limit": "12",
+        "showAllTypes": "true",
+        "page": str(pagina),
+        "limit": str(DEFAULT_LIMIT),
+        "sort": "newest",
     })
-    return f"{BASE_URL}{LISTING_PATH}?{params}"
+    return f"{LISTING_BASE}{LISTING_PATH}?{params}"
+
+
+def _parsear_resposta(conteudo: str, data_coleta: str) -> list[Anuncio]:
+    """Tenta JSON; fallback para HTML."""
+    try:
+        dados = json.loads(conteudo)
+        itens = _parsear_json(dados, data_coleta)
+        if itens:
+            logger.debug("[superantigo] resposta JSON: %d itens", len(itens))
+            return itens
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    logger.debug("[superantigo] resposta HTML — usando parsear_listagem_html")
+    return parsear_listagem_html(conteudo, data_coleta)
+
+
+def _parsear_json(dados: object, data_coleta: str) -> list[Anuncio]:
+    """
+    Extrai anúncios de uma resposta JSON com detecção automática de estrutura.
+
+    Suporta:
+    - Lista direta: [{"title": ..., "price": ...}, ...]
+    - Objeto com chave de lista: {"data": [...]} / {"vehicles": [...]} / etc.
+    """
+    veiculos: list[dict] = []
+
+    if isinstance(dados, list):
+        veiculos = dados
+    elif isinstance(dados, dict):
+        for chave in ("data", "vehicles", "items", "results", "ads", "veiculos", "listings"):
+            if chave in dados and isinstance(dados[chave], list):
+                veiculos = dados[chave]
+                break
+        if not veiculos:
+            for v in dados.values():
+                if isinstance(v, list) and v and isinstance(v[0], dict):
+                    veiculos = v
+                    break
+
+    if not veiculos:
+        return []
+
+    anuncios: list[Anuncio] = []
+
+    for v in veiculos:
+        if not isinstance(v, dict):
+            continue
+
+        titulo = (v.get("title") or v.get("name") or v.get("titulo") or "").strip()
+
+        preco_raw = (v.get("price") or v.get("preco") or v.get("valor")
+                     or v.get("salePrice") or 0)
+        if isinstance(preco_raw, (int, float)):
+            preco = float(preco_raw) if preco_raw > 0 else None
+        else:
+            preco = normalizar_preco(str(preco_raw))
+
+        if not preco or preco <= 0:
+            continue
+
+        # URL do anúncio
+        url_anuncio = (v.get("url") or v.get("link") or v.get("permalink") or "").strip()
+        slug = str(v.get("slug") or v.get("id") or "")
+        if not url_anuncio and slug:
+            brand_slug = normalizar_texto(v.get("brand") or v.get("marca") or "").replace(" ", "-")
+            model_slug = normalizar_texto(v.get("model") or v.get("modelo") or "").replace(" ", "-")
+            if brand_slug and model_slug:
+                url_anuncio = f"{BASE_URL}/veiculos/carro/{brand_slug}/{model_slug}/{slug}"
+            else:
+                url_anuncio = f"{BASE_URL}/veiculos/{slug}"
+        elif url_anuncio and not url_anuncio.startswith("http"):
+            url_anuncio = BASE_URL + url_anuncio
+
+        if not url_anuncio:
+            continue
+
+        marca = (v.get("brand") or v.get("marca") or "").strip()
+        modelo_raw = (v.get("model") or v.get("modelo") or "").strip()
+
+        ano_raw = (v.get("year") or v.get("fabricationYear") or v.get("ano")
+                   or v.get("yearFabrication") or v.get("year_fabrication") or 0)
+        try:
+            ano = int(ano_raw) if ano_raw else None
+        except (ValueError, TypeError):
+            ano = None
+
+        if not marca or not modelo_raw:
+            m, mo, a = inferir_marca_modelo_ano(titulo)
+            if not marca:
+                marca = m
+            if not modelo_raw:
+                modelo_raw = mo
+            if ano is None:
+                ano = a
+
+        if not modelo_raw:
+            continue
+
+        if not titulo:
+            titulo = f"{marca} {modelo_raw} {ano or ''}".strip()
+
+        anuncios.append(Anuncio(
+            titulo=titulo,
+            preco=preco,
+            marca=marca.upper() if marca else "",
+            modelo=modelo_raw.upper() if modelo_raw else "",
+            ano=ano,
+            versao=None,
+            url=url_anuncio,
+            fonte=FONTE,
+            data_coleta=data_coleta,
+        ))
+
+    return anuncios
+
+
+def _criar_sessao() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json, text/html, */*",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+    })
+    return s
+
+
+def _requisitar(sessao: requests.Session, url: str) -> Optional[str]:
+    for i in range(1, MAX_RETRIES + 1):
+        try:
+            r = sessao.get(url, timeout=TIMEOUT)
+            r.raise_for_status()
+            return r.text
+        except requests.RequestException as exc:
+            logger.warning("[superantigo] tentativa %d/%d %s: %s", i, MAX_RETRIES, url, exc)
+            if i < MAX_RETRIES:
+                time.sleep(BACKOFF)
+    return None
 
 
 def _slug_para_marca(slug: str) -> str:
-    """Converte slug de URL (ex: 'volkswagen') para nome canônico ('VOLKSWAGEN')."""
     return _SLUG_PARA_MARCA.get(slug.lower(), slug.upper().replace("-", " "))
 
 
 def _extrair_ano_do_slug(slug: str) -> Optional[int]:
     """
     Extrai o ano de fabricação do slug final da URL.
-
     Padrão: {titulo-slug}-{ano_fab}-{ano_mod}-{id}
-    Ex: 'vw-fusca-cabriole-1500-1979-1979-443' → 1979
-
-    Estratégia: pegar o primeiro número de 4 dígitos no intervalo 1900-2026.
     """
     numeros = re.findall(r"\d{4}", slug)
     for n in numeros:
