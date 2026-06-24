@@ -248,42 +248,38 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
 
 def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[Anuncio]:
     """
-    Extrai cards parciais da página de listagem (/carros-a-venda/).
+    Extrai cards da listagem /carros-a-venda/, usando o botão "Mais detalhes"
+    de cada card como fonte do URL de detalhe.
 
     Retorna Anuncio com titulo, url e ano preenchidos; preco=None e
     marca/modelo="" (esses campos só estão disponíveis na página de detalhe).
 
-    Seletores (WordPress padrão):
-    - Primário:   h2.entry-title > a[href*="/carro/"]
-    - Fallback:   qualquer a[href*="/carro/"] dentro de um <article>
+    Seletores em ordem de confiabilidade:
+    1. div.car-loop — estrutura real do site; URL vem do botão "Mais detalhes".
+    2. h2.entry-title > a[href*="/carro/"] — fallback WordPress padrão.
+    3. article > a[href*="/carro/"] — fallback genérico.
+    4. qualquer a[href*="/carro/"] — último recurso.
     """
     soup = BeautifulSoup(html, "lxml")
     seen: set[str] = set()
     anuncios: list[Anuncio] = []
 
-    # ── Seletor 1: tema customizado Ateliê do Carro ──────────────────────────
-    # Estrutura real (confirmada 2026-05-30):
+    # ── Seletor 1: div.car-loop — botão "Mais detalhes" ─────────────────────
+    # Estrutura real do site:
     #   <div class="loop car-loop">
-    #     <a href="/carro/...">               ← image-link (texto vazio)
-    #     <a href="/carro/...">Título</a>     ← title-link (texto > 15 chars)
-    #     <a href="/carro/...">1972/72</a>    ← year-link
+    #     <a href="/carro/...">                       (link da imagem)
+    #     <a href="/carro/...">Título do veículo</a>  (link do título)
+    #     <a href="/carro/...">1972/72</a>             (link do ano)
     #     <a class="button" href="/carro/...">Mais detalhes</a>
     #   </div>
     for card_div in soup.find_all("div", class_=lambda c: c and "car-loop" in c):
-        links = card_div.find_all("a", href=re.compile(r"/carro/"))
-        # Título: primeiro link com texto útil (>15 chars exclui "1972/72" e "Mais detalhes")
-        title_link = next(
-            (a for a in links if len(a.get_text(strip=True)) > 15), None
-        )
-        if title_link:
-            anuncio = _card_de_link(title_link, data_coleta, seen)
-            if anuncio:
-                anuncios.append(anuncio)
+        anuncio = _anuncio_de_car_loop(card_div, data_coleta, seen)
+        if anuncio:
+            anuncios.append(anuncio)
 
     # ── Seletor 2: WordPress padrão — h2.entry-title > a[href*="/carro/"] ────
     if not anuncios:
-        h2_tags = soup.find_all("h2", class_=re.compile(r"entry.title|post.title", re.I))
-        for h2 in h2_tags:
+        for h2 in soup.find_all("h2", class_=re.compile(r"entry.title|post.title", re.I)):
             link = h2.find("a", href=re.compile(r"/carro/"))
             if not link:
                 continue
@@ -445,6 +441,62 @@ def _tem_proxima_pagina(html: str) -> bool:
     return bool(
         soup.find("a", class_=re.compile(r"next", re.I))
         or soup.find("a", rel="next")
+    )
+
+
+def _anuncio_de_car_loop(
+    card: BeautifulSoup, data_coleta: str, seen: set[str]
+) -> Optional[Anuncio]:
+    """
+    Extrai Anuncio parcial de um card div.car-loop.
+
+    URL: botão "Mais detalhes" (<a class="button">), com fallback para o último
+    link /carro/ do card.
+    Título: primeiro link com texto que não seja "Mais detalhes" nem ano puro.
+    """
+    links_carro = card.find_all("a", href=re.compile(r"/carro/"))
+    if not links_carro:
+        return None
+
+    # URL: preferir o botão "Mais detalhes", senão usar o último link do card
+    mais_detalhes = next(
+        (a for a in links_carro
+         if "mais detalhes" in a.get_text(strip=True).lower()),
+        links_carro[-1],
+    )
+    href = mais_detalhes.get("href", "")
+    if href.startswith("/"):
+        href = BASE_URL + href
+    if not href.startswith("http") or href in seen:
+        return None
+    seen.add(href)
+
+    # Título: primeiro link com texto útil (ignora "Mais detalhes" e padrão "1972/72")
+    titulo = ""
+    for link in links_carro:
+        texto = link.get_text(strip=True)
+        if (texto
+                and "mais detalhes" not in texto.lower()
+                and not re.fullmatch(r"\d{4}/\d{2,4}", texto)
+                and len(texto) > 4):
+            titulo = texto
+            break
+
+    if not titulo:
+        slug = href.rstrip("/").split("/")[-1]
+        titulo = slug.replace("-", " ").title()
+
+    ano = _extrair_ano(titulo) or _extrair_ano_do_slug(href)
+    return Anuncio(
+        titulo=titulo,
+        preco=None,
+        marca="",
+        modelo="",
+        ano=ano,
+        versao=None,
+        url=href,
+        fonte=FONTE,
+        data_coleta=data_coleta,
     )
 
 
