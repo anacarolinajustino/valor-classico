@@ -107,6 +107,7 @@ CONNECTOR_MODULES: dict[str, str] = {
 # Fontes bloqueadas ou sem listing de preços (2026-06-23).
 # Mantidas no mapa para registro; puladas no "Coletar todos".
 FONTES_INATIVAS: set[str] = {
+    "olx",                     # bloqueado por Cloudflare/anti-bot (403)
     "franzveiculosantigos",    # site portfólio, sem página de listing
     "classicospremium",        # preços exibidos como "Consulte", não coletáveis
     "brunelliveiculosantigos", # servidor down (timeout)
