@@ -3,21 +3,14 @@ Conector Reginaldo de Campinas.
 Site: https://reginaldodecampinas.com.br
 Motor: WooCommerce
 
-Particularidade: preços NÃO aparecem na listagem — estão apenas nas páginas
-de detalhe de cada produto. Estratégia em dois passos:
-  1. Coletar URLs dos itens DISPONÍVEL na listagem.
-  2. Para cada URL, buscar o preço na página de detalhe.
-
-Estrutura da listagem (WooCommerce li.product):
-  <li class="product">
-    <a href="/produto/[slug]/">
-      <span>DISPONÍVEL | VENDIDO | RESERVADO</span>
-      <img ...>
-      <h2>[título com ano e km, ex: "FUSCA 1985 3.000km RARIDADE"]</h2>
-    </a>
-  </li>
+Estratégia em dois passos:
+  1. WP REST API (/wp-json/wp/v2/product?product_cat=61) para listar URLs dos
+     veículos à venda sem precisar scraping da página de listagem HTML — mais
+     robusto contra bot-detection em IPs de datacenter (Render/Frankfurt).
+  2. Para cada URL, buscar preço e status na página de detalhe.
 
 Página de detalhe (tema customizado):
+  <span>DISPONÍVEL | VENDIDO | RESERVADO</span>
   <h2>R$ 98.000,00</h2>
 
 Os títulos incluem km e texto extra após o ano — são limpos por _limpar_titulo()
@@ -43,6 +36,9 @@ logger = logging.getLogger(__name__)
 FONTE = "reginaldodecampinas"
 BASE_URL = "https://reginaldodecampinas.com.br"
 LISTING_URL = f"{BASE_URL}/categoria-produto/veiculos-venda/"
+# WP REST API — categoria "Veículos à Venda" (ID 61), não requer autenticação
+API_URL = f"{BASE_URL}/wp-json/wp/v2/product"
+CAT_VENDA_ID = 61
 TIMEOUT = 20
 MAX_RETRIES = 2
 BACKOFF = 2.0
@@ -114,59 +110,53 @@ def coletar_completo(max_paginas: int = 50) -> tuple[list[Anuncio], dict]:
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
     erros = 0
-    paginas_ok = 0
     erros_detalhe = 0
 
-    for pg in range(1, max_paginas + 1):
-        url = LISTING_URL if pg == 1 else f"{LISTING_URL}page/{pg}/"
-        logger.info("[reginaldodecampinas] listagem página %d", pg)
-        html = _requisitar(sessao, url)
-        if html is None:
-            erros += 1
-            break
+    # Obtém URLs via WP REST API — evita scraping da listagem HTML que pode ser
+    # bloqueado por bot-detection em IPs de datacenter (ex.: Render/Frankfurt).
+    candidatos = _obter_urls_api(sessao)
+    if not candidatos:
+        logger.warning("[reginaldodecampinas] API retornou 0 candidatos")
+        erros = 1
 
-        candidatos = _parsear_listagem_urls(html)
-        if not candidatos:
-            break
+    logger.info("[reginaldodecampinas] %d candidatos via API", len(candidatos))
 
-        paginas_ok += 1
-        for prod_url, titulo in candidatos:
-            if prod_url in seen:
-                continue
-            seen.add(prod_url)
-
-            time.sleep(RATE_LIMIT)
-            detalhe_html = _requisitar(sessao, prod_url)
-            if detalhe_html is None:
-                erros_detalhe += 1
-                continue
-
-            preco = _extrair_preco_detalhe(detalhe_html)
-            if not preco or preco <= 0:
-                continue
-
-            titulo_limpo = _limpar_titulo(titulo)
-            if not titulo_limpo:
-                continue
-            marca, modelo, ano = inferir_marca_modelo_ano(titulo_limpo)
-            if not modelo:
-                continue
-
-            anuncios.append(Anuncio(
-                titulo=titulo_limpo, preco=preco, marca=marca, modelo=modelo,
-                ano=ano, versao=None, url=prod_url, fonte=FONTE,
-                data_coleta=data_coleta,
-            ))
-
-        if not _tem_proxima_pagina(html):
-            break
+    for prod_url, titulo in candidatos:
+        if prod_url in seen:
+            continue
+        seen.add(prod_url)
 
         time.sleep(RATE_LIMIT)
+        detalhe_html = _requisitar(sessao, prod_url)
+        if detalhe_html is None:
+            erros_detalhe += 1
+            continue
+
+        status = _extrair_status_detalhe(detalhe_html)
+        if status and "DISPONÍVEL" not in status:
+            continue
+
+        preco = _extrair_preco_detalhe(detalhe_html)
+        if not preco or preco <= 0:
+            continue
+
+        titulo_limpo = _limpar_titulo(titulo)
+        if not titulo_limpo:
+            continue
+        marca, modelo, ano = inferir_marca_modelo_ano(titulo_limpo)
+        if not modelo:
+            continue
+
+        anuncios.append(Anuncio(
+            titulo=titulo_limpo, preco=preco, marca=marca, modelo=modelo,
+            ano=ano, versao=None, url=prod_url, fonte=FONTE,
+            data_coleta=data_coleta,
+        ))
 
     metricas = {
         "fonte": FONTE,
         "data_coleta": data_coleta,
-        "paginas_listagem": paginas_ok,
+        "paginas_listagem": 1 if candidatos else 0,
         "anuncios_validos": len(anuncios),
         "erros_listagem": erros,
         "erros_detalhe": erros_detalhe,
@@ -184,46 +174,40 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    for pg in range(1, paginas + 1):
-        url = LISTING_URL if pg == 1 else f"{LISTING_URL}page/{pg}/"
-        html = _requisitar(sessao, url)
-        if html is None:
-            break
+    for prod_url, titulo in _obter_urls_api(sessao):
+        if prod_url in seen:
+            continue
+        titulo_limpo = _limpar_titulo(titulo)
+        if not titulo_limpo:
+            continue
+        t = normalizar_texto(titulo_limpo)
+        if modelo_norm and modelo_norm not in t:
+            continue
+        if marca_norm and marca_norm not in t:
+            continue
 
-        for prod_url, titulo in _parsear_listagem_urls(html):
-            if prod_url in seen:
-                continue
-            titulo_limpo = _limpar_titulo(titulo)
-            if not titulo_limpo:
-                continue
-            t = normalizar_texto(titulo_limpo)
-            if modelo_norm and modelo_norm not in t:
-                continue
-            if marca_norm and marca_norm not in t:
-                continue
-
-            seen.add(prod_url)
-            time.sleep(RATE_LIMIT)
-            detalhe_html = _requisitar(sessao, prod_url)
-            if detalhe_html is None:
-                continue
-
-            preco = _extrair_preco_detalhe(detalhe_html)
-            if not preco or preco <= 0:
-                continue
-
-            m_inf, mo_inf, ano = inferir_marca_modelo_ano(titulo_limpo)
-            if not mo_inf:
-                continue
-            anuncios.append(Anuncio(
-                titulo=titulo_limpo, preco=preco, marca=m_inf, modelo=mo_inf,
-                ano=ano, versao=None, url=prod_url, fonte=FONTE,
-                data_coleta=data_coleta,
-            ))
-
-        if not _tem_proxima_pagina(html):
-            break
+        seen.add(prod_url)
         time.sleep(RATE_LIMIT)
+        detalhe_html = _requisitar(sessao, prod_url)
+        if detalhe_html is None:
+            continue
+
+        status = _extrair_status_detalhe(detalhe_html)
+        if status and "DISPONÍVEL" not in status:
+            continue
+
+        preco = _extrair_preco_detalhe(detalhe_html)
+        if not preco or preco <= 0:
+            continue
+
+        m_inf, mo_inf, ano = inferir_marca_modelo_ano(titulo_limpo)
+        if not mo_inf:
+            continue
+        anuncios.append(Anuncio(
+            titulo=titulo_limpo, preco=preco, marca=m_inf, modelo=mo_inf,
+            ano=ano, versao=None, url=prod_url, fonte=FONTE,
+            data_coleta=data_coleta,
+        ))
 
     logger.info("[reginaldodecampinas] busca: %d anúncio(s)", len(anuncios))
     return anuncios
@@ -247,6 +231,52 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
 
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
+
+def _obter_urls_api(sessao: requests.Session) -> list[tuple[str, str]]:
+    """
+    Obtém [(url, titulo)] de veículos via WP REST API.
+    Mais robusto que scraping HTML para IPs de datacenter.
+    """
+    resultados: list[tuple[str, str]] = []
+    pagina = 1
+    while True:
+        params = {
+            "product_cat": CAT_VENDA_ID,
+            "per_page": 100,
+            "page": pagina,
+            "_fields": "id,link,title",
+        }
+        try:
+            r = sessao.get(API_URL, params=params, timeout=TIMEOUT)
+            r.raise_for_status()
+            items = r.json()
+        except Exception as exc:
+            logger.warning("[reginaldodecampinas] API erro pág %d: %s", pagina, exc)
+            break
+        if not items:
+            break
+        for item in items:
+            url = item.get("link", "")
+            titulo_raw = item.get("title", {}).get("rendered", "")
+            titulo = re.sub(r"&#\d+;|&[a-z]+;", "", titulo_raw).strip()
+            if url and titulo:
+                resultados.append((url, titulo))
+        total_pages = int(r.headers.get("X-WP-TotalPages", 1))
+        if pagina >= total_pages:
+            break
+        pagina += 1
+    return resultados
+
+
+def _extrair_status_detalhe(html: str) -> str:
+    """Extrai badge de disponibilidade da página de detalhe (DISPONÍVEL/VENDIDO/etc.)."""
+    soup = BeautifulSoup(html, "lxml")
+    for span in soup.find_all("span"):
+        t = span.get_text(strip=True).upper()
+        if t in ("DISPONÍVEL", "VENDIDO", "RESERVADO", "EM BREVE"):
+            return t
+    return ""
+
 
 def _parsear_listagem_urls(html: str) -> list[tuple[str, str]]:
     """
