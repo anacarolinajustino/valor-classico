@@ -427,6 +427,46 @@ def listar_anuncios(
     }
 
 
+def get_marcas_db() -> list[str]:
+    """Retorna lista de marcas distintas presentes na tabela anuncios."""
+    sql = "SELECT DISTINCT UPPER(marca) AS marca FROM anuncios WHERE marca IS NOT NULL ORDER BY 1"
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return [r["marca"] for r in cur.fetchall() if r["marca"]]
+
+
+def get_modelos_db(marca: str) -> list[str]:
+    """Retorna lista de modelos distintos para uma marca na tabela anuncios."""
+    sql = """
+        SELECT DISTINCT UPPER(modelo) AS modelo
+        FROM anuncios
+        WHERE UPPER(marca) = %s AND modelo IS NOT NULL
+        ORDER BY 1
+    """
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (marca.strip().upper(),))
+            return [r["modelo"] for r in cur.fetchall() if r["modelo"]]
+
+
+def get_anos_db(marca: str, modelo: str) -> list[int]:
+    """Retorna lista de anos distintos para marca+modelo na tabela anuncios."""
+    sql = """
+        SELECT DISTINCT ano
+        FROM anuncios
+        WHERE UPPER(marca) = %s
+          AND UPPER(modelo) = %s
+          AND ano IS NOT NULL
+          AND ano <= %s
+        ORDER BY ano DESC
+    """
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (marca.strip().upper(), modelo.strip().upper(), ANO_CORTE_CLASSICO))
+            return [r["ano"] for r in cur.fetchall()]
+
+
 def get_mais_pesquisados(
     limit: int = 10,
 ) -> dict[str, Any]:

@@ -37,9 +37,12 @@ from src.pipeline.outlier_filter import filtrar_outliers
 from src.pipeline.persistence import (
     ANO_CORTE_CLASSICO,
     buscar_anuncios,
+    get_anos_db,
     get_db_stats,
     get_historico,
     get_mais_pesquisados,
+    get_marcas_db,
+    get_modelos_db,
     init_db,
     listar_anuncios,
     log_search,
@@ -171,10 +174,12 @@ def index():
 
 @app.route("/api/marcas")
 def api_marcas():
-    marcas = sorted(set(
-        m.upper()
-        for m, _ in catalogo.keys()
-    ))
+    try:
+        marcas = get_marcas_db()
+    except Exception:
+        marcas = []
+    if not marcas:
+        marcas = sorted(set(m.upper() for m, _ in catalogo.keys()))
     return jsonify({"marcas": marcas})
 
 
@@ -183,8 +188,12 @@ def api_modelos():
     marca = request.args.get("marca", "").strip()
     if not marca:
         return jsonify({"erro": "Parâmetro 'marca' obrigatório"}), 400
-    marca_norm = normalizar_texto(marca)
-    modelos = _modelos_para_marca(marca_norm)
+    try:
+        modelos = get_modelos_db(marca)
+    except Exception:
+        modelos = []
+    if not modelos:
+        modelos = _modelos_para_marca(normalizar_texto(marca))
     return jsonify({"marca": marca.upper(), "modelos": modelos})
 
 
@@ -194,9 +203,12 @@ def api_anos():
     modelo = request.args.get("modelo", "").strip()
     if not marca or not modelo:
         return jsonify({"erro": "Parâmetros 'marca' e 'modelo' obrigatórios"}), 400
-    marca_norm = normalizar_texto(marca)
-    modelo_norm = normalizar_texto(modelo)
-    anos = _anos_para_marca_modelo(marca_norm, modelo_norm)
+    try:
+        anos = get_anos_db(marca, modelo)
+    except Exception:
+        anos = []
+    if not anos:
+        anos = _anos_para_marca_modelo(normalizar_texto(marca), normalizar_texto(modelo))
     return jsonify({"marca": marca.upper(), "modelo": modelo.upper(), "anos": anos})
 
 
