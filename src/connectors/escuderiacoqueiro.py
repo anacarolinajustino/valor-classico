@@ -1,13 +1,11 @@
 """
 Conector Escuderia Coqueiro.
 Site: https://www.escuderiacoqueiro.com.br
-Listing: /veiculos/  — ~12 veículos, página única.
+Listing: /veiculos/  — ~13 veículos, página única.
 
-Estrutura do card:
-  <a href="/cars/[slug]/">
-    <h4>[título do veículo]</h4>
-    [preço sem símbolo R$, ex: "379.900,00"]
-  </a>
+Estrutura do card (div.sc_cars_item_info):
+  <h4 class="car_title"><a href="/cars/[slug]/">TÍTULO</a></h4>
+  <div class="car_price icon-tag-1"><span>379.900,00</span></div>
 
 Particularidade: o preço aparece como número puro (sem "R$"), portanto
 a busca usa regex para formato brasileiro NNN.NNN,NN.
@@ -128,50 +126,42 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     """
     Extrai anúncios da listagem Escuderia Coqueiro.
 
-    Localiza links /cars/[slug]/ com <h4> interno para título.
-    Preço sem símbolo R$ — detectado por regex de formato BR (NNN.NNN,NN)
-    no container mais próximo.
+    O título está em h4.car_title > a[href=/cars/slug/].
+    O preço está em div.car_price > span (mesmo pai sc_cars_item_info).
     """
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    for link in soup.find_all("a", href=_LINK_PAT):
-        href = link.get("href", "")
+    for h4 in soup.find_all("h4", class_="car_title"):
+        title_link = h4.find("a", href=_LINK_PAT)
+        if not title_link:
+            continue
+
+        href = title_link.get("href", "")
         url = href if href.startswith("http") else BASE_URL + href
         if url in seen:
             continue
 
-        # Título: h4 ou h3 dentro do link
-        h = link.find(["h4", "h3", "h2"])
-        if not h:
-            continue
-        titulo = h.get_text(strip=True)
+        titulo = h4.get_text(strip=True)
         if not titulo or len(titulo) < 4:
             continue
 
-        # Preço: número em formato BR no container isolado (≤2 links /cars/)
+        # Preço: div.car_price dentro do mesmo sc_cars_item_info
         preco = None
-        node = link.parent
-        for _ in range(8):
-            if node is None:
-                break
-            inner = {a.get("href") for a in node.find_all("a", href=_LINK_PAT)}
-            if len(inner) <= 2:
-                txt = node.get_text(separator=" ", strip=True)
-                # Primeiro tenta com R$ (caso o site adicione futuramente)
-                m = re.search(r"R\$\s*[\d.,]+", txt)
+        info_div = h4.find_parent("div", class_="sc_cars_item_info")
+        if info_div:
+            price_div = info_div.find("div", class_="car_price")
+            if price_div:
+                span = price_div.find("span")
+                preco_raw = span.get_text(strip=True) if span else price_div.get_text(strip=True)
+                m = re.search(r"R\$\s*[\d.,]+", preco_raw)
                 if m:
                     preco = normalizar_preco(m.group(0))
-                    if preco and preco > 0:
-                        break
-                # Formato brasileiro sem R$: 379.900,00
-                m2 = _PRECO_PAT.search(txt)
-                if m2:
-                    preco = normalizar_preco(m2.group(0))
-                    if preco and preco > 0:
-                        break
-            node = node.parent
+                if not preco or preco <= 0:
+                    m2 = _PRECO_PAT.search(preco_raw)
+                    if m2:
+                        preco = normalizar_preco(m2.group(0))
 
         if not preco or preco <= 0:
             continue
