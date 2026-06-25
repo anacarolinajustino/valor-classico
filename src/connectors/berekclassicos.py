@@ -3,10 +3,13 @@ Conector Berek Clássicos.
 Site: https://berekclassicos.com.br
 Listing: /cars/  — ~80 veículos, página única (WordPress autodealer theme).
 
-Estrutura do card:
-  <a href="/autos/[slug]/">  ← link de imagem
-  <h3><a href="/autos/[slug]/">MG Midget 1968</a></h3>
-  <div class="price">R$ 199.000</div>
+Estrutura do card (div.slider-grid__inner):
+  <a href="/autos/[slug]/">  ← link com imagem e preço sobreposto
+    <span class="slider-grid__price">R$ 199.000</span>
+  </a>
+  <div class="tmpl-gray-footer">
+    <span class="tmpl-slider-grid__name">MG Midget 1968</span>
+  </div>
 """
 from __future__ import annotations
 
@@ -122,43 +125,32 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     """
     Extrai anúncios da listagem Berek Clássicos.
 
-    Localiza headings (h2/h3/h4) que contêm links /autos/[slug]/ — esses headings
-    são os títulos dos carros. O preço "R$ NNN.NNN" é buscado subindo o DOM
-    até um container isolado (≤2 links /autos/).
+    Cada card é um div.slider-grid__inner. O título está em
+    span.tmpl-slider-grid__name e o link + preço no <a href="/autos/[slug]/">.
     """
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    for heading in soup.find_all(["h2", "h3", "h4"]):
-        title_link = heading.find("a", href=_LINK_PAT)
-        if not title_link:
+    for card in soup.find_all("div", class_="slider-grid__inner"):
+        link = card.find("a", href=_LINK_PAT)
+        if not link:
             continue
 
-        href = title_link.get("href", "")
+        href = link.get("href", "")
         url = href if href.startswith("http") else BASE_URL + href
         if url in seen:
             continue
 
-        titulo = heading.get_text(strip=True)
+        name_span = card.find("span", class_="tmpl-slider-grid__name")
+        titulo = name_span.get_text(strip=True) if name_span else ""
         if not titulo or len(titulo) < 4:
             continue
 
-        # Preço: sobe até container com ≤2 links únicos /autos/
-        preco = None
-        node = heading.parent
-        for _ in range(8):
-            if node is None:
-                break
-            inner = {a.get("href") for a in node.find_all("a", href=_LINK_PAT)}
-            if len(inner) <= 2:
-                m = re.search(r"R\$\s*[\d.,]+", node.get_text(separator=" ", strip=True))
-                if m:
-                    preco = normalizar_preco(m.group(0))
-                    if preco and preco > 0:
-                        break
-            node = node.parent
-
+        price_span = card.find("span", class_="slider-grid__price")
+        preco_raw = price_span.get_text(strip=True) if price_span else ""
+        m = re.search(r"R\$\s*[\d.,]+", preco_raw)
+        preco = normalizar_preco(m.group(0)) if m else None
         if not preco or preco <= 0:
             continue
 
