@@ -13,12 +13,16 @@ Estrutura da listagem (WooCommerce li.product):
     <a href="/produto/[slug]/">
       <span>DISPONÍVEL | VENDIDO | RESERVADO</span>
       <img ...>
-      <h3>[título com ano e km]</h3>
+      <h2>[título com ano e km, ex: "FUSCA 1985 3.000km RARIDADE"]</h2>
     </a>
   </li>
 
 Página de detalhe (tema customizado):
   <h2>R$ 98.000,00</h2>
+
+Os títulos incluem km e texto extra após o ano — são limpos por _limpar_titulo()
+antes de passar para inferir_marca_modelo_ano. Marcas populares brasileiras
+(FUSCA, KOMBI, etc.) são normalizadas para os nomes oficiais via _MARCA_ALIAS.
 """
 from __future__ import annotations
 
@@ -48,6 +52,59 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+
+# Apelidos populares brasileiros → marca oficial
+_MARCA_ALIAS: dict[str, str] = {
+    "FUSCA":    "VOLKSWAGEN",
+    "KOMBI":    "VOLKSWAGEN",
+    "SAVEIRO":  "VOLKSWAGEN",
+    "GOL":      "VOLKSWAGEN",
+    "PARATI":   "VOLKSWAGEN",
+    "VOYAGE":   "VOLKSWAGEN",
+    "BRASILIA":  "VOLKSWAGEN",
+    "CORCEL":   "FORD",
+    "ESCORT":   "FORD",
+    "MAVERICK": "FORD",
+    "PAMPA":    "FORD",
+    "OPALA":    "CHEVROLET",
+    "CARAVAN":  "CHEVROLET",
+    "MONZA":    "CHEVROLET",
+    "KADETT":   "CHEVROLET",
+    "VECTRA":   "CHEVROLET",
+    "MOTO":     None,   # genérico demais — descarta
+}
+
+# Remove km/milhas e o que vem depois (inclui espaço não-quebrável e chars especiais)
+_KM_PAT = re.compile(
+    r'[\s\xa0\W]*\d{1,3}(?:[.,]\d{3})*[\s\xa0.,]*(?:km|milhas|mil[\s\xa0]*km|kms)\b.*$',
+    re.IGNORECASE,
+)
+# Remove sufixos decorativos após o ano
+_SUFFIX_PAT = re.compile(
+    r'[\s\xa0]+(?:RARIDADE|RARIDADE\s+ABSOLUTA|NOVISSIMO|NOVÍSSIMO|EM\s+BREVE|PROJETO|'
+    r'PARA\s+IMPORTA[ÇC][ÃA]O|PLACA\s+PRETA|NA\s+NOTA\s+FISCAL|7LUGARES)\b.*$',
+    re.IGNORECASE,
+)
+
+
+def _limpar_titulo(titulo: str) -> str:
+    """Remove km, sufixos desnecessários e aplica alias de marca.
+    Descarta títulos com R$ (indicam anúncios que não são veículos)."""
+    if "R$" in titulo or "R&#" in titulo:
+        return ""
+    t = _KM_PAT.sub("", titulo).strip()
+    t = _SUFFIX_PAT.sub("", t).strip()
+    # Aplica alias: prepend marca oficial mas mantém apelido no modelo
+    # "FUSCA 1985" → "VOLKSWAGEN FUSCA 1985" (marca=VW, modelo=FUSCA)
+    partes = t.split(None, 1)
+    if partes:
+        primeiro = partes[0].upper()
+        if primeiro in _MARCA_ALIAS:
+            alias = _MARCA_ALIAS[primeiro]
+            if alias is None:
+                return ""   # marca genérica demais, descarta
+            t = f"{alias} {t}"  # prepend
+    return t.strip()
 
 
 def coletar_completo(max_paginas: int = 50) -> tuple[list[Anuncio], dict]:
@@ -88,12 +145,15 @@ def coletar_completo(max_paginas: int = 50) -> tuple[list[Anuncio], dict]:
             if not preco or preco <= 0:
                 continue
 
-            marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+            titulo_limpo = _limpar_titulo(titulo)
+            if not titulo_limpo:
+                continue
+            marca, modelo, ano = inferir_marca_modelo_ano(titulo_limpo)
             if not modelo:
                 continue
 
             anuncios.append(Anuncio(
-                titulo=titulo, preco=preco, marca=marca, modelo=modelo,
+                titulo=titulo_limpo, preco=preco, marca=marca, modelo=modelo,
                 ano=ano, versao=None, url=prod_url, fonte=FONTE,
                 data_coleta=data_coleta,
             ))
@@ -133,7 +193,10 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
         for prod_url, titulo in _parsear_listagem_urls(html):
             if prod_url in seen:
                 continue
-            t = normalizar_texto(titulo)
+            titulo_limpo = _limpar_titulo(titulo)
+            if not titulo_limpo:
+                continue
+            t = normalizar_texto(titulo_limpo)
             if modelo_norm and modelo_norm not in t:
                 continue
             if marca_norm and marca_norm not in t:
@@ -149,11 +212,11 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
             if not preco or preco <= 0:
                 continue
 
-            m_inf, mo_inf, ano = inferir_marca_modelo_ano(titulo)
+            m_inf, mo_inf, ano = inferir_marca_modelo_ano(titulo_limpo)
             if not mo_inf:
                 continue
             anuncios.append(Anuncio(
-                titulo=titulo, preco=preco, marca=m_inf, modelo=mo_inf,
+                titulo=titulo_limpo, preco=preco, marca=m_inf, modelo=mo_inf,
                 ano=ano, versao=None, url=prod_url, fonte=FONTE,
                 data_coleta=data_coleta,
             ))
@@ -170,11 +233,14 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     """Compatibilidade: retorna itens sem preço (preço requer detalhe individual)."""
     anuncios = []
     for url, titulo in _parsear_listagem_urls(html):
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        titulo_limpo = _limpar_titulo(titulo)
+        if not titulo_limpo:
+            continue
+        marca, modelo, ano = inferir_marca_modelo_ano(titulo_limpo)
         if not modelo:
             continue
         anuncios.append(Anuncio(
-            titulo=titulo, preco=None, marca=marca, modelo=modelo,
+            titulo=titulo_limpo, preco=None, marca=marca, modelo=modelo,
             ano=ano, versao=None, url=url, fonte=FONTE, data_coleta=data_coleta,
         ))
     return anuncios
