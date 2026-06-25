@@ -3,15 +3,11 @@ Conector Poa Parts.
 Site: https://www.poaparts.com.br
 Listing: /veiculos  — ~20 veículos, página única (plataforma Wix SSR).
 
-Estrutura do card (Wix server-side rendered):
-  <a href="https://www.poaparts.com.br/product-page/[slug]">
-    <img src="..."/>
-    CHEVROLET C10 SCOTTSDALE V8 DIESEL 1982
-    <div>PreçoR$ 190.000,00</div>
+Estrutura do card (Wix server-side rendered, data-hook confiáveis):
+  <a data-hook="product-item-product-details-link" href="/product-page/[slug]">
+    <p data-hook="product-item-name">CHEVROLET C10 SCOTTSDALE V8 DIESEL 1982</p>
+    <span data-hook="product-item-price-to-pay">R$\xa0190.000,00</span>
   </a>
-
-Título: texto livre no nó de texto direto do <a> (antes do <div> de preço).
-Preço: div interno com texto "PreçoR$ X" — normalizar_preco descarta "Preço".
 """
 from __future__ import annotations
 
@@ -22,7 +18,7 @@ from datetime import date
 from typing import Optional
 
 import requests
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup
 
 from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
@@ -122,54 +118,28 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     """
     Extrai anúncios da listagem Poa Parts (Wix SSR).
 
-    Localiza links /product-page/[slug]. O título é o nó de texto direto
-    do <a> (uppercase "MARCA MODELO ANO"). O preço está num <div> interno
-    com texto "PreçoR$ X" — normalizar_preco descarta caracteres não numéricos.
+    Usa data-hook estáveis do Wix: product-item-product-details-link para o card,
+    product-item-name para o título e product-item-price-to-pay para o preço.
     """
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    for link in soup.find_all("a", href=_LINK_PAT):
+    for link in soup.find_all("a", attrs={"data-hook": "product-item-product-details-link"}):
         href = link.get("href", "")
         url = href if href.startswith("http") else BASE_URL + href
         if url in seen:
             continue
 
-        # Título: primeiro nó de texto direto com conteúdo substancial
-        titulo = ""
-        for node in link.children:
-            if isinstance(node, NavigableString):
-                t = node.strip()
-                if t and len(t) > 4:
-                    titulo = t
-                    break
-
-        # Fallback: texto do link excluindo div de preço
-        if not titulo:
-            price_div = link.find("div")
-            if price_div:
-                price_div.extract()
-            titulo = link.get_text(strip=True)
-
+        name_tag = link.find(attrs={"data-hook": "product-item-name"})
+        titulo = name_tag.get_text(strip=True) if name_tag else ""
         if not titulo or len(titulo) < 4:
             continue
 
-        # Preço: div interno contendo "R$" ou "Preço"
-        preco = None
-        for div in link.find_all(["div", "span", "p"]):
-            txt = div.get_text(strip=True)
-            if "R$" in txt or "Preco" in txt or "Preço" in txt:
-                preco = normalizar_preco(txt)
-                if preco and preco > 0:
-                    break
-
-        if not preco or preco <= 0:
-            # Fallback: R$ no texto do link
-            m = re.search(r"R\$\s*[\d.,]+", link.get_text(separator=" ", strip=True))
-            if m:
-                preco = normalizar_preco(m.group(0))
-
+        price_tag = link.find(attrs={"data-hook": "product-item-price-to-pay"})
+        preco_raw = price_tag.get_text(strip=True) if price_tag else ""
+        m = re.search(r"R\$[\s\xa0]*([\d.,]+)", preco_raw)
+        preco = normalizar_preco(f"R$ {m.group(1)}") if m else None
         if not preco or preco <= 0:
             continue
 
