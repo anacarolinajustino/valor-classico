@@ -1,19 +1,15 @@
 """
 Conector Estação Raridades.
 Site: https://estacaoraridades.com.br
-Listing: /anuncios  — página única com ~40 veículos.
+Listing: /anuncios  — página única com ~41 veículos.
 
-Estrutura do card:
-  <div class="listing-card">
-    <a href="anuncio/[brand]-[model]-[code]">    ← URL relativa
-      <img alt="[BRAND MODEL]">
-      <h3>[TITULO]</h3>
-      <span class="price">R$ 35.900</span>
-    </a>
+Estrutura do card (article.item):
+  <div class="content-price">R$ 35.900</div>
+  <div class="content-desc">
+    <a href="anuncio/[brand]-[model]-[code]">Toyota . Paseo . 1995</a>
   </div>
 
-URL relativa é resolvida para https://estacaoraridades.com.br/anuncio/...
-O slug da URL traz a marca no primeiro segmento (ex: "volkswagen" → "VOLKSWAGEN").
+Título no formato "Marca . Modelo . Ano"; URLs são relativas (sem barra inicial).
 """
 from __future__ import annotations
 
@@ -125,72 +121,37 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
     """
     Extrai anúncios da listagem Estação Raridades.
 
-    Localiza cards (div.listing-card ou divs contendo <a href="anuncio/...">),
-    extrai título do <h3>, preço do <span class="price"> ou padrão R$,
-    e resolve URLs relativas.
-
-    A marca é extraída do primeiro segmento do slug da URL quando ausente no título.
+    Itera por article.item; título em div.content-desc > a (formato "Marca . Modelo . Ano"),
+    preço em div.content-price, URL no href do link.
     """
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    # Seleciona cards com link "anuncio/..."
-    card_links = soup.find_all("a", href=re.compile(r"anuncio/"))
-
-    for link in card_links:
-        href = link.get("href", "")
-        if not href:
+    for article in soup.find_all("article", class_="item"):
+        # URL: primeiro link anuncio/ no card
+        link = article.find("a", href=re.compile(r"anuncio/"))
+        if not link:
             continue
-        # Resolve URL relativa
-        if href.startswith("http"):
-            url = href
-        elif href.startswith("/"):
-            url = BASE_URL + href
-        else:
-            url = f"{BASE_URL}/{href}"
-
+        href = link.get("href", "")
+        url = href if href.startswith("http") else f"{BASE_URL}/{href.lstrip('/')}"
         if url in seen:
             continue
 
-        # Título: de <h3> dentro do link; fallback para <img alt>
-        h3 = link.find("h3") or link.find("h2")
-        titulo_parcial = h3.get_text(strip=True) if h3 else ""
-        if not titulo_parcial:
-            img = link.find("img")
-            titulo_parcial = img.get("alt", "") if img else ""
-
-        if not titulo_parcial:
+        # Título: link dentro de content-desc ("Marca . Modelo . Ano")
+        desc_div = article.find("div", class_="content-desc")
+        title_link = desc_div.find("a") if desc_div else None
+        titulo_raw = title_link.get_text(strip=True) if title_link else ""
+        # Normaliza separador " . " → " "
+        titulo = re.sub(r"\s*\.\s*", " ", titulo_raw).strip()
+        if not titulo or len(titulo) < 4:
             continue
 
-        # Extrai marca do slug da URL: anuncio/[brand]-[model]-[code]
-        slug = href.rstrip("/").split("/")[-1]
-        slug_parts = slug.split("-")
-        brand_from_slug = slug_parts[0].upper() if slug_parts else ""
-
-        # Se o título já começa com a marca, usa diretamente; senão, prepend
-        if brand_from_slug and not titulo_parcial.upper().startswith(brand_from_slug):
-            titulo = f"{brand_from_slug} {titulo_parcial}"
-        else:
-            titulo = titulo_parcial
-
-        # Preço: <span class="price"> ou padrão R$ dentro do link ou card pai
-        preco = None
-        price_span = link.find("span", class_=re.compile(r"price", re.I))
-        if price_span:
-            preco = normalizar_preco(price_span.get_text(strip=True))
-        if not preco or preco <= 0:
-            m = re.search(r"R\$\s*[\d.,]+", link.get_text(separator=" ", strip=True))
-            if m:
-                preco = normalizar_preco(m.group(0))
-        if not preco or preco <= 0:
-            # Tenta no card pai
-            card = link.parent
-            if card:
-                m = re.search(r"R\$\s*[\d.,]+", card.get_text(separator=" ", strip=True))
-                if m:
-                    preco = normalizar_preco(m.group(0))
-
+        # Preço: div.content-price
+        price_div = article.find("div", class_="content-price")
+        preco_raw = price_div.get_text(strip=True) if price_div else ""
+        m = re.search(r"R\$\s*[\d.,]+", preco_raw)
+        preco = normalizar_preco(m.group(0)) if m else None
         if not preco or preco <= 0:
             continue
 
