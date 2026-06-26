@@ -28,3 +28,6 @@ instance/
 
 # VS Code
 .vscode/
+
+# Variáveis de ambiente locais (nunca commitar)
+.env

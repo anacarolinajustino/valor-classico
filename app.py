@@ -87,6 +87,7 @@ CONNECTOR_MODULES: dict[str, str] = {
     "socarrao":               "src.connectors.socarrao",
     "lartdelautomobile":      "src.connectors.lartdelautomobile",
     "webmotors":              "src.connectors.webmotors",
+    "mercadolivre":           "src.connectors.mercadolivre",
     # Novas fontes (2026-06-24)
     "classiccarbr":           "src.connectors.classiccarbr",
     "reginaldodecampinas":    "src.connectors.reginaldodecampinas",
