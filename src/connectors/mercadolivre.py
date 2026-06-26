@@ -3,18 +3,17 @@ Conector Mercado Livre — coleta anúncios de carros clássicos via API oficial
 
 Site: https://www.mercadolivre.com.br
 Motor: REST API oficial (Mercado Livre Developers)
-Estratégia: client_credentials OAuth → Search API (MLB1744 = Carros e Caminhonetes)
-            com filtro VEHICLE_YEAR por faixas de ano (evita limite de 1000 resultados/query)
+Estratégia: Search API pública (MLB1744 = Carros e Caminhonetes), sem autenticação.
+            A API de busca é pública — não exige OAuth para leitura de anúncios.
+            Dividimos em faixas de ano para contornar o limite de 1000 resultados/query.
 
 Compliance:
 - API oficial: uso autorizado conforme Termos de Uso do Mercado Livre Developers.
-- Rate limit: 0,25 s entre requisições (bem abaixo do limite da API com App Token).
-- Credenciais: ML_CLIENT_ID e ML_CLIENT_SECRET via variáveis de ambiente.
+- Rate limit: 0,25 s entre requisições (bem abaixo do limite de 10 req/s sem token).
 """
 from __future__ import annotations
 
 import logging
-import os
 import time
 from datetime import date
 from typing import Optional
@@ -59,7 +58,7 @@ def coletar_completo() -> tuple[list[Anuncio], dict]:
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
-    sessao = _criar_sessao_autenticada()
+    sessao = _criar_sessao()
 
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
@@ -104,7 +103,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
-    sessao = _criar_sessao_autenticada()
+    sessao = _criar_sessao()
 
     marca_norm = normalizar_texto(marca)
     modelo_norm = normalizar_texto(modelo)
@@ -160,37 +159,11 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
-def _criar_sessao_autenticada() -> requests.Session:
-    """Obtém App Token (client_credentials) e cria sessão autenticada."""
-    client_id = os.environ.get("ML_CLIENT_ID", "")
-    client_secret = os.environ.get("ML_CLIENT_SECRET", "")
-    if not client_id or not client_secret:
-        raise RuntimeError(
-            "Variáveis de ambiente ML_CLIENT_ID e ML_CLIENT_SECRET não configuradas. "
-            "Registre um app em developers.mercadolivre.com.br e adicione as credenciais."
-        )
-    token = _obter_token(client_id, client_secret)
+def _criar_sessao() -> requests.Session:
+    """Cria sessão para a API pública do ML (sem autenticação)."""
     s = requests.Session()
-    s.headers.update({
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-    })
+    s.headers.update({"Accept": "application/json"})
     return s
-
-
-def _obter_token(client_id: str, client_secret: str) -> str:
-    """Obtém App Token via client_credentials (sem login de usuário)."""
-    resp = requests.post(
-        f"{_API_BASE}/oauth/token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-        },
-        timeout=_TIMEOUT,
-    )
-    resp.raise_for_status()
-    return resp.json()["access_token"]
 
 
 def _coletar_faixa(
