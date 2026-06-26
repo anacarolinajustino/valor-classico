@@ -123,6 +123,7 @@ FONTES_INATIVAS: set[str] = {
     "autoclassic",             # ECONNREFUSED de IPs de cloud
     "oldcar",                  # bloqueado pelo servidor do Estadão
     "ggworld",                 # Wix com Load More via JS; sem links individuais
+    "reginaldodecampinas",     # Hostinger CDN bloqueia IPs de datacenter (WP API + HTML)
 }
 
 catalogo = carregar_catalogo()
