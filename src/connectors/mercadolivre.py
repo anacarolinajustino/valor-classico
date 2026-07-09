@@ -1,25 +1,38 @@
 """
-Conector Mercado Livre — coleta anúncios de carros clássicos via API oficial.
+Conector Mercado Livre — coleta anúncios de carros clássicos via páginas
+renderizadas (Playwright), não mais via API oficial.
 
 Site: https://www.mercadolivre.com.br
-Motor: REST API oficial (Mercado Livre Developers)
-Estratégia: Search API pública (MLB1744 = Carros e Caminhonetes), sem autenticação.
-            A API de busca é pública — não exige OAuth para leitura de anúncios.
-            Dividimos em faixas de ano para contornar o limite de 1000 resultados/query.
+Motor: Playwright + proxy residencial (DataImpulse) + stealth.
 
-Compliance:
-- API oficial: uso autorizado conforme Termos de Uso do Mercado Livre Developers.
-- Rate limit: 0,25 s entre requisições (bem abaixo do limite de 10 req/s sem token).
+Histórico: a API pública (api.mercadolibre.com) passou a bloquear até
+endpoints triviais com 403 PA_UNAUTHORIZED_RESULT_FROM_POLICIES (ver
+investigação de 2026-07-08). Testado ao vivo:
+- IP de datacenter: bloqueado sempre (interstitial /gz/account-verification
+  ou /captcha/wall), mesmo via Playwright real.
+- IP residencial (DataImpulse) sem stealth: ainda bloqueado ~92% das vezes —
+  não é reputação de IP, é detecção de fingerprint de automação via CDP.
+- IP residencial + stealth (playwright-stealth): 0 bloqueios em 12 tentativas.
+
+Uso de stealth para coleta de dados públicos (preço/título/ano de anúncios)
+foi autorizado explicitamente pelo usuário em 2026-07-08.
+
+Compliance: apenas dados públicos de anúncios (sem login, sem dados pessoais).
+Rate limit: ~2s entre navegações para não se comportar como scraper agressivo.
 """
 from __future__ import annotations
 
 import logging
+import re
 import time
+import unicodedata
 from datetime import date
 from typing import Optional
 
-import requests
+from bs4 import BeautifulSoup
 
+from src.catalog.loader import carregar_catalogo
+from src.connectors._browser import criar_contexto_aquecido
 from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_texto
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
@@ -27,54 +40,95 @@ from src.pipeline.schema import Anuncio
 logger = logging.getLogger(__name__)
 
 FONTE = "mercadolivre"
-_API_BASE = "https://api.mercadolibre.com"
-_SITE_ID = "MLB"
-_CATEGORIA_CARROS = "MLB1744"  # Carros e Caminhonetes
+_HOME_URL = "https://www.mercadolivre.com.br/"
+_CATEGORIA_SLUG = "carros-vans-utilitarios"
+_ITENS_POR_PAGINA = 48
 
-_TIMEOUT = 15
-_RATE_LIMIT = 0.25   # segundos entre requisições de paginação
-_MAX_RETRIES = 2
-_BACKOFF = 2.0
-_LIMIT = 50          # itens por página (máximo da API)
-_MAX_OFFSET = 950    # API limita a 1000 resultados por query (offset máx. = 950)
+_ESPERA_NAV_MS = 4000
+_RATE_LIMIT = 2.0
 
-# Faixas de ano: décadas curtas para que cada query tenha bem menos de 1000 resultados.
-_FAIXAS_ANO: list[tuple[int, int]] = [
-    (1900, 1960),
-    (1961, 1970),
-    (1971, 1975),
-    (1976, 1980),
-    (1981, 1985),
-    (1986, 1990),
-    (1991, 1995),
-    (1996, ANO_CORTE_CLASSICO),
-]
+
+def _bloqueado(page) -> bool:
+    """True se a página caiu num interstitial anti-bot do ML (captcha ou verificação)."""
+    return "/gz/" in page.url or "/captcha/" in page.url
+
+
+def _bloquear_midia(page) -> None:
+    """Aborta requisições de imagem/fonte/mídia — só precisamos do HTML/dados, economiza banda de proxy."""
+    page.route(
+        "**/*",
+        lambda route: route.abort()
+        if route.request.resource_type in ("image", "font", "media")
+        else route.continue_(),
+    )
+
+
+def _slug(texto: str) -> str:
+    """Converte texto em slug de URL (minúsculo, sem acento, hífens no lugar de espaços)."""
+    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode("ascii")
+    minusculo = sem_acento.lower().strip()
+    return re.sub(r"[^a-z0-9]+", "-", minusculo).strip("-")
+
+
+def _url_busca(marca: str, modelo: str, pagina: int = 1) -> str:
+    slug = f"{_CATEGORIA_SLUG}-{_slug(marca)}-{_slug(modelo)}"
+    if pagina <= 1:
+        return f"https://lista.mercadolivre.com.br/{slug}"
+    offset = _ITENS_POR_PAGINA * (pagina - 1) + 1
+    return f"https://lista.mercadolivre.com.br/{slug}_Desde_{offset}_NoIndex_True"
 
 
 def coletar_completo() -> tuple[list[Anuncio], dict]:
     """
-    Coleta todos os anúncios de carros clássicos (ano <= ANO_CORTE_CLASSICO)
-    dividindo a busca em faixas de ano para contornar o limite de 1000 resultados/query.
+    Coleta anúncios buscando cada par (marca, modelo) do catálogo canônico
+    (data/base_marcamodelo.csv) numa sessão de browser contínua — reaproveita
+    a mesma sessão aquecida (mesmo IP residencial) para todas as buscas,
+    abrindo uma nova só quando a sessão atual for bloqueada.
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
-    sessao = _criar_sessao()
+    pares = sorted(carregar_catalogo().keys())
 
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
     total_req = 0
     erros = 0
+    idx = 0
 
-    for ano_ini, ano_fim in _FAIXAS_ANO:
-        novos, req, err = _coletar_faixa(sessao, ano_ini, ano_fim, data_coleta, seen)
-        anuncios.extend(novos)
-        total_req += req
-        erros += err
-        logger.info(
-            "[mercadolivre] faixa %d-%d: +%d anúncio(s) (total: %d)",
-            ano_ini, ano_fim, len(novos), len(anuncios),
-        )
-        time.sleep(_RATE_LIMIT)
+    logger.info("[mercadolivre] coleta completa: %d pares marca+modelo no catálogo", len(pares))
+
+    while idx < len(pares):
+        try:
+            with criar_contexto_aquecido(_HOME_URL, bloqueado=_bloqueado, max_tentativas=3) as (ctx, page):
+                _bloquear_midia(page)
+                while idx < len(pares):
+                    marca, modelo = pares[idx]
+                    novos, req, bloqueou = _buscar_pagina(page, marca, modelo, pagina=1, data_coleta=data_coleta)
+                    total_req += req
+
+                    if bloqueou:
+                        logger.warning(
+                            "[mercadolivre] sessão bloqueada em '%s %s' (par %d/%d) — trocando de sessão",
+                            marca, modelo, idx + 1, len(pares),
+                        )
+                        break
+
+                    for a in novos:
+                        if a.url not in seen:
+                            seen.add(a.url)
+                            anuncios.append(a)
+
+                    idx += 1
+                    if idx % 50 == 0:
+                        logger.info(
+                            "[mercadolivre] progresso: %d/%d pares, %d anúncio(s) até agora",
+                            idx, len(pares), len(anuncios),
+                        )
+                    time.sleep(_RATE_LIMIT)
+        except RuntimeError as exc:
+            logger.error("[mercadolivre] não foi possível abrir sessão aquecida: %s", exc)
+            erros += 1
+            break
 
     metricas = {
         "fonte": FONTE,
@@ -91,64 +145,44 @@ def coletar_completo() -> tuple[list[Anuncio], dict]:
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     """
-    Busca anúncios no Mercado Livre por marca e modelo via API.
+    Busca anúncios no Mercado Livre por marca e modelo via páginas renderizadas.
 
     Args:
         marca:   Nome da marca (ex.: "VOLKSWAGEN"). Usado para pós-filtragem.
         modelo:  Nome do modelo (ex.: "FUSCA"). Usado como termo de busca.
-        paginas: Número máximo de páginas (50 itens cada) a buscar.
+        paginas: Número máximo de páginas (48 itens cada) a buscar.
 
     Returns:
         Lista de Anuncio normalizados com ano <= ANO_CORTE_CLASSICO.
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
-    sessao = _criar_sessao()
-
     marca_norm = normalizar_texto(marca)
     modelo_norm = normalizar_texto(modelo)
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    for pagina in range(paginas):
-        offset = pagina * _LIMIT
-        params = {
-            "category": _CATEGORIA_CARROS,
-            "q": modelo.strip(),
-            "VEHICLE_YEAR": f"1900-{ANO_CORTE_CLASSICO}",
-            "limit": _LIMIT,
-            "offset": offset,
-        }
-        dados = _requisitar(sessao, f"{_API_BASE}/sites/{_SITE_ID}/search", params)
-        if not dados:
-            break
+    try:
+        with criar_contexto_aquecido(_HOME_URL, bloqueado=_bloqueado) as (ctx, page):
+            _bloquear_midia(page)
+            for pagina in range(1, paginas + 1):
+                novos, _req, bloqueou = _buscar_pagina(page, marca, modelo, pagina, data_coleta)
+                if bloqueou:
+                    logger.warning("[mercadolivre] sessão bloqueada na página %d", pagina)
+                    break
 
-        resultados = dados.get("results", [])
-        if not resultados:
-            break
+                itens = _filtrar_marca_modelo(novos, marca_norm, modelo_norm)
+                for a in itens:
+                    if a.url not in seen:
+                        seen.add(a.url)
+                        anuncios.append(a)
 
-        for item in resultados:
-            a = _parsear_item(item, data_coleta)
-            if a is None or a.url in seen:
-                continue
-
-            if marca_norm and a.marca:
-                if normalizar_texto(a.marca) != marca_norm and marca_norm not in normalizar_texto(a.titulo):
-                    continue
-
-            if modelo_norm and a.modelo:
-                a_modelo = normalizar_texto(a.modelo)
-                if modelo_norm not in a_modelo and a_modelo not in modelo_norm and modelo_norm not in normalizar_texto(a.titulo):
-                    continue
-
-            seen.add(a.url)
-            anuncios.append(a)
-
-        total_disponivel = dados.get("paging", {}).get("total", 0)
-        if offset + _LIMIT >= min(total_disponivel, _MAX_OFFSET + _LIMIT):
-            break
-
-        time.sleep(_RATE_LIMIT)
+                if len(novos) < _ITENS_POR_PAGINA:
+                    break
+                if pagina < paginas:
+                    time.sleep(_RATE_LIMIT)
+    except RuntimeError as exc:
+        logger.error("[mercadolivre] não foi possível abrir sessão aquecida: %s", exc)
 
     logger.info(
         "[mercadolivre] busca '%s %s': %d anúncio(s) em %.1fs",
@@ -159,104 +193,93 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
-def _criar_sessao() -> requests.Session:
-    """Cria sessão para a API pública do ML (sem autenticação)."""
-    s = requests.Session()
-    s.headers.update({"Accept": "application/json"})
-    return s
+def _buscar_pagina(
+    page, marca: str, modelo: str, pagina: int, data_coleta: str,
+) -> tuple[list[Anuncio], int, bool]:
+    """Navega para uma página de busca e devolve (anuncios, requisicoes, bloqueado)."""
+    url = _url_busca(marca, modelo, pagina)
+    try:
+        page.goto(url, timeout=45000, wait_until="networkidle", referer=page.url)
+        page.wait_for_timeout(_ESPERA_NAV_MS)
+    except Exception as exc:
+        logger.warning("[mercadolivre] erro navegando para %s: %s", url, exc)
+        return [], 1, False
+
+    if _bloqueado(page):
+        return [], 1, True
+
+    html = _conteudo_com_retry(page)
+    return _parsear_listagem(html, data_coleta), 1, False
 
 
-def _coletar_faixa(
-    sessao: requests.Session,
-    ano_ini: int,
-    ano_fim: int,
-    data_coleta: str,
-    seen: set[str],
-) -> tuple[list[Anuncio], int, int]:
-    """
-    Coleta anúncios de uma faixa de ano usando paginação por offset.
-    Retorna (anuncios_novos, total_requisicoes, total_erros).
-    """
+def _conteudo_com_retry(page, tentativas: int = 3) -> str:
+    """page.content() pode falhar se a página ainda estiver navegando (SPA client-side redirect)."""
+    for i in range(tentativas):
+        try:
+            return page.content()
+        except Exception:
+            if i == tentativas - 1:
+                raise
+            page.wait_for_timeout(2000)
+    return ""
+
+
+def _filtrar_marca_modelo(itens: list[Anuncio], marca_norm: str, modelo_norm: str) -> list[Anuncio]:
+    if marca_norm:
+        itens = [
+            a for a in itens
+            if not a.marca
+            or normalizar_texto(a.marca) == marca_norm
+            or marca_norm in normalizar_texto(a.titulo)
+        ]
+    if modelo_norm:
+        itens = [
+            a for a in itens
+            if not a.modelo
+            or modelo_norm in normalizar_texto(a.modelo)
+            or normalizar_texto(a.modelo) in modelo_norm
+            or modelo_norm in normalizar_texto(a.titulo)
+        ]
+    return itens
+
+
+def _parsear_listagem(html: str, data_coleta: str) -> list[Anuncio]:
+    """Extrai anúncios de uma página de listagem/busca do Mercado Livre."""
+    soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
-    total_req = 0
-    erros = 0
-    offset = 0
 
-    while True:
-        params = {
-            "category": _CATEGORIA_CARROS,
-            "VEHICLE_YEAR": f"{ano_ini}-{ano_fim}",
-            "limit": _LIMIT,
-            "offset": offset,
-        }
-        dados = _requisitar(sessao, f"{_API_BASE}/sites/{_SITE_ID}/search", params)
-        total_req += 1
-
-        if dados is None:
-            erros += 1
-            break
-
-        resultados = dados.get("results", [])
-        if not resultados:
-            break
-
-        for item in resultados:
-            a = _parsear_item(item, data_coleta)
-            if a is None or a.url in seen:
-                continue
-            seen.add(a.url)
+    for card in soup.find_all("li", class_="ui-search-layout__item"):
+        a = _parsear_card(card, data_coleta)
+        if a is not None:
             anuncios.append(a)
-
-        total_disponivel = dados.get("paging", {}).get("total", 0)
-        offset += _LIMIT
-
-        if offset > min(total_disponivel, _MAX_OFFSET) or len(resultados) < _LIMIT:
-            break
-
-        time.sleep(_RATE_LIMIT)
-
-    return anuncios, total_req, erros
+    return anuncios
 
 
-def _parsear_item(item: dict, data_coleta: str) -> Optional[Anuncio]:
-    """Converte um item da resposta da API em Anuncio. Retorna None se inválido."""
-    preco = item.get("price")
-    if not preco or preco <= 0:
+def _parsear_card(card, data_coleta: str) -> Optional[Anuncio]:
+    link = card.find("a", class_=re.compile(r"poly-component__title"))
+    if not link or not link.get("href"):
         return None
-    if item.get("currency_id") != "BRL":
-        return None
-
-    titulo = item.get("title", "").strip()
+    titulo = link.get_text(strip=True)
     if not titulo:
         return None
+    url = link["href"].split("#")[0]
 
-    url = item.get("permalink", "")
-    if not url:
+    preco_el = card.find("span", class_=re.compile(r"\bandes-money-amount\b"))
+    preco = _extrair_preco(preco_el)
+    if not preco or preco <= 0:
         return None
 
-    attrs = {a["id"]: a.get("value_name", "") for a in item.get("attributes", [])}
-
-    ano_str = attrs.get("VEHICLE_YEAR", "")
-    ano = int(ano_str) if ano_str and ano_str.isdigit() else None
+    ano_cartao = _extrair_ano_cartao(card)
+    marca, modelo, ano_inferido = inferir_marca_modelo_ano(titulo)
+    ano = ano_cartao or ano_inferido
     if ano is None or not (1900 <= ano <= ANO_CORTE_CLASSICO):
         return None
-
-    marca_api = attrs.get("BRAND", "")
-    modelo_api = attrs.get("MODEL", "")
-
-    # Preferir dados estruturados da API; inferir do título apenas como fallback.
-    if marca_api and modelo_api:
-        marca = normalizar_texto(marca_api)
-        modelo = normalizar_texto(modelo_api)
-    else:
-        marca, modelo, _ = inferir_marca_modelo_ano(titulo)
-
     if not modelo:
         return None
 
     return Anuncio(
         titulo=titulo,
-        preco=float(preco),
+        preco=preco,
         marca=marca,
         modelo=modelo,
         ano=ano,
@@ -267,18 +290,34 @@ def _parsear_item(item: dict, data_coleta: str) -> Optional[Anuncio]:
     )
 
 
-def _requisitar(sessao: requests.Session, url: str, params: dict) -> Optional[dict]:
-    """GET com retry. Retorna dict JSON ou None em caso de falha."""
-    for tentativa in range(1, _MAX_RETRIES + 1):
-        try:
-            resp = sessao.get(url, params=params, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as exc:
-            logger.warning(
-                "[mercadolivre] erro tentativa %d/%d — %s: %s",
-                tentativa, _MAX_RETRIES, url, exc,
-            )
-            if tentativa < _MAX_RETRIES:
-                time.sleep(_BACKOFF)
+def _extrair_preco(preco_el) -> Optional[float]:
+    """Extrai o preço a partir do aria-label (ex.: '63890 reais') — evita ambiguidade do separador de milhar."""
+    if preco_el is None:
+        return None
+    aria = preco_el.get("aria-label", "")
+    m = re.search(r"(\d+)", aria)
+    if m:
+        return float(m.group(1))
+    # fallback: texto visível "63.890" (ponto = separador de milhar)
+    fracao = preco_el.find("span", class_="andes-money-amount__fraction")
+    if fracao:
+        digitos = re.sub(r"\D", "", fracao.get_text())
+        if digitos:
+            return float(digitos)
+    return None
+
+
+def _extrair_ano_cartao(card) -> Optional[int]:
+    """O primeiro item de poly-attributes_list costuma ser o ano do veículo."""
+    lista_attrs = card.find("ul", class_="poly-attributes_list")
+    if not lista_attrs:
+        return None
+    primeiro_item = lista_attrs.find("li")
+    if not primeiro_item:
+        return None
+    texto = primeiro_item.get_text(strip=True)
+    if texto.isdigit() and len(texto) == 4:
+        ano = int(texto)
+        if 1900 <= ano <= date.today().year + 1:
+            return ano
     return None
