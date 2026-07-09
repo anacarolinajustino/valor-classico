@@ -1,4 +1,4 @@
-name: Deploy to VPS
+name: Deploy to Render
 
 on:
   push:
@@ -9,18 +9,15 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy via SSH
-        env:
-          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          HOST: ${{ secrets.VPS_HOST }}
-          USER: ${{ secrets.VPS_USER }}
-          PORT: ${{ secrets.VPS_PORT }}
+      - name: Trigger Render deploy
         run: |
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh -i ~/.ssh/deploy_key \
-              -p "${PORT:-22}" \
-              -o StrictHostKeyChecking=no \
-              "${USER}@${HOST}" \
-              "bash /var/www/valor-classico/deploy.sh"
+          curl -s -o response.json -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/srv-d8st1nfavr4c738g8va0/deploys" \
+            | tee status_code.txt
+          STATUS=$(cat status_code.txt)
+          echo "HTTP status: $STATUS"
+          cat response.json
+          [ "$STATUS" = "201" ] || [ "$STATUS" = "200" ] || exit 1
