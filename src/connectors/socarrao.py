@@ -58,11 +58,13 @@ ANO_MAXIMO_CLASSICO = 2000
 
 # Termos de busca cobrindo marcas/modelos clássicos comuns no mercado
 # nacional — não há endpoint de "listar tudo" nesse marketplace generalista.
+# Lista deliberadamente curta (2026-07-09): cada termo reaproveita a mesma
+# aba do navegador, mas navega o site inteiro de novo (Nuxt, bundle grande) —
+# uma lista de ~20 termos chegou a esgotar a memória do plano free do Render
+# no meio da varredura (derrubou o serviço). Se precisar de mais cobertura,
+# prefira chamar buscar(marca, modelo) pontualmente por termo específico.
 TERMOS_CLASSICOS: list[str] = [
-    "fusca", "opala", "maverick", "corcel", "brasilia", "kombi", "karmann ghia",
-    "puma", "variant", "chevette", "veraneio", "c10", "dodge dart",
-    "dodge charger", "bandeirante", "rural willys", "galaxie", "esplanada",
-    "gol quadrado", "belina",
+    "fusca", "opala", "kombi", "karmann ghia", "puma", "chevette", "c10", "belina",
 ]
 
 
@@ -79,7 +81,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     return anuncios
 
 
-def coletar_completo(max_paginas: int = 5) -> tuple[list[Anuncio], dict]:
+def coletar_completo(max_paginas: int = 2) -> tuple[list[Anuncio], dict]:
     """Varre TERMOS_CLASSICOS numa única sessão de browser."""
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
