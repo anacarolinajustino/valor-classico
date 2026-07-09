@@ -3,12 +3,15 @@ Conector OLX Brasil — coleta anúncios de veículos via Playwright + __NEXT_DA
 
 Site: https://www.olx.com.br
 Motor: Next.js SSR
-Estratégia: Playwright headless — requests retorna 403 Cloudflare em todas as URLs.
+Estratégia: Playwright headless com proxy residencial DataImpulse + stealth
+(via `src.connectors._browser.criar_contexto()`, mesma receita do Mercado
+Livre) — requests puro retorna 403 Cloudflare em todas as URLs, e Playwright
+"puro" sem stealth também é bloqueado por detecção de fingerprint de
+automação (2026-07-09: mesmo padrão de bloqueio do ML antes do stealth).
 
 Compliance (verificado 2026-06-14):
 - robots.txt: /autos-e-pecas/ ✅ permitido | /q/* Disallowed (usamos ?q= param — ok)
 - Rate limit: 2s entre páginas (Playwright é custoso, igual ao SuperAntigo)
-- User-Agent: Chrome/124
 
 Separação de responsabilidades:
 - buscar()           → I/O (Playwright), chama parsear_listagem()
@@ -19,16 +22,15 @@ Separação de responsabilidades:
 """
 from __future__ import annotations
 
-import json
 import logging
-import math
 import time
 import urllib.parse
 from datetime import date
-from typing import Any, Optional
+from typing import Any
 
 from bs4 import BeautifulSoup
 
+from src.connectors._browser import criar_contexto
 from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
@@ -40,11 +42,6 @@ logger = logging.getLogger(__name__)
 # ────────────────────────────────────────────────
 FONTE = "olx"
 BASE_URL = "https://www.olx.com.br/autos-e-pecas/carros-vans-e-utilitarios"
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
 TIMEOUT_PAGINA = 30_000   # ms — timeout do Playwright por navegação
 RATE_LIMIT_SEGUNDOS = 2.0  # entre páginas (browser é custoso)
 TERMO_BATCH = "carros antigos"
@@ -70,14 +67,6 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     Returns:
         Lista de Anuncio normalizados com ano <= ANO_CORTE_CLASSICO.
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright não instalado. Execute: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
     marca_norm = normalizar_texto(marca)
@@ -85,9 +74,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     anuncios: list[Anuncio] = []
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
+        with criar_contexto() as ctx:
             pw_page = ctx.new_page()
 
             for pagina in range(1, paginas + 1):
@@ -126,8 +113,6 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
                 if pagina < paginas:
                     time.sleep(RATE_LIMIT_SEGUNDOS)
 
-            browser.close()
-
     except Exception as exc:
         logger.error("[olx] erro durante busca: %s", exc)
         raise
@@ -155,14 +140,6 @@ def coletar_categoria(
     Returns:
         (anuncios, metricas)
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright não instalado. Execute: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
     anuncios: list[Anuncio] = []
@@ -172,25 +149,17 @@ def coletar_categoria(
     descartados = 0
     descartados_ano = 0
     latencias: list[float] = []
-    total_pages: Optional[int] = None
-    page_size = 50
+    page_size = 50  # OLX pagina ~50 cards/página (observado 2026-07-09)
 
     logger.info("[olx] categoria: iniciando coleta até ano %d, max %d páginas", ano_ate, max_paginas)
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
+        with criar_contexto() as ctx:
             pw_page = ctx.new_page()
 
             for pagina in range(1, max_paginas + 1):
-                if total_pages is not None and pagina > total_pages:
-                    logger.info("[olx] categoria: todas as páginas coletadas (%d).", total_pages)
-                    break
-
                 url_pagina = _url_categoria(pagina, ano_ate)
-                logger.info("[olx] categoria pág %d/%s — %s",
-                            pagina, total_pages or "?", url_pagina)
+                logger.info("[olx] categoria pág %d — %s", pagina, url_pagina)
 
                 t0 = time.monotonic()
                 try:
@@ -202,27 +171,12 @@ def coletar_categoria(
                 latencias.append(time.monotonic() - t0)
 
                 html = pw_page.content()
-                next_data = _extrair_next_data(html)
-                page_props = next_data.get("props", {}).get("pageProps", {})
-                ads_raw = page_props.get("ads", [])
+                itens, disc_sem_preco, disc_ano, total_cards = _parsear_ads_dom(html, data_coleta, ano_ate)
 
-                if total_pages is None:
-                    total_ads = page_props.get("totalOfAds", 0)
-                    page_size = page_props.get("pageSize", 50) or 50
-                    if total_ads:
-                        total_pages = min(math.ceil(total_ads / page_size), max_paginas)
-                    else:
-                        total_pages = max_paginas
-                    logger.info(
-                        "[olx] categoria: totalOfAds=%d pageSize=%d → %d páginas estimadas",
-                        total_ads, page_size, total_pages,
-                    )
-
-                if not ads_raw:
+                if not total_cards:
                     logger.warning("[olx] categoria pág %d: sem anúncios — parando.", pagina)
                     break
 
-                itens, disc_sem_preco, disc_ano = _parsear_ads(ads_raw, data_coleta, ano_ate)
                 descartados += disc_sem_preco
                 descartados_ano += disc_ano
                 paginas_lidas += 1
@@ -236,16 +190,14 @@ def coletar_categoria(
 
                 logger.info(
                     "[olx] categoria pág %d: %d brutos → %d válidos → %d novos (total: %d)",
-                    pagina, len(ads_raw), len(itens), novos, len(anuncios),
+                    pagina, total_cards, len(itens), novos, len(anuncios),
                 )
 
-                if len(ads_raw) < page_size:
+                if total_cards < page_size:
                     logger.info("[olx] categoria: página incompleta — última página (%d).", pagina)
                     break
 
                 time.sleep(RATE_LIMIT_SEGUNDOS)
-
-            browser.close()
 
     except Exception as exc:
         logger.error("[olx] erro durante coleta de categoria: %s", exc)
@@ -286,25 +238,14 @@ def coletar_completo(max_paginas: int = 50, termo: str = TERMO_BATCH) -> tuple[l
     Returns:
         (anuncios, metricas)
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright não instalado. Execute: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
     seen_urls: set[str] = set()
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
+        with criar_contexto() as ctx:
             pw_page = ctx.new_page()
             anuncios, parcial = _varrer_termo(pw_page, termo, max_paginas, data_coleta, seen_urls)
-            browser.close()
     except Exception as exc:
         logger.error("[olx] erro durante coleta: %s", exc)
         raise
@@ -349,14 +290,6 @@ def coletar_sweep(
     Returns:
         (anuncios, metricas)
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError(
-            "Playwright não instalado. Execute: pip install playwright && "
-            "python -m playwright install chromium"
-        ) from exc
-
     termos = termos or TERMOS_SWEEP
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
@@ -371,9 +304,7 @@ def coletar_sweep(
     logger.info("[olx] sweep: %d termos, até %d páginas/termo", len(termos), max_paginas_por_termo)
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
-            ctx = browser.new_context(user_agent=USER_AGENT, locale="pt-BR")
+        with criar_contexto() as ctx:
             pw_page = ctx.new_page()
 
             for i, termo in enumerate(termos, 1):
@@ -394,8 +325,6 @@ def coletar_sweep(
                     "[olx] sweep '%s': +%d anúncios (acumulado: %d)",
                     termo, len(todos_anuncios) - antes, len(todos_anuncios),
                 )
-
-            browser.close()
 
     except Exception as exc:
         logger.error("[olx] erro durante sweep: %s", exc)
@@ -431,21 +360,19 @@ def coletar_sweep(
 
 def parsear_listagem(html: str, data_coleta: str = "2000-01-01") -> list[Anuncio]:
     """
-    Extrai anúncios de HTML renderizado da OLX via <script id="__NEXT_DATA__">.
+    Extrai anúncios de HTML renderizado da OLX via cards `section.olx-adcard`.
 
     Ponto de entrada público para testes de regressão com snapshot.
     Aplica filtro ANO_CORTE_CLASSICO internamente (AC3).
 
     Args:
-        html:        HTML completo da página (contendo <script id="__NEXT_DATA__">).
+        html:        HTML completo da página (renderizado, com os cards de anúncio).
         data_coleta: Data ISO 8601 (default "2000-01-01").
 
     Returns:
         Lista de Anuncio com ano <= ANO_CORTE_CLASSICO e preço > 0.
     """
-    next_data = _extrair_next_data(html)
-    ads = next_data.get("props", {}).get("pageProps", {}).get("ads", [])
-    anuncios, _, _ = _parsear_ads(ads, data_coleta)
+    anuncios, _, _, _ = _parsear_ads_dom(html, data_coleta)
     return anuncios
 
 
@@ -470,14 +397,9 @@ def _varrer_termo(
     descartados = 0
     descartados_ano = 0
     latencias: list[float] = []
-    total_pages: Optional[int] = None
-    page_size = 50
+    page_size = 50  # OLX pagina ~50 cards/página (observado 2026-07-09)
 
     for pagina in range(1, max_paginas + 1):
-        if total_pages is not None and pagina > total_pages:
-            logger.info("[olx] '%s': todas as páginas coletadas (%d).", termo, total_pages)
-            break
-
         url_pagina = _url_busca(termo, pagina)
         logger.info("[olx] '%s' pág %d — %s", termo, pagina, url_pagina)
 
@@ -491,20 +413,7 @@ def _varrer_termo(
         latencias.append(time.monotonic() - t0)
 
         html = pw_page.content()
-        next_data = _extrair_next_data(html)
-        page_props = next_data.get("props", {}).get("pageProps", {})
-        ads_raw = page_props.get("ads", [])
-
-        if total_pages is None:
-            total_ads = page_props.get("totalOfAds", 0)
-            page_size = page_props.get("pageSize", 50) or 50
-            total_pages = min(math.ceil(total_ads / page_size) if total_ads else max_paginas, max_paginas)
-            logger.info(
-                "[olx] '%s': totalOfAds=%d pageSize=%d → total_pages=%d",
-                termo, total_ads, page_size, total_pages,
-            )
-
-        itens, disc_sem_preco, disc_ano = _parsear_ads(ads_raw, data_coleta)
+        itens, disc_sem_preco, disc_ano, total_cards = _parsear_ads_dom(html, data_coleta)
         descartados += disc_sem_preco
         descartados_ano += disc_ano
         paginas_lidas += 1
@@ -518,10 +427,10 @@ def _varrer_termo(
 
         logger.info(
             "[olx] '%s' pág %d: %d brutos → %d válidos → %d novos (único total: %d)",
-            termo, pagina, len(ads_raw), len(itens), novos, len(seen_urls),
+            termo, pagina, total_cards, len(itens), novos, len(seen_urls),
         )
 
-        if len(ads_raw) < page_size:
+        if total_cards < page_size:
             logger.info("[olx] '%s': página incompleta — fim do termo.", termo)
             break
 
@@ -537,51 +446,56 @@ def _varrer_termo(
     }
 
 
-def _parsear_ads(
-    ads: list[dict],
+def _parsear_ads_dom(
+    html: str,
     data_coleta: str,
     ano_ate: int = ANO_CORTE_CLASSICO,
-) -> tuple[list[Anuncio], int, int]:
+) -> tuple[list[Anuncio], int, int, int]:
     """
-    Converte lista de dicts brutos (pageProps.ads) em Anuncio validados.
+    Extrai anúncios dos cards `section.olx-adcard` do HTML renderizado.
+
+    A OLX removia o ano num campo estruturado (`properties[].regdate`) quando
+    a listagem vinha de `<script id="__NEXT_DATA__">` — esse script sumiu do
+    frontend (verificado 2026-07-09, site migrado para Next.js App Router sem
+    embutir os dados da busca em JSON). O ano agora só existe no título
+    ("Volkswagen Fusca Fusca (gasolina) 1970"), extraído via
+    `inferir_marca_modelo_ano`.
 
     Returns:
-        (anuncios, descartados_sem_preco_ou_modelo, descartados_ano_fora_corte)
+        (anuncios, descartados_sem_preco_ou_modelo, descartados_ano_fora_corte, total_cards)
     """
+    soup = BeautifulSoup(html, "lxml")
+    cards = soup.select("section.olx-adcard")
     anuncios: list[Anuncio] = []
     descartados_sem_preco = 0
     descartados_ano = 0
 
-    for ad in ads:
-        props = {p["name"]: p["value"] for p in ad.get("properties", [])}
-
-        titulo = ad.get("subject", "").strip()
-        if not titulo:
-            descartados_sem_preco += 1
-            continue
-
-        preco = normalizar_preco(ad.get("priceValue", ""))
-        if preco is None or preco <= 0:
-            descartados_sem_preco += 1
-            continue
-
-        url = ad.get("url", "")
+    for card in cards:
+        link = card.select_one("a.olx-adcard__link")
+        url = link.get("href", "").strip() if link else ""
         if not url:
             descartados_sem_preco += 1
             continue
 
-        # vehicle_model contém "Marca Motor" (ex: "Volkswagen 1300") — não é o nome do modelo.
-        # Usar inferir_marca_modelo_ano para extrair o modelo correto do subject.
-        _, modelo, _ = inferir_marca_modelo_ano(titulo)
-        if not modelo:
+        title_tag = card.select_one("h2.olx-adcard__title")
+        titulo = (
+            title_tag.get_text(strip=True) if title_tag
+            else (link.get("title") or "").strip()
+        )
+        if not titulo:
             descartados_sem_preco += 1
             continue
 
-        marca_raw = props.get("vehicle_brand", "")
-        marca = normalizar_texto(marca_raw) if marca_raw else ""
+        price_tag = card.select_one("h3.olx-adcard__price")
+        preco = normalizar_preco(price_tag.get_text(strip=True)) if price_tag else None
+        if preco is None or preco <= 0:
+            descartados_sem_preco += 1
+            continue
 
-        ano_str = props.get("regdate", "")
-        ano = int(ano_str) if ano_str.isdigit() else None
+        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        if not modelo:
+            descartados_sem_preco += 1
+            continue
 
         # Filtro de ruído obrigatório: apenas veículos até ano_ate
         if not ano or not (1900 <= ano <= ano_ate):
@@ -605,20 +519,7 @@ def _parsear_ads(
     if descartados_ano:
         logger.debug("[olx] descartados por ano fora do corte: %d", descartados_ano)
 
-    return anuncios, descartados_sem_preco, descartados_ano
-
-
-def _extrair_next_data(html: str) -> dict:
-    """Extrai e parseia o JSON do <script id="__NEXT_DATA__">."""
-    soup = BeautifulSoup(html, "lxml")
-    script = soup.find("script", {"id": "__NEXT_DATA__"})
-    if not script or not script.string:
-        return {}
-    try:
-        return json.loads(script.string)
-    except json.JSONDecodeError as exc:
-        logger.warning("[olx] erro ao parsear __NEXT_DATA__: %s", exc)
-        return {}
+    return anuncios, descartados_sem_preco, descartados_ano, len(cards)
 
 
 def _url_busca(termo: str, pagina: int = 1) -> str:

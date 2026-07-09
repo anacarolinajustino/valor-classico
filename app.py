@@ -100,23 +100,12 @@ CONNECTOR_MODULES: dict[str, str] = {
     "cia66motorsports":       "src.connectors.cia66motorsports",
     "escuderiacoqueiro":      "src.connectors.escuderiacoqueiro",
     "poaparts":               "src.connectors.poaparts",
-    "oldcar":                 "src.connectors.oldcar",
     "ggworld":                "src.connectors.ggworld",
 }
 
-# Fontes bloqueadas ou sem listing de preços (2026-06-23).
+# Fontes bloqueadas ou sem listing de preços (checagem geral 2026-07-09).
 # Mantidas no mapa para registro; puladas no "Coletar todos".
-FONTES_INATIVAS: set[str] = {
-    "olx",                     # bloqueado por Cloudflare/anti-bot (403)
-    "franzveiculosantigos",    # site portfólio, sem página de listing
-    "classicospremium",        # preços exibidos como "Consulte", não coletáveis
-    "brunelliveiculosantigos", # servidor down (timeout)
-    "socarrao",                # API REST bloqueada (403 Forbidden)
-    "webmotors",               # bloqueado por PerimeterX (403)
-    "armazemdovovo",           # bloqueado por Cloudflare (403 Forbidden)
-    "oldcar",                  # bloqueado pelo servidor do Estadão
-    "ggworld",                 # Wix com Load More via JS; sem links individuais
-}
+FONTES_INATIVAS: set[str] = set()
 
 catalogo = carregar_catalogo()
 logger.info("Catálogo pronto: %d entradas marca+modelo", len(catalogo))

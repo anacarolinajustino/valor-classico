@@ -106,31 +106,46 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
 
 
 def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
+    """
+    Estrutura atual (2026-07-09): cards são `a.mini > div.miniatura` com
+    `h2` (título) e `h3` no formato "R$ 89.900,00 | 1971/71" — ou, quando o
+    vendedor não expõe preço, "CLIQUE PARA MAIS INFORMAÇÕES | 1989/89".
+    Itens sem "R$" no h3 (preço sob consulta, ou cards institucionais como
+    "NOSSA RESTAURAÇÃO"/podcast) são ignorados aqui, não descartam a fonte
+    inteira.
+    """
     soup = BeautifulSoup(html, "lxml")
     anuncios: list[Anuncio] = []
 
-    for item in soup.find_all("div", class_="item-car"):
-        titulo_tag = item.find(["h2", "h3", "h4"]) or item.find("a")
+    for item in soup.select("a.mini"):
+        titulo_tag = item.find("h2")
         titulo = titulo_tag.get_text(strip=True) if titulo_tag else ""
         if not titulo:
             continue
 
-        preco_tag = (
-            item.select_one(".preco")
-            or item.select_one(".price")
-            or item.select_one(".valor")
-            or item.find("b")
-        )
-        preco = normalizar_preco(preco_tag.get_text(strip=True)) if preco_tag else None
+        h3 = item.find("h3")
+        h3_texto = h3.get_text(strip=True) if h3 else ""
+        preco_parte, _, ano_parte = h3_texto.partition("|")
+
+        if "R$" not in preco_parte:
+            continue  # preço sob consulta ou card institucional — ignora e segue
+        preco = normalizar_preco(preco_parte)
         if not preco or preco <= 0:
             continue
 
-        link = item.find("a", href=True)
-        url_anuncio = link["href"] if link else ""
-        if url_anuncio and not url_anuncio.startswith("http"):
-            url_anuncio = BASE_URL + url_anuncio
+        href = item.get("href", "")
+        if href and href.startswith("http"):
+            url_anuncio = href
+        elif href:
+            url_anuncio = f"{BASE_URL}/{href.lstrip('/')}"
+        else:
+            url_anuncio = ""
 
         marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        ano_fab = ano_parte.strip().split("/")[0].strip()
+        if ano_fab.isdigit() and len(ano_fab) == 4:
+            ano = int(ano_fab)
+
         if not modelo:
             continue
 

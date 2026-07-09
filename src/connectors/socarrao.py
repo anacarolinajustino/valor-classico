@@ -1,193 +1,229 @@
 """
 Conector SoCarrão.
 Site: https://www.socarrao.com.br
-Motor: React SPA com API REST própria (sc-api-prod.socarrao.com.br)
-Estratégia: chama a API JSON diretamente via requests, sem precisar de Playwright.
-Endpoint inferido: GET /api/v1/vehicles?page=N&category=classic (ajuste conforme necessário)
+Motor: Nuxt SSR + API própria (sc-api-prod.socarrao.com.br). Marketplace
+generalista de veículos usados (não focado em clássicos — buscas populares
+são Onix, Civic, Renegade), mas tem estoque real de clássicos sob demanda.
+
+Por que Playwright e não requests: a API exige um header assinado no
+cliente (`x-sc-key`, HMAC calculado por uma função `Ky()` dentro do bundle
+JS minificado, junto com `x-sc-origin: sc-site`) em toda requisição — não é
+bloqueio de IP/Cloudflare, é assinatura anti-bot por request. Reimplementar
+essa assinatura em Python seria frágil (quebra a cada redeploy do bundle,
+hash do arquivo muda). Em vez disso, dirigimos o fluxo de busca real via
+Playwright — o navegador calcula o header sozinho, é JS de verdade — e
+escutamos as respostas JSON de `search/closed` via `page.on("response")`.
+
+Fluxo de busca (testado ao vivo em 2026-07-09):
+1. Home, digita o termo no campo "Digite aqui marca ou modelo".
+2. Aparece um dropdown de autocomplete (`div.lz-select-list__item`) com
+   sugestões "Marca Modelo" já filtradas pelo estoque atual — se o termo
+   não tiver nenhum veículo à venda agora, não aparece nenhuma opção.
+3. Clica na opção que bate com o termo buscado, depois em "VER RESULTADOS".
+4. Se aparecer o modal "Trocar Localização", clica em "Manter localização"
+   (mantém a busca nacional, sem restringir por cidade — importante, pois
+   sem isso o resultado fica vazio até confirmar).
+5. A listagem carrega via scroll infinito: cada scroll dispara mais uma
+   página de `search/closed?page=N&limit=6&...`. Escutamos via listener de
+   rede em vez de reconstruir a URL/paginação manualmente (o parâmetro
+   `brandModelVersions` é um ID interno que só a busca guiada resolve).
+
+Não existe endpoint de "listar tudo" (é marketplace geral, sem categoria
+fixa de clássicos). `coletar_completo()` varre uma lista curada de termos
+clássicos comuns no mercado nacional (mesmo padrão do TERMOS_SWEEP da OLX) —
+varrer os 1128 pares marca+modelo do catálogo via UI seria caro demais
+(cada termo leva alguns segundos de navegação real).
 """
 from __future__ import annotations
 
 import logging
 import time
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
-import requests
-
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto
+from src.connectors._browser import criar_contexto
+from src.pipeline.normalizer import normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
 
 FONTE = "socarrao"
-API_BASE = "https://sc-api-prod.socarrao.com.br"
-# Endpoint de busca — pode precisar de ajuste caso a API mude
-ENDPOINT = "/api/v1/vehicles"
 SITE_BASE = "https://www.socarrao.com.br"
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
-)
-TIMEOUT = 20
-MAX_RETRIES = 2
-BACKOFF = 2.0
+SEARCH_INPUT_SELECTOR = "input[placeholder='Digite aqui marca ou modelo']"
 RATE_LIMIT = 1.5
+# Marketplace generalista: nomes de modelo clássicos às vezes são reaproveitados
+# em carros novos (ex.: "Maverick" hoje é uma picape Ford 2022+, não o cupê de
+# 1970). Sem esse corte, a busca por esses termos traz o carro moderno.
+ANO_MAXIMO_CLASSICO = 2000
+
+# Termos de busca cobrindo marcas/modelos clássicos comuns no mercado
+# nacional — não há endpoint de "listar tudo" nesse marketplace generalista.
+TERMOS_CLASSICOS: list[str] = [
+    "fusca", "opala", "maverick", "corcel", "brasilia", "kombi", "karmann ghia",
+    "puma", "variant", "chevette", "veraneio", "c10", "dodge dart",
+    "dodge charger", "bandeirante", "rural willys", "galaxie", "esplanada",
+    "gol quadrado", "belina",
+]
 
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
-    sessao = _criar_sessao()
+    """Busca anúncios no SoCarrão por marca e modelo, dirigindo a UI real."""
     data_coleta = date.today().isoformat()
-    marca_norm = normalizar_texto(marca)
-    modelo_norm = normalizar_texto(modelo)
-    anuncios: list[Anuncio] = []
-    seen: set[str] = set()
 
-    for pg in range(1, paginas + 1):
-        params: dict = {"page": pg, "q": modelo or marca}
-        dados = _requisitar_api(sessao, params)
-        if dados is None:
-            break
-        for a in _parsear(dados, data_coleta):
-            if a.url in seen:
-                continue
-            titulo_norm = normalizar_texto(a.titulo)
-            if modelo_norm and modelo_norm not in titulo_norm:
-                continue
-            if marca_norm and a.marca and normalizar_texto(a.marca) != marca_norm and marca_norm not in titulo_norm:
-                continue
-            seen.add(a.url)
-            anuncios.append(a)
-        time.sleep(RATE_LIMIT)
+    with criar_contexto() as ctx:
+        page = ctx.new_page()
+        itens_brutos = _buscar_termo(page, modelo, marca, paginas)
 
+    anuncios = [a for item in itens_brutos if (a := _parsear_item(item, data_coleta))]
     logger.info("[socarrao] busca: %d anúncio(s)", len(anuncios))
     return anuncios
 
 
-def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
-    sessao = _criar_sessao()
-    data_coleta = date.today().isoformat()
+def coletar_completo(max_paginas: int = 5) -> tuple[list[Anuncio], dict]:
+    """Varre TERMOS_CLASSICOS numa única sessão de browser."""
     inicio = time.monotonic()
+    data_coleta = date.today().isoformat()
     anuncios: list[Anuncio] = []
-    seen: set[str] = set()
+    seen_ids: set[int] = set()
+    termos_com_resultado = 0
+    termos_sem_resultado = 0
     erros = 0
-    paginas_ok = 0
 
-    for pg in range(1, max_paginas + 1):
-        params: dict = {"page": pg}
-        dados = _requisitar_api(sessao, params)
-        if dados is None:
-            erros += 1
-            break
+    with criar_contexto() as ctx:
+        page = ctx.new_page()
+        for i, termo in enumerate(TERMOS_CLASSICOS, 1):
+            logger.info("[socarrao] termo %d/%d — '%s'", i, len(TERMOS_CLASSICOS), termo)
+            try:
+                itens_brutos = _buscar_termo(page, termo, "", max_paginas)
+            except Exception as exc:
+                logger.warning("[socarrao] erro buscando '%s': %s", termo, exc)
+                erros += 1
+                continue
 
-        items = _parsear(dados, data_coleta)
-        if not items:
-            break
+            if not itens_brutos:
+                termos_sem_resultado += 1
+                continue
+            termos_com_resultado += 1
 
-        paginas_ok += 1
-        for a in items:
-            if a.url not in seen:
-                seen.add(a.url)
-                anuncios.append(a)
+            novos = 0
+            for item in itens_brutos:
+                vid = item.get("id")
+                if vid is None or vid in seen_ids:
+                    continue
+                seen_ids.add(vid)
+                a = _parsear_item(item, data_coleta)
+                if a:
+                    anuncios.append(a)
+                    novos += 1
 
-        # Para paginação da API: verifica se há próxima página
-        if not _tem_proxima_api(dados):
-            break
-        time.sleep(RATE_LIMIT)
+            logger.info(
+                "[socarrao] '%s': +%d anúncio(s) (acumulado: %d)",
+                termo, novos, len(anuncios),
+            )
+            time.sleep(RATE_LIMIT)
 
     metricas = {
         "fonte": FONTE,
         "data_coleta": data_coleta,
-        "paginas_listagem": paginas_ok,
+        "termos_com_resultado": termos_com_resultado,
+        "termos_sem_resultado": termos_sem_resultado,
         "anuncios_validos": len(anuncios),
-        "erros_listagem": erros,
+        "erros": erros,
         "tempo_total_s": round(time.monotonic() - inicio, 1),
     }
     logger.info("[socarrao] coleta completa: %s", metricas)
     return anuncios, metricas
 
 
-def _parsear(dados: dict | list, data_coleta: str) -> list[Anuncio]:
-    """Parseia resposta JSON da API do SoCarrão."""
-    anuncios: list[Anuncio] = []
+# ── Helpers internos ────────────────────────────────────────────────────────
 
-    # A resposta pode ser {"data": [...]} ou diretamente uma lista
-    if isinstance(dados, dict):
-        items = dados.get("data") or dados.get("vehicles") or dados.get("items") or []
-    else:
-        items = dados
+def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str, max_paginas: int) -> list[dict]:
+    """
+    Dirige o fluxo de busca real (ver docstring do módulo) e devolve os
+    itens brutos de `results` capturados de `search/closed`.
+    """
+    capturados: list[dict] = []
 
-    for item in items:
-        if not isinstance(item, dict):
-            continue
+    def _on_response(resp):
+        if "search/closed" in resp.url and resp.status == 200:
+            try:
+                capturados.append(resp.json())
+            except Exception:
+                pass
 
-        marca = (item.get("brand") or item.get("marca") or "").upper()
-        modelo = (item.get("model") or item.get("modelo") or "").upper()
-        ano_raw = item.get("year") or item.get("ano")
+    page.on("response", _on_response)
+    try:
+        page.goto(SITE_BASE, wait_until="load", timeout=45000)
+        page.wait_for_timeout(1500)
+
+        campo = page.locator(SEARCH_INPUT_SELECTOR)
+        campo.click(timeout=10000)
+        campo.fill(termo_busca)
+        page.wait_for_timeout(1500)
+
+        opcoes = page.locator("div.lz-select-list__item")
+        termo_norm = normalizar_texto(termo_busca)
+        marca_norm = normalizar_texto(marca_filtro) if marca_filtro else ""
+        alvo = None
+        for i in range(opcoes.count()):
+            texto = normalizar_texto(opcoes.nth(i).inner_text())
+            if termo_norm in texto and (not marca_norm or marca_norm in texto):
+                alvo = opcoes.nth(i)
+                break
+
+        if alvo is None:
+            logger.info("[socarrao] '%s': sem sugestão no autocomplete (sem estoque atual).", termo_busca)
+            return []
+
+        alvo.click(timeout=5000)
+        page.wait_for_timeout(500)
+        page.get_by_text("VER RESULTADOS", exact=True).click(timeout=5000)
+        page.wait_for_timeout(2000)
+
         try:
-            ano = int(ano_raw) if ano_raw else None
-        except (ValueError, TypeError):
-            ano = None
+            page.get_by_text("Manter localiza", exact=False).click(timeout=4000)
+        except Exception:
+            pass
+        page.wait_for_timeout(2000)
 
-        titulo = item.get("title") or item.get("titulo") or f"{marca} {modelo} {ano or ''}".strip()
-        if not titulo or not modelo:
-            continue
+        tentativas_sem_novo = 0
+        while len(capturados) < max_paginas and tentativas_sem_novo < 3:
+            antes = len(capturados)
+            page.mouse.wheel(0, 4000)
+            page.wait_for_timeout(1500)
+            tentativas_sem_novo = 0 if len(capturados) > antes else tentativas_sem_novo + 1
+    finally:
+        page.remove_listener("response", _on_response)
 
-        preco_raw = item.get("price") or item.get("preco") or item.get("valor")
-        preco = None
-        if isinstance(preco_raw, (int, float)):
-            preco = float(preco_raw)
-        elif isinstance(preco_raw, str):
-            preco = normalizar_preco(preco_raw)
-        if not preco or preco <= 0:
-            continue
-
-        slug = item.get("slug") or item.get("id") or ""
-        url_anuncio = f"{SITE_BASE}/veiculo/{slug}" if slug else SITE_BASE
-
-        anuncios.append(Anuncio(
-            titulo=titulo, preco=preco, marca=marca, modelo=modelo,
-            ano=ano, versao=None, url=url_anuncio, fonte=FONTE,
-            data_coleta=data_coleta,
-        ))
-    return anuncios
+    resultados: list[dict] = []
+    for body in capturados:
+        resultados.extend(body.get("results", []))
+    return resultados
 
 
-def _tem_proxima_api(dados: dict | list) -> bool:
-    if isinstance(dados, dict):
-        meta = dados.get("meta") or dados.get("pagination") or {}
-        current = meta.get("current_page", 1)
-        last = meta.get("last_page") or meta.get("total_pages")
-        if last:
-            return current < last
-        return bool(dados.get("next_page_url") or dados.get("next"))
-    return False
+def _parsear_item(item: dict, data_coleta: str) -> Optional[Anuncio]:
+    vid = item.get("id")
+    marca = ((item.get("brand") or {}).get("name") or "").upper()
+    modelo = ((item.get("model") or {}).get("name") or "").upper()
+    versao = (item.get("version") or {}).get("name")
+    preco = (item.get("priceInfo") or {}).get("price")
+    ano = item.get("modelYear") or item.get("manufactureYear")
 
+    if not vid or not modelo or not preco or preco <= 0:
+        return None
+    if ano and ano > ANO_MAXIMO_CLASSICO:
+        return None
 
-def _criar_sessao() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json",
-        "Accept-Language": "pt-BR,pt;q=0.9",
-        "Origin": SITE_BASE,
-        "Referer": SITE_BASE + "/",
-    })
-    return s
+    titulo = " ".join(p for p in [marca, modelo, versao, str(ano) if ano else ""] if p)
 
-
-def _requisitar_api(sessao: requests.Session, params: dict) -> Optional[dict | list]:
-    url = API_BASE + ENDPOINT
-    for i in range(1, MAX_RETRIES + 1):
-        try:
-            r = sessao.get(url, params=params, timeout=TIMEOUT)
-            r.raise_for_status()
-            return r.json()
-        except requests.RequestException as exc:
-            logger.warning("[socarrao] tentativa %d/%d: %s", i, MAX_RETRIES, exc)
-            if i < MAX_RETRIES:
-                time.sleep(BACKOFF)
-        except ValueError as exc:
-            logger.warning("[socarrao] JSON inválido: %s", exc)
-            return None
-    return None
+    return Anuncio(
+        titulo=titulo,
+        preco=float(preco),
+        marca=marca,
+        modelo=modelo,
+        ano=ano,
+        versao=versao,
+        url=f"{SITE_BASE}/veiculos/detalhes/{vid}",
+        fonte=FONTE,
+        data_coleta=data_coleta,
+    )

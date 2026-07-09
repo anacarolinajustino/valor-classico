@@ -23,7 +23,9 @@ from src.pipeline.schema import Anuncio
 logger = logging.getLogger(__name__)
 
 FONTE = "brunelliveiculosantigos"
-BASE_URL = "https://brunelliveiculosantigos.com.br"
+# O domínio sem "www" retorna 522 (Cloudflare não alcança a origem nesse
+# vhost); a origem só responde corretamente em "www." (verificado 2026-07-09).
+BASE_URL = "https://www.brunelliveiculosantigos.com.br"
 LISTING_PATH = "/veiculos"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
