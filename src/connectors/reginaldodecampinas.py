@@ -5,9 +5,15 @@ Motor: WooCommerce
 
 Estratégia em dois passos:
   1. WP REST API (/wp-json/wp/v2/product?product_cat=61) para listar URLs dos
-     veículos à venda sem precisar scraping da página de listagem HTML — mais
-     robusto contra bot-detection em IPs de datacenter (Render/Frankfurt).
+     veículos à venda sem precisar scraping da página de listagem HTML.
   2. Para cada URL, buscar preço e status na página de detalhe.
+
+O CDN da Hostinger (que hospeda o site) bloqueia toda e qualquer requisição
+vinda de IP de datacenter (Render/Frankfurt) — inclusive a WP REST API. Não é
+detecção de fingerprint de automação (diferente do Mercado Livre): basta
+rotear as requisições por um IP residencial (proxy DataImpulse, ver
+`src.connectors._browser.requests_proxies`) para contornar. Confirmado em
+investigação de 2026-06-25/2026-07-09.
 
 Página de detalhe (tema customizado):
   <span>DISPONÍVEL | VENDIDO | RESERVADO</span>
@@ -28,6 +34,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
+from src.connectors._browser import requests_proxies
 from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
@@ -342,6 +349,15 @@ def _criar_sessao() -> requests.Session:
         "Accept-Language": "pt-BR,pt;q=0.9",
         "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
     })
+    proxies = requests_proxies()
+    if proxies:
+        s.proxies.update(proxies)
+        logger.info("[reginaldodecampinas] usando proxy residencial DataImpulse")
+    else:
+        logger.warning(
+            "[reginaldodecampinas] DATAIMPULSE_* não configurado — conectando direto "
+            "(bloqueado se rodando de IP de datacenter)"
+        )
     return s
 
 

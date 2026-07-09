@@ -69,6 +69,28 @@ def proxy_configurado() -> bool:
     return _proxy_config() is not None
 
 
+def requests_proxies(pais: str = _PAIS_PADRAO) -> Optional[dict]:
+    """
+    Monta o dict de proxies no formato esperado pela lib `requests`
+    (`{"http": ..., "https": ...}`), a partir das mesmas env vars DATAIMPULSE_*.
+
+    Para sites bloqueados só por IP de datacenter (sem detecção de fingerprint
+    de automação — ex.: CDN da Hostinger), não é preciso Playwright/stealth:
+    basta rotear as requisições HTTP normais (`requests`) pelo IP residencial.
+    Retorna None se as env vars não estiverem configuradas (conector deve
+    então seguir sem proxy, como hoje).
+    """
+    from urllib.parse import quote
+
+    proxy = _proxy_config(pais)
+    if proxy is None:
+        return None
+    auth = f"{quote(proxy['username'], safe='')}:{quote(proxy['password'], safe='')}"
+    host_port = proxy["server"].split("://", 1)[1]
+    url = f"http://{auth}@{host_port}"
+    return {"http": url, "https": url}
+
+
 def _aplicar_stealth(ctx, locale: str) -> None:
     from playwright_stealth import Stealth
 

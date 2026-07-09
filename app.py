@@ -116,7 +116,6 @@ FONTES_INATIVAS: set[str] = {
     "armazemdovovo",           # bloqueado por Cloudflare (403 Forbidden)
     "oldcar",                  # bloqueado pelo servidor do Estadão
     "ggworld",                 # Wix com Load More via JS; sem links individuais
-    "reginaldodecampinas",     # Hostinger CDN bloqueia IPs de datacenter (WP API + HTML)
 }
 
 catalogo = carregar_catalogo()
