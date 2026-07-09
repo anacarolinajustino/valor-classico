@@ -100,10 +100,6 @@ CONNECTOR_MODULES: dict[str, str] = {
     "cia66motorsports":       "src.connectors.cia66motorsports",
     "escuderiacoqueiro":      "src.connectors.escuderiacoqueiro",
     "poaparts":               "src.connectors.poaparts",
-    "registro9":              "src.connectors.registro9",
-    "lopesantigos":           "src.connectors.lopesantigos",
-    "lexicar":                "src.connectors.lexicar",
-    "autoclassic":            "src.connectors.autoclassic",
     "oldcar":                 "src.connectors.oldcar",
     "ggworld":                "src.connectors.ggworld",
 }
@@ -118,10 +114,6 @@ FONTES_INATIVAS: set[str] = {
     "socarrao",                # API REST bloqueada (403 Forbidden)
     "webmotors",               # bloqueado por PerimeterX (403)
     "armazemdovovo",           # bloqueado por Cloudflare (403 Forbidden)
-    "registro9",               # ECONNREFUSED de IPs de cloud (Render/AWS)
-    "lopesantigos",            # ECONNREFUSED de IPs de cloud
-    "lexicar",                 # ECONNREFUSED de IPs de cloud
-    "autoclassic",             # ECONNREFUSED de IPs de cloud
     "oldcar",                  # bloqueado pelo servidor do Estadão
     "ggworld",                 # Wix com Load More via JS; sem links individuais
     "reginaldodecampinas",     # Hostinger CDN bloqueia IPs de datacenter (WP API + HTML)
