@@ -39,7 +39,7 @@ def fazer_backup() -> Optional[Path]:
         subprocess.run(
             [
                 PG_DUMP, "-h", DB_HOST, "-p", DB_PORT, "-U", DB_USER, "-d", DB_NAME,
-                "--no-owner", "--no-privileges", "-f", str(out_file),
+                "--data-only", "--no-owner", "--no-privileges", "-f", str(out_file),
             ],
             env=env, check=True, capture_output=True, text=True,
         )
