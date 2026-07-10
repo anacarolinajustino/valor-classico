@@ -31,6 +31,7 @@ from flask import Flask, jsonify, request, send_from_directory
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src.catalog.loader import carregar_catalogo
+from src.pipeline.backup import fazer_backup
 from src.pipeline.deduplicator import deduplicar
 from src.pipeline.normalizer import normalizar_texto
 from src.pipeline.outlier_filter import filtrar_outliers
@@ -409,6 +410,10 @@ def admin_coletar():
             anuncios_coletados, metricas = mod.coletar_completo()
             resultado_db = upsert_anuncios(anuncios_coletados)
             logger.info("admin_coletar %s concluído: %s → %s", fonte, metricas, resultado_db)
+            try:
+                fazer_backup()
+            except Exception as exc:
+                logger.warning("admin_coletar %s: falha ao gerar backup pós-coleta: %s", fonte, exc)
             with _tasks_lock:
                 _tasks[task_id] = {
                     "status": "done",

@@ -23,6 +23,9 @@ instance/
 *.log
 /tmp/
 
+# Backups do banco local (gerados pela tarefa agendada, não versionar)
+backups/
+
 # macOS
 .DS_Store
 
