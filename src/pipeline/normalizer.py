@@ -24,6 +24,8 @@ def normalizar_preco(valor_bruto: str) -> Optional[float]:
 
     # Remove símbolo de moeda, letras e espaços; mantém dígitos, ponto e vírgula
     limpo = re.sub(r"[^\d.,]", "", valor_bruto)
+    # Remove ponto/vírgula sobrando nas pontas (ex.: "R$ 95.000." de fim de frase)
+    limpo = limpo.strip(".,")
 
     if not limpo:
         return None
