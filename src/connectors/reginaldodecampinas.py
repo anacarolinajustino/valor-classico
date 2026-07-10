@@ -4,16 +4,23 @@ Site: https://reginaldodecampinas.com.br
 Motor: WooCommerce
 
 Estratégia em dois passos:
-  1. WP REST API (/wp-json/wp/v2/product?product_cat=61) para listar URLs dos
-     veículos à venda sem precisar scraping da página de listagem HTML.
+  1. Scraping HTML da página de listagem (categoria "Veículos à Venda") para
+     coletar URLs + títulos dos anúncios disponíveis.
   2. Para cada URL, buscar preço e status na página de detalhe.
 
 O CDN da Hostinger (que hospeda o site) bloqueia toda e qualquer requisição
-vinda de IP de datacenter (Render/Frankfurt) — inclusive a WP REST API. Não é
-detecção de fingerprint de automação (diferente do Mercado Livre): basta
-rotear as requisições por um IP residencial (proxy DataImpulse, ver
+vinda de IP de datacenter (Render/Frankfurt) — basta rotear as requisições
+por um IP residencial (proxy DataImpulse, ver
 `src.connectors._browser.requests_proxies`) para contornar. Confirmado em
 investigação de 2026-06-25/2026-07-09.
+
+Historicamente a listagem era obtida via WP REST API
+(/wp-json/wp/v2/product?product_cat=61), mais robusta que scraping HTML.
+**Em 2026-07-10 constatado que o site desativou a REST API por completo**
+(até a raiz /wp-json/ retorna 404, mesmo via proxy residencial) — trocado
+para scraping HTML da listagem, que continua funcionando normalmente.
+A listagem não tem paginação no momento (~19 anúncios, uma página só), mas
+o crawl paginado foi mantido por segurança caso o catálogo cresça.
 
 Página de detalhe (tema customizado):
   <span>DISPONÍVEL | VENDIDO | RESERVADO</span>
@@ -43,9 +50,6 @@ logger = logging.getLogger(__name__)
 FONTE = "reginaldodecampinas"
 BASE_URL = "https://reginaldodecampinas.com.br"
 LISTING_URL = f"{BASE_URL}/categoria-produto/veiculos-venda/"
-# WP REST API — categoria "Veículos à Venda" (ID 61), não requer autenticação
-API_URL = f"{BASE_URL}/wp-json/wp/v2/product"
-CAT_VENDA_ID = 61
 TIMEOUT = 20
 MAX_RETRIES = 2
 BACKOFF = 2.0
@@ -119,11 +123,9 @@ def coletar_completo(max_paginas: int = 50) -> tuple[list[Anuncio], dict]:
     erros = 0
     erros_detalhe = 0
 
-    # Obtém URLs via WP REST API — evita scraping da listagem HTML que pode ser
-    # bloqueado por bot-detection em IPs de datacenter (ex.: Render/Frankfurt).
-    candidatos = _obter_urls_api(sessao)
+    candidatos = _obter_urls_html(sessao, max_paginas)
     if not candidatos:
-        logger.warning("[reginaldodecampinas] API retornou 0 candidatos")
+        logger.warning("[reginaldodecampinas] listagem retornou 0 candidatos")
         erros = 1
 
     logger.info("[reginaldodecampinas] %d candidatos via API", len(candidatos))
@@ -181,7 +183,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     anuncios: list[Anuncio] = []
     seen: set[str] = set()
 
-    for prod_url, titulo in _obter_urls_api(sessao):
+    for prod_url, titulo in _obter_urls_html(sessao, paginas):
         if prod_url in seen:
             continue
         titulo_limpo = _limpar_titulo(titulo)
@@ -239,39 +241,29 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
 
 # ── Helpers internos ──────────────────────────────────────────────────────────
 
-def _obter_urls_api(sessao: requests.Session) -> list[tuple[str, str]]:
+def _obter_urls_html(sessao: requests.Session, max_paginas: int = 50) -> list[tuple[str, str]]:
     """
-    Obtém [(url, titulo)] de veículos via WP REST API.
-    Mais robusto que scraping HTML para IPs de datacenter.
+    Obtém [(url, titulo)] de veículos disponíveis via scraping da listagem HTML,
+    paginando enquanto houver link "próxima página" (ver _tem_proxima_pagina).
     """
     resultados: list[tuple[str, str]] = []
-    pagina = 1
-    while True:
-        params = {
-            "product_cat": CAT_VENDA_ID,
-            "per_page": 100,
-            "page": pagina,
-            "_fields": "id,link,title",
-        }
+    for pagina in range(1, max_paginas + 1):
+        url = LISTING_URL if pagina == 1 else f"{LISTING_URL}page/{pagina}/"
         try:
-            r = sessao.get(API_URL, params=params, timeout=TIMEOUT)
+            r = sessao.get(url, timeout=TIMEOUT)
             r.raise_for_status()
-            items = r.json()
-        except Exception as exc:
-            logger.warning("[reginaldodecampinas] API erro pág %d: %s", pagina, exc)
+        except requests.RequestException as exc:
+            logger.warning("[reginaldodecampinas] listagem erro pág %d: %s", pagina, exc)
             break
-        if not items:
+
+        itens = _parsear_listagem_urls(r.text)
+        if not itens:
             break
-        for item in items:
-            url = item.get("link", "")
-            titulo_raw = item.get("title", {}).get("rendered", "")
-            titulo = re.sub(r"&#\d+;|&[a-z]+;", "", titulo_raw).strip()
-            if url and titulo:
-                resultados.append((url, titulo))
-        total_pages = int(r.headers.get("X-WP-TotalPages", 1))
-        if pagina >= total_pages:
+        resultados.extend(itens)
+
+        if not _tem_proxima_pagina(r.text):
             break
-        pagina += 1
+        time.sleep(RATE_LIMIT)
     return resultados
 
 
