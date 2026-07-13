@@ -25,7 +25,7 @@ warnings.filterwarnings("ignore")
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.connectors.olx import TERMOS_SWEEP, coletar_categoria, coletar_completo, coletar_sweep
+from src.connectors.olx import TERMOS_SWEEP, coletar_categoria, coletar_por_termo, coletar_sweep
 from src.pipeline import persistence
 from src.pipeline.persistence import ANO_CORTE_CLASSICO as _ANO
 
@@ -88,7 +88,7 @@ def main() -> int:
             "Modo: termo '%s' — até %d páginas",
             args.termo, args.max_paginas,
         )
-        anuncios, metricas = coletar_completo(max_paginas=args.max_paginas, termo=args.termo)
+        anuncios, metricas = coletar_por_termo(max_paginas=args.max_paginas, termo=args.termo)
 
     resultado = persistence.upsert_anuncios(anuncios)
 

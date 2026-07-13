@@ -17,7 +17,10 @@ Separação de responsabilidades:
 - buscar()           → I/O (Playwright), chama parsear_listagem()
 - parsear_listagem() → função pura (__NEXT_DATA__ JSON), usada nos testes de snapshot
 - coletar_categoria()→ navega a categoria /autos-e-pecas/ com filtro de ano (modo principal)
-- coletar_completo() → batch por um único termo de busca
+- coletar_completo() → ponto de entrada do painel admin (app.py chama `mod.coletar_completo()`
+                       genericamente p/ toda fonte); delega para coletar_categoria()
+- coletar_por_termo()→ batch por um único termo de busca (uso pontual/manual, não é chamado
+                       pelo painel admin)
 - coletar_sweep()    → varre TERMOS_SWEEP numa sessão única (fallback)
 """
 from __future__ import annotations
@@ -227,9 +230,39 @@ def coletar_categoria(
     return anuncios, metricas
 
 
-def coletar_completo(max_paginas: int = 50, termo: str = TERMO_BATCH) -> tuple[list[Anuncio], dict]:
+def coletar_completo(
+    max_paginas: int = 200,
+    ano_ate: int = ANO_CORTE_CLASSICO,
+) -> tuple[list[Anuncio], dict]:
+    """
+    Ponto de entrada da coleta batch da OLX — chamado pelo dispatcher genérico
+    do painel admin (`app.py` faz `mod.coletar_completo()` sem argumentos para
+    toda fonte). Delega para coletar_categoria(): cobre a categoria inteira de
+    carros sem depender de nenhum termo de busca.
+
+    Antes desta função varria só o termo fixo "carros antigos", o que cobria
+    apenas anúncios cujo título continha essa frase literal (uma fração
+    pequena e repetitiva do catálogo real da OLX) — ver coletar_por_termo()
+    para essa estratégia antiga, ainda disponível para uso pontual/manual.
+
+    Args:
+        max_paginas: Teto de páginas na categoria (default 200).
+        ano_ate:     Filtro de ano aplicado no parser (default ANO_CORTE_CLASSICO).
+
+    Returns:
+        (anuncios, metricas)
+    """
+    return coletar_categoria(max_paginas=max_paginas, ano_ate=ano_ate)
+
+
+def coletar_por_termo(max_paginas: int = 50, termo: str = TERMO_BATCH) -> tuple[list[Anuncio], dict]:
     """
     Coleta anúncios da OLX em batch para um único termo de busca.
+
+    Cobertura limitada ao que o próprio buscador da OLX casar com `termo`
+    (fraco para termos genéricos como "carros antigos" — prefira
+    coletar_categoria()/coletar_completo() para cobertura ampla). Mantida para
+    uso pontual/manual (ex.: `scripts/ingest_olx.py --modo termo`).
 
     Args:
         max_paginas: Teto de páginas a coletar (default 50).
