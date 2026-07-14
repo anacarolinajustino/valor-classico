@@ -32,6 +32,35 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("PEUGEOT", "207"):   set(range(2007, 2014)),
     ("HONDA",   "CR-V"):  set(range(1997, 2024)),
     ("TOYOTA",  "SW4"):   set(range(1992, 2024)),
+    # Marcas clássicas ausentes do CSV, vistas em anúncios reais coletados
+    # (auditoria 2026-07-14). Anos aproximados de produção.
+    ("DKW",     "BELCAR"):        set(range(1958, 1968)),
+    ("DKW",     "VEMAGUET"):      set(range(1958, 1968)),
+    ("DKW",     "CAICARA"):       set(range(1962, 1965)),
+    ("DKW",     "MUNGA"):         set(range(1958, 1969)),
+    ("AUSTIN",  "A40"):           set(range(1947, 1957)),
+    ("AUSTIN",  "HEALEY SPRITE"): set(range(1958, 1972)),
+    ("AUSTIN",  "HEALEY 3000"):   set(range(1959, 1968)),
+    ("REO",     "SPEED WAGON"):   set(range(1915, 1954)),
+    ("REO",     "FLYING CLOUD"):  set(range(1927, 1937)),
+    ("SCANIA",  "LK 111"):        set(range(1976, 1982)),
+    ("SCANIA",  "L 111"):         set(range(1975, 1982)),
+    ("SCANIA",  "113"):           set(range(1991, 1999)),
+    # Motos/afins clássicos: usuário decidiu (2026-07-14) que ficam no banco
+    ("YAMAHA",  "DT"):            set(range(1974, 2001)),
+    ("YAMAHA",  "RD 350"):        set(range(1973, 1996)),
+    ("YAMAHA",  "DRAG STAR"):     set(range(1997, 2001)),
+    ("LAMBRETTA", "LI 150"):      set(range(1958, 1971)),
+    ("LAMBRETTA", "STANDARD"):    set(range(1955, 1966)),
+    ("PIAGGIO", "VESPA"):         set(range(1946, 2001)),
+    ("HARLEY-DAVIDSON", "SPRINGER"):      set(range(1988, 2001)),
+    ("HARLEY-DAVIDSON", "SPORTSTER"):     set(range(1957, 2001)),
+    ("HARLEY-DAVIDSON", "ELECTRA GLIDE"): set(range(1965, 2001)),
+    ("CALOI",   "MOBILETE"):      set(range(1970, 1996)),
+    # Grafia com espaço: o CSV só tem "KARMANN-GHIA" (hifenizado), mas os
+    # anúncios escrevem "Karmann Ghia" — sem esta entrada o primeiro token
+    # não casa e a marca não é inferida.
+    ("VOLKSWAGEN", "KARMANN GHIA"): set(range(1962, 1976)),
 }
 
 # (marca_norm, modelo_norm) -> set de anos disponíveis

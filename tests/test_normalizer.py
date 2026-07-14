@@ -156,6 +156,42 @@ class TestInferirMarcaModeloAno:
         marca, modelo, ano = inferir_marca_modelo_ano("Gol 1.6 Power")
         assert ano is None
 
+    def test_marca_do_suplemento_dkw(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Dkw Belcar 4 Portas 1964")
+        assert marca == "DKW"
+        assert ano == 1964
+
+    def test_prefixo_vendo_ignorado(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Vendo Ford F-75 Cabine Estendida")
+        assert marca == "FORD"
+
+    def test_prefixo_moto_ignorado(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("MOTO HARLEY-DAVIDSON SPRINGER - 1997")
+        assert marca == "HARLEY-DAVIDSON"
+        assert ano == 1997
+
+    def test_rolls_royce_sem_hifen(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Rolls Royce Silver Shadow 1973")
+        assert marca == "ROLLS-ROYCE"
+        assert ano == 1973
+
+    def test_grafia_errada_volkswagen(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Volksvagem Fusca 1986")
+        assert marca == "VOLKSWAGEN"
+        assert ano == 1986
+
+    def test_alias_gm_seguido_de_marca_real(self):
+        # "GM" é só um selo: a marca real vem depois
+        marca, modelo, ano = inferir_marca_modelo_ano("GM Oldsmobile Tornado – 1969")
+        assert marca == "OLDSMOBILE"
+        assert ano == 1969
+
+    def test_karmann_ghia_sem_hifen(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Karmann Ghia 1969")
+        assert marca == "VOLKSWAGEN"
+        assert modelo == "KARMANN GHIA"
+        assert ano == 1969
+
     def test_sem_ano(self):
         marca, modelo, ano = inferir_marca_modelo_ano("Ford Mustang")
         assert marca == "FORD"

@@ -97,7 +97,23 @@ _ALIASES_MARCA: dict[str, str] = {
     "GM": "CHEVROLET",
     "MERCEDES": "MERCEDES-BENZ",
     "MERCEDES BENZ": "MERCEDES-BENZ",
+    # Catálogo grafa hifenizado; anúncios escrevem com espaço
+    "ROLLS ROYCE": "ROLLS-ROYCE",
+    # Grafias erradas comuns em anúncios reais (auditoria 2026-07-14)
+    "ALFA ROMEU": "ALFA ROMEO",
+    "VOKSWAGEN": "VOLKSWAGEN",
+    "VOLKSWAGEM": "VOLKSWAGEN",
+    "VOLKSVAGEM": "VOLKSWAGEN",
+    "VOLKWAGEM": "VOLKSWAGEN",
 }
+
+# Primeiros tokens que descrevem o anúncio, não o veículo ("Vendo Ford F-75",
+# "Moto Harley-Davidson", "Perua Kombi") — pulados antes de inferir a marca.
+_PREFIXOS_NAO_MARCA: frozenset = frozenset({
+    "VENDO", "VENDE-SE", "VENDESE", "MOTO", "CARRO", "VEICULO",
+    "CAMINHONETE", "PERUA", "FURGAO", "PICK-UP", "PICKUP",
+    "RARIDADE", "ANTIGO", "ANTIGA", "CLASSICO", "CLASSICA",
+})
 
 # Cache do vocabulário derivado do catálogo canônico:
 # (marcas conhecidas, primeiro-token-de-modelo -> marca exclusiva)
@@ -203,6 +219,10 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
 
     marcas_catalogo, modelo_marca = _catalogo_vocab()
 
+    # 0) Pula prefixos descritivos que não são marca ("Vendo...", "Moto...")
+    while len(tokens_sem_ano) > 1 and tokens_sem_ano[0] in _PREFIXOS_NAO_MARCA:
+        tokens_sem_ano = tokens_sem_ano[1:]
+
     # 1) Prefixo mais longo que seja marca conhecida do catálogo
     for n in (3, 2, 1):
         if len(tokens_sem_ano) >= n:
@@ -211,12 +231,23 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
                 return (prefixo, " ".join(tokens_sem_ano[n:]), ano)
 
     # 2) Alias de marca (2 tokens antes de 1: "MERCEDES BENZ" > "MERCEDES")
+    alias_alvo: Optional[str] = None
+    consumidos = 0
     if len(tokens_sem_ano) >= 2:
         duo = f"{tokens_sem_ano[0]} {tokens_sem_ano[1]}"
         if duo in _ALIASES_MARCA:
-            return (_ALIASES_MARCA[duo], " ".join(tokens_sem_ano[2:]), ano)
-    if tokens_sem_ano[0] in _ALIASES_MARCA:
-        return (_ALIASES_MARCA[tokens_sem_ano[0]], " ".join(tokens_sem_ano[1:]), ano)
+            alias_alvo, consumidos = _ALIASES_MARCA[duo], 2
+    if alias_alvo is None and tokens_sem_ano[0] in _ALIASES_MARCA:
+        alias_alvo, consumidos = _ALIASES_MARCA[tokens_sem_ano[0]], 1
+    if alias_alvo is not None:
+        resto = tokens_sem_ano[consumidos:]
+        # O alias pode ser só um selo na frente da marca real ("GM
+        # Oldsmobile Tornado") — se o que vem depois já é marca do
+        # catálogo, ela prevalece sobre o alias.
+        for n in (2, 1):
+            if len(resto) >= n and " ".join(resto[:n]) in marcas_catalogo:
+                return (" ".join(resto[:n]), " ".join(resto[n:]), ano)
+        return (alias_alvo, " ".join(resto), ano)
 
     # 3) Título começa pelo modelo ("Fusca 1600") e o modelo identifica
     #    uma única marca no catálogo — o modelo mantém todos os tokens
