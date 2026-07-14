@@ -13,6 +13,7 @@ import pytest
 from src.pipeline.persistence import (
     ANO_CORTE_CLASSICO,
     CHART_MIN_DIAS,
+    get_dashboard_stats,
     init_db,
     upsert_anuncios,
     upsert_preco,
@@ -230,6 +231,38 @@ class TestUpsertAnunciosCorteAno:
         resultado = upsert_anuncios([_anuncio("http://x/1", None)])
         assert resultado["novos"] == 1
         assert resultado["descartados_ano"] == 0
+
+
+# ── AC-P08: get_dashboard_stats agrega os recortes do dashboard ───────────────
+
+class TestGetDashboardStats:
+    def _semear(self):
+        upsert_anuncios([
+            _anuncio("http://x/1", 1975, fonte="olx"),
+            _anuncio("http://x/2", 1975, fonte="olx"),
+            _anuncio("http://x/3", 1992, fonte="maxicar"),
+            _anuncio("http://x/4", None, fonte="maxicar"),
+        ])
+
+    def test_kpis_gerais(self):
+        self._semear()
+        d = get_dashboard_stats()
+        assert d["kpis"]["total"] == 4
+        assert d["kpis"]["com_ano"] == 3
+        assert d["kpis"]["fontes"] == 2
+        assert d["kpis"]["preco_mediano"] == 50000.0
+
+    def test_filtro_por_fonte(self):
+        self._semear()
+        d = get_dashboard_stats(fonte="olx")
+        assert d["kpis"]["total"] == 2
+        assert [f["fonte"] for f in d["por_fonte"]] == ["olx"]
+
+    def test_por_decada_agrupa(self):
+        self._semear()
+        d = get_dashboard_stats()
+        decadas = {x["decada"]: x["qtd"] for x in d["por_decada"]}
+        assert decadas == {1970: 2, 1990: 1}
 
 
 # ── AC-P06: get_mais_pesquisados retorna ranking ordenado por contagem DESC ───

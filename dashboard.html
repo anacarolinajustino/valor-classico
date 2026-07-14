@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    /* ── Tokens do dashboard (paleta validada: verde 6,0:1 / dourado 4,4:1 no creme) ── */
+    .dash-root {
+      --dash-serie:      #2F6B4F;  /* série única de todos os gráficos */
+      --dash-serie-hover:#1E3A2F;
+      --dash-realce:     #A36A18;
+      --dash-grid:       #E7E2D6;  /* hairline, um passo fora da superfície */
+      --dash-eixo:       #7A6E5F;
+    }
+    .dash-filtros {
+      display: flex; align-items: center; gap: .75rem;
+      margin: 0 0 1.5rem;
+    }
+    .dash-filtros label { font-weight: 600; color: var(--vc-ink-soft); }
+    .dash-filtros select {
+      font: inherit; padding: .45rem .75rem; border-radius: var(--radius);
+      border: 1px solid var(--vc-border); background: var(--vc-white);
+      color: var(--vc-ink); min-width: 220px;
+    }
+    .dash-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem;
+      transition: opacity var(--transition);
+    }
+    .dash-grid.carregando { opacity: .5; pointer-events: none; }
+    .dash-card {
+      background: var(--vc-white); border: 1px solid var(--vc-border);
+      border-radius: var(--radius-lg); padding: 1.25rem 1.5rem;
+    }
+    .dash-card.larga { grid-column: 1 / -1; }
+    .dash-card h3 {
+      font-family: "Source Sans 3", sans-serif; font-size: 1rem;
+      font-weight: 600; color: var(--vc-ink); margin: 0 0 1rem;
+    }
+    @media (max-width: 860px) { .dash-grid { grid-template-columns: 1fr; } }
+
+    /* KPIs (reusa os cards do admin) */
+    .dash-kpis { margin-bottom: 1.5rem; }
+
+    /* Barras horizontais (HTML/CSS) */
+    .dash-hbar-row {
+      display: grid; grid-template-columns: 140px 1fr; align-items: center;
+      gap: .6rem; padding: .22rem 0; cursor: default;
+    }
+    .dash-hbar-label {
+      font-size: .85rem; color: var(--vc-ink-soft); text-align: right;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .dash-hbar-track { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+    .dash-hbar-bar {
+      height: 18px; background: var(--dash-serie);
+      border-radius: 0 4px 4px 0;  /* ponta arredondada, base reta */
+      min-width: 2px; flex: 0 0 auto;
+      transition: background var(--transition);
+    }
+    .dash-hbar-row:hover .dash-hbar-bar { background: var(--dash-serie-hover); }
+    .dash-hbar-valor {
+      font-size: .8rem; color: var(--vc-ink-muted); white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Colunas (SVG) */
+    .dash-svg { width: 100%; height: auto; display: block; }
+    .dash-svg text {
+      font-family: "Source Sans 3", sans-serif;
+    }
+    .dash-svg .tick { font-size: 11px; fill: var(--dash-eixo); font-variant-numeric: tabular-nums; }
+    .dash-svg .cat  { font-size: 11.5px; fill: var(--vc-ink-soft); }
+    .dash-svg .cap  { font-size: 11px; fill: var(--vc-ink-soft); }
+    .dash-svg .grade { stroke: var(--dash-grid); stroke-width: 1; }
+    .dash-svg .col   { fill: var(--dash-serie); transition: fill var(--transition); }
+    .dash-svg .hit:hover + .col, .dash-svg .col:hover { fill: var(--dash-serie-hover); }
+    .dash-svg .hit { fill: transparent; }
+
+    /* Tabela */
+    .dash-tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .dash-tabela th {
+      text-align: left; color: var(--vc-ink-muted); font-weight: 600;
+      padding: .4rem .6rem; border-bottom: 1px solid var(--vc-border);
+    }
+    .dash-tabela td { padding: .4rem .6rem; border-bottom: 1px solid var(--dash-grid); color: var(--vc-ink-soft); }
+    .dash-tabela td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .dash-tabela th.num { text-align: right; }
+
+    /* Tooltip */
+    #dash-tooltip {
+      position: fixed; z-index: 50; pointer-events: none; display: none;
+      background: var(--vc-ink); color: var(--vc-white);
+      border-radius: var(--radius); padding: .45rem .7rem;
+      font-size: .85rem; box-shadow: var(--shadow-card); max-width: 260px;
+    }
+    #dash-tooltip .tt-valor { font-weight: 600; font-size: .95rem; display: block; }
+    #dash-tooltip .tt-rotulo { opacity: .8; }
+  </style>
+</head>
+<body>
+
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="/static/LogoValorClassico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <span class="admin-badge-header">Painel Administrativo</span>
+      <nav class="header-nav">
+        <a href="/admin">Coleta</a>
+        <a href="/admin/anuncios">Ver anúncios</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main container dash-root">
+
+    <div class="admin-page-header">
+      <h1 class="admin-title">Dashboard</h1>
+      <p class="admin-sub">Recortes dos anúncios coletados — volume, marcas, décadas e preços.</p>
+    </div>
+
+    <!-- Filtro (escopa tudo abaixo) -->
+    <div class="dash-filtros">
+      <label for="filtro-fonte">Fonte</label>
+      <select id="filtro-fonte">
+        <option value="">Todas as fontes</option>
+      </select>
+    </div>
+
+    <!-- KPIs -->
+    <div class="admin-stats-grid dash-kpis">
+      <div class="admin-stat-card">
+        <span class="admin-stat-label">Total de anúncios</span>
+        <span class="admin-stat-value" id="kpi-total">—</span>
+      </div>
+      <div class="admin-stat-card">
+        <span class="admin-stat-label">Preço mediano</span>
+        <span class="admin-stat-value" id="kpi-mediana">—</span>
+      </div>
+      <div class="admin-stat-card">
+        <span class="admin-stat-label">Fontes com dados</span>
+        <span class="admin-stat-value" id="kpi-fontes">—</span>
+      </div>
+      <div class="admin-stat-card">
+        <span class="admin-stat-label">Com ano identificado</span>
+        <span class="admin-stat-value" id="kpi-com-ano">—</span>
+      </div>
+    </div>
+
+    <!-- Gráficos -->
+    <div class="dash-grid" id="dash-grid">
+      <div class="dash-card">
+        <h3>Anúncios por fonte</h3>
+        <div id="chart-fontes"></div>
+      </div>
+      <div class="dash-card">
+        <h3>Top 10 marcas</h3>
+        <div id="chart-marcas"></div>
+      </div>
+      <div class="dash-card">
+        <h3>Anúncios por década do veículo</h3>
+        <div id="chart-decadas"></div>
+      </div>
+      <div class="dash-card">
+        <h3>Preço mediano por década</h3>
+        <div id="chart-preco-decada"></div>
+      </div>
+      <div class="dash-card larga">
+        <h3>Distribuição por faixa de preço</h3>
+        <div id="chart-faixas"></div>
+      </div>
+      <div class="dash-card larga">
+        <h3>Modelos mais anunciados</h3>
+        <div id="tabela-modelos"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <div id="dash-tooltip" role="status"></div>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

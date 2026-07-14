@@ -9,8 +9,10 @@ Endpoints:
   GET  /                                  → redireciona pro painel (/admin)
   GET  /admin                             → painel de status e coleta
   GET  /admin/anuncios                    → lista/filtra anúncios coletados
+  GET  /admin/dashboard                   → dashboard com recortes dos dados
   GET  /admin/api/status                  → status do banco + conectores
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
+  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
 """
@@ -37,6 +39,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from src.pipeline.backup import fazer_backup
 from src.pipeline.persistence import (
+    get_dashboard_stats,
     get_db_stats,
     init_db,
     listar_anuncios,
@@ -125,6 +128,11 @@ def admin_anuncios():
     return send_from_directory(".", "anuncios.html")
 
 
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    return send_from_directory(".", "dashboard.html")
+
+
 # ──────────────────────────────────────────────────────
 # Admin API
 # ──────────────────────────────────────────────────────
@@ -172,6 +180,16 @@ def admin_api_anuncios():
         return jsonify(result)
     except Exception as exc:
         logger.error("admin_api_anuncios erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/dashboard")
+def admin_api_dashboard():
+    fonte = request.args.get("fonte", "").strip() or None
+    try:
+        return jsonify(get_dashboard_stats(fonte=fonte))
+    except Exception as exc:
+        logger.error("admin_api_dashboard erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

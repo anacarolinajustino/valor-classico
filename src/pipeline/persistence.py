@@ -363,6 +363,100 @@ def get_db_stats() -> dict[str, Any]:
     return {"total_anuncios": total, "por_fonte": por_fonte}
 
 
+def get_dashboard_stats(fonte: str | None = None) -> dict[str, Any]:
+    """
+    Agregados pro dashboard do painel admin, opcionalmente recortados por
+    fonte. Uma chamada devolve todos os blocos que a página consome, pra
+    manter os números consistentes entre si (mesma foto do banco).
+    """
+    cond = "WHERE fonte = %s" if fonte else ""
+    cond_e = f"{cond} AND" if fonte else "WHERE"
+    params: tuple = (fonte,) if fonte else ()
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT COUNT(*)                                            AS total,
+                       COUNT(ano)                                          AS com_ano,
+                       COUNT(DISTINCT fonte)                               AS fontes,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco)  AS preco_mediano
+                FROM anuncios {cond}
+                """,
+                params,
+            )
+            k = cur.fetchone()
+
+            cur.execute(
+                f"SELECT fonte, COUNT(*) AS qtd FROM anuncios {cond} "
+                "GROUP BY fonte ORDER BY qtd DESC",
+                params,
+            )
+            por_fonte = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"""
+                SELECT CASE WHEN ano < 1950 THEN 1949 ELSE (ano / 10) * 10 END AS decada,
+                       COUNT(*)                                                AS qtd,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco)      AS preco_mediano
+                FROM anuncios {cond_e} ano IS NOT NULL
+                GROUP BY 1 ORDER BY 1
+                """,
+                params,
+            )
+            por_decada = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"SELECT marca, COUNT(*) AS qtd FROM anuncios {cond_e} marca IS NOT NULL "
+                "GROUP BY marca ORDER BY qtd DESC LIMIT 10",
+                params,
+            )
+            top_marcas = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"""
+                SELECT CASE
+                         WHEN preco <  25000  THEN 0
+                         WHEN preco <  50000  THEN 1
+                         WHEN preco <  100000 THEN 2
+                         WHEN preco <  200000 THEN 3
+                         WHEN preco <  500000 THEN 4
+                         ELSE 5
+                       END      AS faixa,
+                       COUNT(*) AS qtd
+                FROM anuncios {cond_e} preco IS NOT NULL AND preco > 0
+                GROUP BY 1 ORDER BY 1
+                """,
+                params,
+            )
+            faixas_preco = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"""
+                SELECT marca, modelo, COUNT(*) AS qtd,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco) AS preco_mediano
+                FROM anuncios {cond_e} marca IS NOT NULL AND modelo IS NOT NULL
+                GROUP BY marca, modelo ORDER BY qtd DESC LIMIT 15
+                """,
+                params,
+            )
+            top_modelos = [dict(r) for r in cur.fetchall()]
+
+    return {
+        "kpis": {
+            "total": k["total"],
+            "com_ano": k["com_ano"],
+            "fontes": k["fontes"],
+            "preco_mediano": k["preco_mediano"],
+        },
+        "por_fonte": por_fonte,
+        "por_decada": por_decada,
+        "top_marcas": top_marcas,
+        "faixas_preco": faixas_preco,
+        "top_modelos": top_modelos,
+    }
+
+
 def listar_anuncios(
     fonte: str | None = None,
     marca: str | None = None,
