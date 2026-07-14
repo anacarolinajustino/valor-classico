@@ -145,6 +145,7 @@ def _faixas_ano(ano_ate: int) -> list[tuple[int, int]]:
 def coletar_categoria(
     max_paginas: int = 120,
     ano_ate: int = ANO_CORTE_CLASSICO,
+    faixas: list[tuple[int, int]] | None = None,
 ) -> tuple[list[Anuncio], dict]:
     """
     Coleta anúncios da categoria OLX /autos-e-pecas/carros-vans-e-utilitarios
@@ -165,13 +166,15 @@ def coletar_categoria(
         max_paginas: Teto de páginas POR FAIXA de ano (default 120 — um pouco
                      acima do teto real de ~100 pra guarda de repetição agir).
         ano_ate:     Corte de ano (default ANO_CORTE_CLASSICO=2000).
+        faixas:      Faixas de ano a varrer (default: _faixas_ano(ano_ate)).
+                     Útil pra recoletar só faixas que falharam numa rodada.
 
     Returns:
         (anuncios, metricas)
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
-    faixas = _faixas_ano(ano_ate)
+    faixas = faixas if faixas is not None else _faixas_ano(ano_ate)
     anuncios: list[Anuncio] = []
     seen_urls: set[str] = set()
     paginas_lidas = 0
@@ -201,11 +204,25 @@ def coletar_categoria(
                     url_pagina = _url_categoria(pagina, ano_de, ano_fim)
                     logger.info("[olx] faixa %d-%d pág %d — %s", ano_de, ano_fim, pagina, url_pagina)
 
+                    # Soluços transitórios de rede/proxy são comuns em coletas
+                    # longas (2026-07-14: 2 em 400 páginas, cada um matando a
+                    # faixa inteira) — tenta a mesma página de novo antes de
+                    # desistir da faixa.
                     t0 = time.monotonic()
-                    try:
-                        pw_page.goto(url_pagina, timeout=TIMEOUT_PAGINA, wait_until="domcontentloaded")
-                    except Exception as exc:
-                        logger.warning("[olx] timeout faixa %d-%d pág %d: %s", ano_de, ano_fim, pagina, exc)
+                    erro_nav: Exception | None = None
+                    for tentativa in range(1, 3):
+                        try:
+                            pw_page.goto(url_pagina, timeout=TIMEOUT_PAGINA, wait_until="domcontentloaded")
+                            erro_nav = None
+                            break
+                        except Exception as exc:
+                            erro_nav = exc
+                            logger.warning(
+                                "[olx] erro de navegação faixa %d-%d pág %d (tentativa %d/2): %s",
+                                ano_de, ano_fim, pagina, tentativa, exc,
+                            )
+                            time.sleep(RATE_LIMIT_SEGUNDOS)
+                    if erro_nav is not None:
                         erros += 1
                         break
                     latencias.append(time.monotonic() - t0)
