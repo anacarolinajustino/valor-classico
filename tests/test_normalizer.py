@@ -87,9 +87,43 @@ class TestInferirMarcaModeloAno:
 
     def test_fusca_com_versao_na_titulo(self):
         marca, modelo, ano = inferir_marca_modelo_ano("VW Fusca 1200 1962")
-        assert marca == "VW"
+        assert marca == "VOLKSWAGEN"  # alias VW resolvido pro nome oficial
         assert "FUSCA" in modelo
         assert ano == 1962
+
+    def test_alias_gm(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("GM Chevette Luxo 1.4 1985")
+        assert marca == "CHEVROLET"
+        assert "CHEVETTE" in modelo
+        assert ano == 1985
+
+    def test_alias_mercedes_benz_dois_tokens(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Mercedes Benz 280 SL 1970")
+        assert marca == "MERCEDES-BENZ"
+        assert "280" in modelo
+        assert ano == 1970
+
+    def test_marca_composta_land_rover(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Land Rover Defender 110 1998")
+        assert marca == "LAND ROVER"
+        assert "DEFENDER" in modelo
+        assert ano == 1998
+
+    def test_marca_composta_mp_lafer(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("MP Lafer 1976")
+        assert marca == "MP LAFER"
+        assert ano == 1976
+
+    def test_titulo_comeca_pelo_modelo(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Fusca 1600 1985")
+        assert marca == "VOLKSWAGEN"
+        assert modelo == "FUSCA 1600"
+        assert ano == 1985
+
+    def test_modelo_ambiguo_nao_infere_marca(self):
+        # CARAVAN existe em mais de uma marca no catálogo — mantém comportamento antigo
+        marca, modelo, ano = inferir_marca_modelo_ano("Caravan Comodoro 1985")
+        assert marca == "CARAVAN"
 
     def test_sem_ano(self):
         marca, modelo, ano = inferir_marca_modelo_ano("Ford Mustang")
