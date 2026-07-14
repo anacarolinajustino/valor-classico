@@ -3,11 +3,11 @@
 Ingestão batch da OLX → SQLite.
 
 Modo default: navega a categoria /autos-e-pecas/carros-vans-e-utilitarios
-com filtro de ano (sf=1&ae=2000) e persiste no SQLite.
+com filtro de ano no servidor (rs/re), fatiado por faixas de ano, e persiste.
 
 Uso:
     python scripts/ingest_olx.py                              # categoria completa (default)
-    python scripts/ingest_olx.py --max-paginas 10            # limite de páginas (teste)
+    python scripts/ingest_olx.py --max-paginas 10            # limite de páginas/faixa (teste)
     python scripts/ingest_olx.py --modo sweep                # sweep por termos (fallback)
     python scripts/ingest_olx.py --modo termo --termo fusca  # termo único
 """
@@ -48,8 +48,8 @@ def main() -> int:
         help="Estratégia de coleta (default: categoria).",
     )
     parser.add_argument(
-        "--max-paginas", type=int, default=200,
-        help="Teto de páginas no modo categoria ou termo (default: 200).",
+        "--max-paginas", type=int, default=120,
+        help="Teto de páginas por faixa de ano (modo categoria) ou total (modo termo). Default: 120.",
     )
     parser.add_argument(
         "--max-paginas-por-termo", type=int, default=20,

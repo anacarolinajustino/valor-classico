@@ -16,7 +16,8 @@ Compliance (verificado 2026-06-14):
 Separação de responsabilidades:
 - buscar()           → I/O (Playwright), chama parsear_listagem()
 - parsear_listagem() → função pura (__NEXT_DATA__ JSON), usada nos testes de snapshot
-- coletar_categoria()→ navega a categoria /autos-e-pecas/ com filtro de ano (modo principal)
+- coletar_categoria()→ navega a categoria /autos-e-pecas/ com filtro de ano rs/re
+                       no servidor, fatiado por faixas de ano (modo principal)
 - coletar_completo() → ponto de entrada do painel admin (app.py chama `mod.coletar_completo()`
                        genericamente p/ toda fonte); delega para coletar_categoria()
 - coletar_por_termo()→ batch por um único termo de busca (uso pontual/manual, não é chamado
@@ -125,26 +126,52 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     return anuncios
 
 
+def _faixas_ano(ano_ate: int) -> list[tuple[int, int]]:
+    """
+    Fatias de ano para a coleta de categoria, cada uma abaixo de ~5.000
+    resultados (teto de paginação da OLX: ~100 páginas × 50 cards — depois
+    disso o site repete a última página real em vez de avançar).
+
+    Contagens medidas em 2026-07-14: 1900-1959 (133), 1960-1969 (553),
+    1970-1979 (2.836), 1980-1989 (3.791), 1990-1994 (4.108). De 1995 em
+    diante o volume anual cresce demais pra agrupar década (1995-1999
+    sozinho tem 8.157) — fatia ano a ano até o corte.
+    """
+    faixas = [(1900, 1959), (1960, 1969), (1970, 1979), (1980, 1989), (1990, 1994)]
+    faixas += [(a, a) for a in range(1995, ano_ate + 1)]
+    return [(de, min(ate, ano_ate)) for de, ate in faixas if de <= ano_ate]
+
+
 def coletar_categoria(
-    max_paginas: int = 200,
+    max_paginas: int = 120,
     ano_ate: int = ANO_CORTE_CLASSICO,
 ) -> tuple[list[Anuncio], dict]:
     """
-    Coleta anúncios diretamente da categoria OLX /autos-e-pecas/carros-vans-e-utilitarios.
-    OLX não suporta filtro de ano por URL — a filtragem é feita exclusivamente
-    pelo campo regdate no __NEXT_DATA__ (client-side, em _parsear_ads).
+    Coleta anúncios da categoria OLX /autos-e-pecas/carros-vans-e-utilitarios
+    com filtro de ano aplicado NO SERVIDOR via parâmetros rs/re (descoberto
+    pelo usuário em 2026-07-14 — o teste antigo usava sf/ae, que a OLX
+    ignora, por isso o conector filtrava só client-side e desperdiçava ~98%
+    da banda com carros modernos).
 
-    É a estratégia principal: cobre toda a categoria sem depender de termos de busca.
+    Como a OLX limita a paginação a ~100 páginas por consulta (~5.000
+    resultados), a coleta é fatiada por faixas de ano (_faixas_ano), cada
+    faixa abaixo do teto. O parser mantém o filtro de ano client-side como
+    defesa em profundidade.
+
+    É a estratégia principal: cobre o universo inteiro de anúncios até
+    `ano_ate` (~21.400 em 2026-07-14) sem depender de termos de busca.
 
     Args:
-        max_paginas: Teto de páginas (default 200). OLX normalmente limita a ~100-150.
-        ano_ate:     Filtro de ano no URL e no parser (default ANO_CORTE_CLASSICO=2000).
+        max_paginas: Teto de páginas POR FAIXA de ano (default 120 — um pouco
+                     acima do teto real de ~100 pra guarda de repetição agir).
+        ano_ate:     Corte de ano (default ANO_CORTE_CLASSICO=2000).
 
     Returns:
         (anuncios, metricas)
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
+    faixas = _faixas_ano(ano_ate)
     anuncios: list[Anuncio] = []
     seen_urls: set[str] = set()
     paginas_lidas = 0
@@ -154,52 +181,77 @@ def coletar_categoria(
     latencias: list[float] = []
     page_size = 50  # OLX pagina ~50 cards/página (observado 2026-07-09)
 
-    logger.info("[olx] categoria: iniciando coleta até ano %d, max %d páginas", ano_ate, max_paginas)
+    logger.info(
+        "[olx] categoria: %d faixas de ano até %d, max %d páginas/faixa",
+        len(faixas), ano_ate, max_paginas,
+    )
 
     try:
         with criar_contexto() as ctx:
             pw_page = ctx.new_page()
 
-            for pagina in range(1, max_paginas + 1):
-                url_pagina = _url_categoria(pagina, ano_ate)
-                logger.info("[olx] categoria pág %d — %s", pagina, url_pagina)
+            for ano_de, ano_fim in faixas:
+                # URLs brutas (todos os cards, válidos ou não) vistas nesta
+                # faixa — detecta o teto de paginação: além dele a OLX devolve
+                # a última página real repetida, em vez de 404/página vazia.
+                urls_brutas_faixa: set[str] = set()
+                antes = len(anuncios)
 
-                t0 = time.monotonic()
-                try:
-                    pw_page.goto(url_pagina, timeout=TIMEOUT_PAGINA, wait_until="domcontentloaded")
-                except Exception as exc:
-                    logger.warning("[olx] timeout pág %d: %s", pagina, exc)
-                    erros += 1
-                    break
-                latencias.append(time.monotonic() - t0)
+                for pagina in range(1, max_paginas + 1):
+                    url_pagina = _url_categoria(pagina, ano_de, ano_fim)
+                    logger.info("[olx] faixa %d-%d pág %d — %s", ano_de, ano_fim, pagina, url_pagina)
 
-                html = pw_page.content()
-                itens, disc_sem_preco, disc_ano, total_cards = _parsear_ads_dom(html, data_coleta, ano_ate)
+                    t0 = time.monotonic()
+                    try:
+                        pw_page.goto(url_pagina, timeout=TIMEOUT_PAGINA, wait_until="domcontentloaded")
+                    except Exception as exc:
+                        logger.warning("[olx] timeout faixa %d-%d pág %d: %s", ano_de, ano_fim, pagina, exc)
+                        erros += 1
+                        break
+                    latencias.append(time.monotonic() - t0)
 
-                if not total_cards:
-                    logger.warning("[olx] categoria pág %d: sem anúncios — parando.", pagina)
-                    break
+                    html = pw_page.content()
+                    urls_pagina = _urls_cards(html)
+                    itens, disc_sem_preco, disc_ano, total_cards = _parsear_ads_dom(html, data_coleta, ano_ate)
 
-                descartados += disc_sem_preco
-                descartados_ano += disc_ano
-                paginas_lidas += 1
+                    if not total_cards:
+                        logger.info("[olx] faixa %d-%d pág %d: sem anúncios — fim da faixa.", ano_de, ano_fim, pagina)
+                        break
 
-                novos = 0
-                for a in itens:
-                    if a.url not in seen_urls:
-                        seen_urls.add(a.url)
-                        anuncios.append(a)
-                        novos += 1
+                    if urls_pagina and urls_pagina <= urls_brutas_faixa:
+                        logger.info(
+                            "[olx] faixa %d-%d pág %d: página repetida (teto de paginação) — fim da faixa.",
+                            ano_de, ano_fim, pagina,
+                        )
+                        break
+                    urls_brutas_faixa |= urls_pagina
+
+                    descartados += disc_sem_preco
+                    descartados_ano += disc_ano
+                    paginas_lidas += 1
+
+                    novos = 0
+                    for a in itens:
+                        if a.url not in seen_urls:
+                            seen_urls.add(a.url)
+                            anuncios.append(a)
+                            novos += 1
+
+                    logger.info(
+                        "[olx] faixa %d-%d pág %d: %d brutos → %d válidos → %d novos (total: %d)",
+                        ano_de, ano_fim, pagina, total_cards, len(itens), novos, len(anuncios),
+                    )
+
+                    if total_cards < page_size:
+                        logger.info("[olx] faixa %d-%d: página incompleta — última página (%d).", ano_de, ano_fim, pagina)
+                        break
+
+                    time.sleep(RATE_LIMIT_SEGUNDOS)
 
                 logger.info(
-                    "[olx] categoria pág %d: %d brutos → %d válidos → %d novos (total: %d)",
-                    pagina, total_cards, len(itens), novos, len(anuncios),
+                    "[olx] faixa %d-%d concluída: +%d anúncios (acumulado: %d)",
+                    ano_de, ano_fim, len(anuncios) - antes, len(anuncios),
                 )
-
-                if total_cards < page_size:
-                    logger.info("[olx] categoria: página incompleta — última página (%d).", pagina)
-                    break
-
                 time.sleep(RATE_LIMIT_SEGUNDOS)
 
     except Exception as exc:
@@ -212,6 +264,7 @@ def coletar_categoria(
         "fonte": FONTE,
         "modo": "categoria",
         "ano_ate": ano_ate,
+        "faixas_ano": [f"{de}-{ate}" for de, ate in faixas],
         "data_coleta": data_coleta,
         "paginas_listagem": paginas_lidas,
         "urls_detalhe": len(seen_urls),
@@ -231,14 +284,14 @@ def coletar_categoria(
 
 
 def coletar_completo(
-    max_paginas: int = 200,
+    max_paginas: int = 120,
     ano_ate: int = ANO_CORTE_CLASSICO,
 ) -> tuple[list[Anuncio], dict]:
     """
     Ponto de entrada da coleta batch da OLX — chamado pelo dispatcher genérico
     do painel admin (`app.py` faz `mod.coletar_completo()` sem argumentos para
-    toda fonte). Delega para coletar_categoria(): cobre a categoria inteira de
-    carros sem depender de nenhum termo de busca.
+    toda fonte). Delega para coletar_categoria(): categoria inteira com filtro
+    de ano rs/re no servidor, fatiada por faixas de ano.
 
     Antes desta função varria só o termo fixo "carros antigos", o que cobria
     apenas anúncios cujo título continha essa frase literal (uma fração
@@ -246,8 +299,8 @@ def coletar_completo(
     para essa estratégia antiga, ainda disponível para uso pontual/manual.
 
     Args:
-        max_paginas: Teto de páginas na categoria (default 200).
-        ano_ate:     Filtro de ano aplicado no parser (default ANO_CORTE_CLASSICO).
+        max_paginas: Teto de páginas por faixa de ano (default 120).
+        ano_ate:     Corte de ano (default ANO_CORTE_CLASSICO).
 
     Returns:
         (anuncios, metricas)
@@ -479,6 +532,20 @@ def _varrer_termo(
     }
 
 
+def _urls_cards(html: str) -> set[str]:
+    """
+    URLs de TODOS os cards da página (válidos ou não pro nosso filtro) —
+    usado pra detectar o teto de paginação da OLX, que repete a última
+    página real em vez de retornar vazio quando o offset passa do limite.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    return {
+        link["href"].strip()
+        for link in soup.select("section.olx-adcard a.olx-adcard__link")
+        if link.get("href")
+    }
+
+
 def _parsear_ads_dom(
     html: str,
     data_coleta: str,
@@ -563,15 +630,20 @@ def _url_busca(termo: str, pagina: int = 1) -> str:
     return f"{BASE_URL}?{urllib.parse.urlencode(params)}"
 
 
-def _url_categoria(pagina: int = 1, ano_ate: int = ANO_CORTE_CLASSICO) -> str:
+def _url_categoria(
+    pagina: int = 1,
+    ano_de: int = 1900,
+    ano_ate: int = ANO_CORTE_CLASSICO,
+) -> str:
     """
-    Monta URL da categoria OLX sem filtro de ano.
+    Monta URL da categoria OLX com filtro de ano rs/re (aplicado no servidor).
 
-    OLX Brasil ignora parâmetros de ano no URL (testado: sf=1&ae=2000 retorna
-    carros de todos os anos). Filtragem por ano feita exclusivamente em
-    _parsear_ads() via campo regdate do __NEXT_DATA__.
+    rs = ano mínimo, re = ano máximo — descobertos pelo usuário em 2026-07-14.
+    (Os parâmetros sf/ae testados em 2026-07-09 eram os errados: a OLX os
+    ignora silenciosamente, o que levou à conclusão incorreta de que não
+    havia filtro de ano por URL.)
     """
-    params: dict[str, str] = {}
+    params: dict[str, str] = {"rs": str(ano_de), "re": str(ano_ate)}
     if pagina > 1:
         params["o"] = str(pagina)
-    return f"{BASE_URL}?{urllib.parse.urlencode(params)}" if params else BASE_URL
+    return f"{BASE_URL}?{urllib.parse.urlencode(params)}"
