@@ -24,10 +24,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify, redirect, request, send_from_directory
 
 # Garante que o diretório raiz do projeto está no path
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Carrega o .env do projeto (DATABASE_URL, DATAIMPULSE_*) antes do init_db()
+# abaixo. Variáveis já definidas no ambiente (ex.: pelo iniciar_app.bat) têm
+# precedência — load_dotenv não sobrescreve.
+load_dotenv(Path(__file__).parent / ".env")
 
 from src.pipeline.backup import fazer_backup
 from src.pipeline.persistence import (
