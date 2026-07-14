@@ -11,13 +11,16 @@ import psycopg2.extras
 import pytest
 
 from src.pipeline.persistence import (
+    ANO_CORTE_CLASSICO,
     CHART_MIN_DIAS,
     init_db,
+    upsert_anuncios,
     upsert_preco,
     log_search,
     get_historico,
     get_mais_pesquisados,
 )
+from src.pipeline.schema import Anuncio
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
@@ -189,6 +192,44 @@ class TestLogSearch:
         conn.close()
         assert row["marca"] == "VOLKSWAGEN"
         assert row["modelo"] == "FUSCA"
+
+
+# ── AC-P07: upsert_anuncios aplica o corte de ano centralmente ────────────────
+
+def _anuncio(url: str, ano, fonte: str = "teste") -> Anuncio:
+    return Anuncio(
+        titulo=f"Carro {ano}", preco=50000.0, marca="VOLKSWAGEN", modelo="FUSCA",
+        ano=ano, versao=None, url=url, fonte=fonte, data_coleta="2026-07-14",
+    )
+
+
+class TestUpsertAnunciosCorteAno:
+    def _contar(self) -> int:
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM anuncios")
+            count = cur.fetchone()[0]
+        conn.close()
+        return count
+
+    def test_descarta_ano_acima_do_corte(self):
+        resultado = upsert_anuncios([
+            _anuncio("http://x/1", 1972),
+            _anuncio("http://x/2", ANO_CORTE_CLASSICO + 1),
+            _anuncio("http://x/3", 2024),
+        ])
+        assert resultado == {"novos": 1, "atualizados": 0, "descartados_ano": 2}
+        assert self._contar() == 1
+
+    def test_ano_no_limite_entra(self):
+        resultado = upsert_anuncios([_anuncio("http://x/1", ANO_CORTE_CLASSICO)])
+        assert resultado["novos"] == 1
+        assert resultado["descartados_ano"] == 0
+
+    def test_ano_none_entra(self):
+        resultado = upsert_anuncios([_anuncio("http://x/1", None)])
+        assert resultado["novos"] == 1
+        assert resultado["descartados_ano"] == 0
 
 
 # ── AC-P06: get_mais_pesquisados retorna ranking ordenado por contagem DESC ───

@@ -169,6 +169,13 @@ def upsert_anuncios(
     """
     Insere ou atualiza anúncios brutos coletados em batch.
     Chave de identidade: (fonte, url).
+
+    Aplica o corte de ano centralmente: anúncio com ano > ANO_CORTE_CLASSICO
+    é descartado (contado em "descartados_ano"), venha de qual conector vier —
+    auditoria de 2026-07-14 achou 130 carros modernos (até 2026) gravados por
+    13 conectores de lojas que não aplicavam o corte por conta própria.
+    Anúncios com ano None entram normalmente (clássico com parser falho não
+    é carro moderno).
     """
     data = hoje or date.today().isoformat()
     sql_select = "SELECT 1 FROM anuncios WHERE fonte = %s AND url = %s"
@@ -187,9 +194,13 @@ def upsert_anuncios(
     """
     novos = 0
     atualizados = 0
+    descartados_ano = 0
     with _connect() as conn:
         with conn.cursor() as cur:
             for a in anuncios:
+                if a.ano is not None and a.ano > ANO_CORTE_CLASSICO:
+                    descartados_ano += 1
+                    continue
                 cur.execute(sql_select, (a.fonte, a.url))
                 existe = cur.fetchone()
                 cur.execute(sql_upsert, (
@@ -202,7 +213,7 @@ def upsert_anuncios(
                     atualizados += 1
                 else:
                     novos += 1
-    return {"novos": novos, "atualizados": atualizados}
+    return {"novos": novos, "atualizados": atualizados, "descartados_ano": descartados_ano}
 
 
 def log_search(
