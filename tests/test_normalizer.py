@@ -125,6 +125,37 @@ class TestInferirMarcaModeloAno:
         marca, modelo, ano = inferir_marca_modelo_ano("Caravan Comodoro 1985")
         assert marca == "CARAVAN"
 
+    def test_ano_grudado_em_palavra(self):
+        # brunelli concatena modelo e ano sem espaço
+        marca, modelo, ano = inferir_marca_modelo_ano("VW Saveiro Summer1996 / Prata")
+        assert marca == "VOLKSWAGEN"
+        assert ano == 1996
+
+    def test_ano_grudado_em_numero(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("VW Fusca 16001995 / Bege Urano")
+        assert marca == "VOLKSWAGEN"
+        assert "1600" in modelo
+        assert ano == 1995
+
+    def test_ano_duplicado_colapsado(self):
+        # "1983/83" vira "198383" depois que a normalização remove a barra
+        marca, modelo, ano = inferir_marca_modelo_ano("Vw Voyage Ls 1983/83 87.000km")
+        assert ano == 1983
+
+    def test_faixa_de_ano_dois_digitos(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Caravam Diplomata 87-88")
+        assert ano == 1987
+
+    def test_ano_dois_digitos_no_fim(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Escort Ghia 86")
+        assert marca == "FORD"
+        assert ano == 1986
+
+    def test_dois_digitos_no_meio_nao_e_ano(self):
+        # "1.6" e números no meio não podem virar ano
+        marca, modelo, ano = inferir_marca_modelo_ano("Gol 1.6 Power")
+        assert ano is None
+
     def test_sem_ano(self):
         marca, modelo, ano = inferir_marca_modelo_ano("Ford Mustang")
         assert marca == "FORD"

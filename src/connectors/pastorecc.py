@@ -8,6 +8,7 @@ Listagem: div.vehicle-card (sem preço) → fetch da página de detalhe para pre
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import date
 from typing import Optional
@@ -49,7 +50,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
         if html is None:
             break
 
-        for card_url, card_title in _extrair_cards(html):
+        for card_url, card_title, card_ano in _extrair_cards(html):
             titulo_norm = normalizar_texto(card_title)
             if modelo_norm and modelo_norm not in titulo_norm:
                 continue
@@ -59,7 +60,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
                 continue
             seen.add(card_url)
 
-            a = _buscar_detalhe(sessao, card_url, card_title, data_coleta)
+            a = _buscar_detalhe(sessao, card_url, card_title, data_coleta, ano_card=card_ano)
             if a:
                 anuncios.append(a)
             time.sleep(DETAIL_RATE_LIMIT)
@@ -93,11 +94,11 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
             break
 
         paginas_ok += 1
-        for card_url, card_title in cards:
+        for card_url, card_title, card_ano in cards:
             if card_url in seen:
                 continue
             seen.add(card_url)
-            a = _buscar_detalhe(sessao, card_url, card_title, data_coleta)
+            a = _buscar_detalhe(sessao, card_url, card_title, data_coleta, ano_card=card_ano)
             if a:
                 anuncios.append(a)
             time.sleep(DETAIL_RATE_LIMIT)
@@ -118,10 +119,18 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
     return anuncios, metricas
 
 
-def _extrair_cards(html: str) -> list[tuple[str, str]]:
-    """Retorna lista de (url_detalhe, titulo) a partir da página de listagem."""
+def _extrair_cards(html: str) -> list[tuple[str, str, Optional[int]]]:
+    """
+    Retorna lista de (url_detalhe, titulo, ano) a partir da página de listagem.
+
+    O ano vem do badge do card ("GM 1969", div com classe uppercase) ou, na
+    falta dele, do primeiro ano de 4 dígitos no texto do card. É o único
+    lugar confiável: o h1 da página de detalhe e o alt da imagem muitas
+    vezes não trazem o ano (auditoria 2026-07-14: 760/777 anúncios da fonte
+    estavam sem ano no banco).
+    """
     soup = BeautifulSoup(html, "lxml")
-    results: list[tuple[str, str]] = []
+    results: list[tuple[str, str, Optional[int]]] = []
 
     for card in soup.select("div.vehicle-card"):
         link = card.select_one("a[href]")
@@ -135,8 +144,18 @@ def _extrair_cards(html: str) -> list[tuple[str, str]]:
         titulo = img["alt"].strip() if img and img.get("alt") else (
             url.rstrip("/").split("/")[-1].replace("-", " ").title()
         )
+
+        ano: Optional[int] = None
+        badge = card.select_one("div[class*=uppercase]")
+        alvo = badge.get_text(" ", strip=True) if badge else card.get_text(" ", strip=True)
+        m = re.search(r"\b(19\d{2}|20\d{2})\b", alvo)
+        if not m and badge is not None:
+            m = re.search(r"\b(19\d{2}|20\d{2})\b", card.get_text(" ", strip=True))
+        if m:
+            ano = int(m.group(0))
+
         if titulo:
-            results.append((url, titulo))
+            results.append((url, titulo, ano))
     return results
 
 
@@ -145,6 +164,7 @@ def _buscar_detalhe(
     url: str,
     titulo_fallback: str,
     data_coleta: str,
+    ano_card: Optional[int] = None,
 ) -> Optional[Anuncio]:
     html = _requisitar(sessao, url)
     if not html:
@@ -167,6 +187,8 @@ def _buscar_detalhe(
     marca, modelo, ano = inferir_marca_modelo_ano(titulo)
     if not modelo:
         return None
+    if ano is None:
+        ano = ano_card
 
     return Anuncio(
         titulo=titulo, preco=preco, marca=marca, modelo=modelo,

@@ -161,15 +161,42 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     if not tokens:
         return ("", "", None)
 
-    # Detectar ano: último token de 4 dígitos no intervalo 1900-2099
+    # Detectar ano, do último token pro primeiro:
+    # - token de 4 dígitos ("1975");
+    # - ano duplicado colapsado ("1983/83" vira "198383" na normalização);
+    # - ano grudado no fim de outro token ("Summer1996", "16001995");
+    # - faixa de 2 dígitos ("87-88" → 1987).
     ano: Optional[int] = None
     tokens_sem_ano = tokens[:]
     for i in range(len(tokens) - 1, -1, -1):
-        match = re.fullmatch(r"(19|20)\d{2}", tokens[i])
-        if match:
-            ano = int(tokens[i])
+        tok = tokens[i]
+        if re.fullmatch(r"(19|20)\d{2}", tok):
+            ano = int(tok)
             tokens_sem_ano = tokens[:i] + tokens[i + 1 :]
             break
+        m = re.fullmatch(r"((19|20)\d{2})(\d{2})", tok)
+        if m and int(m.group(1)) % 100 == int(m.group(3)):
+            ano = int(m.group(1))
+            tokens_sem_ano = tokens[:i] + tokens[i + 1 :]
+            break
+        m = re.fullmatch(r"(.*?[^\s])((19|20)\d{2})", tok)
+        if m and len(m.group(1)) >= 2:
+            ano = int(m.group(2))
+            tokens_sem_ano = tokens[:i] + [m.group(1)] + tokens[i + 1 :]
+            break
+        m = re.fullmatch(r"(\d{2})-\d{2}", tok)
+        if m and 30 <= int(m.group(1)) <= 99:
+            ano = 1900 + int(m.group(1))
+            tokens_sem_ano = tokens[:i] + tokens[i + 1 :]
+            break
+
+    # Último recurso: título termina com ano de 2 dígitos ("Escort Ghia 86").
+    # Só o último token, e só 30-99, pra não confundir com cilindrada/versão.
+    if ano is None and len(tokens_sem_ano) >= 2:
+        m = re.fullmatch(r"(\d{2})", tokens_sem_ano[-1])
+        if m and 30 <= int(m.group(1)) <= 99:
+            ano = 1900 + int(m.group(1))
+            tokens_sem_ano = tokens_sem_ano[:-1]
 
     if not tokens_sem_ano:
         return ("", "", ano)
