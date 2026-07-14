@@ -33,7 +33,7 @@ from bs4 import BeautifulSoup
 
 from src.catalog.loader import carregar_catalogo
 from src.connectors._browser import criar_contexto_aquecido
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_texto, remover_acentos
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
 
@@ -46,6 +46,17 @@ _ITENS_POR_PAGINA = 48
 
 _ESPERA_NAV_MS = 4000
 _RATE_LIMIT = 2.0
+
+# A busca por slug do ML cai num fallback de marketplace geral quando o par
+# marca+modelo tem poucos carros reais — devolvendo miniaturas, kits e peças
+# cujo título cita o modelo e um ano (descoberto 2026-07-14: 84% dos 4.440
+# anúncios da coleta de 07-10 eram isso). Títulos com esses termos nunca são
+# veículo à venda.
+_TERMOS_NAO_VEICULO = (
+    "miniatura", "hot wheels", "matchbox", "escala 1", "1/64", "1/43",
+    "1/24", "1/18", "1:64", "1:43", "1:24", "1:18", "chaveiro", "adesivo",
+    "camiseta", "quadro decorativo", "placa decorativa",
+)
 
 
 def _bloqueado(page) -> bool:
@@ -112,6 +123,19 @@ def coletar_completo() -> tuple[list[Anuncio], dict]:
                             marca, modelo, idx + 1, len(pares),
                         )
                         break
+
+                    # Pós-filtro obrigatório: a busca por slug do ML cai num
+                    # fallback de marketplace geral (peças, kits, miniaturas)
+                    # quando o par tem poucos carros reais — sem isso, 84% da
+                    # coleta de 2026-07-10 veio lixo. Além do filtro padrão de
+                    # buscar(), exige marca inferida == marca buscada: título
+                    # de peça começa com o nome da peça ("Kit...", "Bomba..."),
+                    # não com a marca do carro.
+                    marca_norm = normalizar_texto(marca)
+                    novos = [
+                        a for a in _filtrar_marca_modelo(novos, marca_norm, normalizar_texto(modelo))
+                        if a.marca and normalizar_texto(a.marca) == marca_norm
+                    ]
 
                     for a in novos:
                         if a.url not in seen:
@@ -267,6 +291,13 @@ def _parsear_card(card, data_coleta: str) -> Optional[Anuncio]:
     preco_el = card.find("span", class_=re.compile(r"\bandes-money-amount\b"))
     preco = _extrair_preco(preco_el)
     if not preco or preco <= 0:
+        return None
+
+    # remover_acentos + lower (e não normalizar_texto) porque a pontuação
+    # importa aqui: "1/64" normalizado viraria "164" e casaria com o Alfa
+    # Romeo 164, um clássico real.
+    titulo_lower = remover_acentos(titulo).lower()
+    if any(t in titulo_lower for t in _TERMOS_NAO_VEICULO):
         return None
 
     ano_cartao = _extrair_ano_cartao(card)
