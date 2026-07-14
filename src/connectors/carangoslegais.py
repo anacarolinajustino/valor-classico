@@ -22,7 +22,12 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import (
+    inferir_marca_modelo_ano,
+    normalizar_preco,
+    normalizar_texto,
+    remover_acentos,
+)
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -40,6 +45,36 @@ USER_AGENT = (
     "Chrome/124.0.0.0 Safari/537.36"
 )
 _LINK_PAT = re.compile(r"/antigos-a-venda/[^/]+/")
+
+# Textos genéricos de botão que NÃO são título de anúncio. O tema (Elementor)
+# usa "Ver Mais Detalhes" como texto do link do card — sem esta lista, o
+# parser gravava isso como título de todos os anúncios (bug corrigido em
+# 2026-07-14; o título real fica num <h2 class="elementor-heading-title">).
+_TEXTOS_BOTAO = ("ver mais", "detalhes", "saiba mais", "leia mais", "ver anuncio")
+
+
+def _titulo_generico(texto: str) -> bool:
+    t = remover_acentos(texto).lower()
+    return any(b in t for b in _TEXTOS_BOTAO)
+
+
+def _ano_do_card(link) -> Optional[int]:
+    """
+    Fallback de ano: procura um ano de 4 dígitos no texto do card (o tema
+    exibe o ano num <span> de icon-list separado do título — ex.: "Jeep
+    Willys" tem o ano só ali). Sobe poucos níveis pra não vazar pro card
+    vizinho.
+    """
+    node = link.parent
+    for _ in range(5):
+        if node is None:
+            return None
+        m = re.search(r"\b(19\d{2}|20\d{2})\b", node.get_text(" ", strip=True))
+        if m:
+            ano = int(m.group(0))
+            return ano if 1900 <= ano <= 2099 else None
+        node = node.parent
+    return None
 
 
 def coletar_completo(max_paginas: int = 50) -> tuple[list[Anuncio], dict]:
@@ -137,8 +172,12 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         if not url or url in seen:
             continue
 
-        # Título: do próprio link ou do heading dentro do card
+        # Título: do próprio link ou do heading dentro do card.
+        # Texto genérico de botão ("Ver Mais Detalhes") não é título —
+        # zera pra forçar o fallback pro heading do card.
         titulo = link.get_text(strip=True)
+        if titulo and _titulo_generico(titulo):
+            titulo = ""
         if not titulo or len(titulo) < 4:
             heading = link.find(["h2", "h3", "h4"])
             titulo = heading.get_text(strip=True) if heading else ""
@@ -187,6 +226,8 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         marca, modelo, ano = inferir_marca_modelo_ano(titulo)
         if not modelo:
             continue
+        if ano is None:
+            ano = _ano_do_card(link)
 
         anuncios.append(Anuncio(
             titulo=titulo, preco=preco, marca=marca, modelo=modelo,
