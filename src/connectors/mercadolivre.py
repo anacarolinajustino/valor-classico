@@ -5,6 +5,14 @@ renderizadas (Playwright), não mais via API oficial.
 Site: https://www.mercadolivre.com.br
 Motor: Playwright + proxy residencial (DataImpulse) + stealth.
 
+Estratégia batch (coletar_completo, 2026-07-14): varre as listagens de
+categoria de veículos — carros-antigos (dedicada) + carros-caminhonetes
+fatiada por _YearRange_ (filtro de ano no servidor). Todo card é um veículo
+real. A estratégia anterior (coletar_por_catalogo: busca por slug de cada par
+marca+modelo do catálogo) fica pra uso manual — o ML cai num fallback de
+marketplace geral quando o par tem poucos carros, o que encheu o banco de
+peças/miniaturas na coleta de 2026-07-10 (84% de lixo).
+
 Histórico: a API pública (api.mercadolibre.com) passou a bloquear até
 endpoints triviais com 403 PA_UNAUTHORIZED_RESULT_FROM_POLICIES (ver
 investigação de 2026-07-08). Testado ao vivo:
@@ -43,6 +51,23 @@ FONTE = "mercadolivre"
 _HOME_URL = "https://www.mercadolivre.com.br/"
 _CATEGORIA_SLUG = "carros-vans-utilitarios"
 _ITENS_POR_PAGINA = 48
+
+# Categorias de veículos usadas pela coleta batch (descobertas pelo usuário em
+# 2026-07-14). São categorias REAIS de veículo — todo card é um carro à venda,
+# sem o fallback de marketplace geral das buscas por slug (ver coletar_por_catalogo).
+# carros-antigos: categoria dedicada (~2.500 anúncios; sem filtro de ano — o
+#   parser corta em ANO_CORTE_CLASSICO, descartando réplicas modernas etc.).
+# carros-caminhonetes: categoria geral, com filtro _YearRange_ aplicado no
+#   servidor, fatiado porque o offset _Desde_ tem teto (validado até ~2.000).
+_FONTES_CATEGORIA: list[tuple[str, Optional[tuple[int, int]]]] = [
+    ("carros-antigos", None),
+    ("carros-caminhonetes", (1900, 1969)),
+    ("carros-caminhonetes", (1970, 1979)),
+    ("carros-caminhonetes", (1980, 1989)),
+    ("carros-caminhonetes", (1990, 1994)),
+    ("carros-caminhonetes", (1995, 1999)),
+    ("carros-caminhonetes", (2000, 2000)),
+]
 
 _ESPERA_NAV_MS = 4000
 _RATE_LIMIT = 2.0
@@ -89,12 +114,165 @@ def _url_busca(marca: str, modelo: str, pagina: int = 1) -> str:
     return f"https://lista.mercadolivre.com.br/{slug}_Desde_{offset}_NoIndex_True"
 
 
-def coletar_completo() -> tuple[list[Anuncio], dict]:
+def _url_categoria(slug: str, pagina: int = 1, fatia: Optional[tuple[int, int]] = None) -> str:
     """
-    Coleta anúncios buscando cada par (marca, modelo) do catálogo canônico
-    (data/base_marcamodelo.csv) numa sessão de browser contínua — reaproveita
-    a mesma sessão aquecida (mesmo IP residencial) para todas as buscas,
-    abrindo uma nova só quando a sessão atual for bloqueada.
+    Monta URL de listagem de categoria de veículos, com filtro opcional de
+    faixa de ano (_YearRange_, aplicado no servidor) e paginação (_Desde_).
+
+    O sufixo _NoIndex_True na paginação é OBRIGATÓRIO: sem ele o ML
+    redireciona a página 2+ de volta pra página 1 silenciosamente (validado
+    ao vivo em 2026-07-14; a página vem com os mesmos 48 cards da primeira).
+    """
+    partes: list[str] = []
+    if pagina > 1:
+        offset = _ITENS_POR_PAGINA * (pagina - 1) + 1
+        partes.append(f"_Desde_{offset}")
+    if fatia is not None:
+        partes.append(f"_YearRange_{fatia[0]}-{fatia[1]}")
+    if pagina > 1:
+        partes.append("_NoIndex_True")
+    return f"https://lista.mercadolivre.com.br/veiculos/{slug}/{''.join(partes)}"
+
+
+def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], dict]:
+    """
+    Coleta batch do ML — ponto de entrada do painel admin.
+
+    Varre listagens de CATEGORIA de veículos (_FONTES_CATEGORIA): a categoria
+    dedicada carros-antigos + a categoria geral carros-caminhonetes fatiada
+    por faixa de ano via _YearRange_ (filtro aplicado no servidor). Todo card
+    dessas listagens é um veículo real à venda — estratégia adotada em
+    2026-07-14 no lugar da varredura por pares do catálogo
+    (coletar_por_catalogo), cuja busca por slug caía num fallback de
+    marketplace geral e trouxe 84% de peças/miniaturas na coleta de 07-10.
+
+    Sessão de browser contínua (mesmo IP residencial via sticky session);
+    reabre sessão nova só quando a atual é bloqueada, retomando da mesma
+    página onde parou.
+
+    Args:
+        max_paginas_por_fonte: teto de páginas por listagem (default 60 —
+            a maior fatia tem ~1.400 resultados ≈ 29 páginas; 60 dá folga).
+
+    Returns:
+        (anuncios, metricas)
+    """
+    inicio = time.monotonic()
+    data_coleta = date.today().isoformat()
+
+    anuncios: list[Anuncio] = []
+    seen: set[str] = set()
+    total_req = 0
+    erros = 0
+    fonte_idx = 0
+    pagina = 1
+    # URLs brutas (todos os cards) da listagem atual — detecta teto de
+    # paginação (página repetida), mesmo padrão do conector da OLX.
+    urls_brutas_fonte: set[str] = set()
+
+    def _proxima_fonte():
+        nonlocal fonte_idx, pagina, urls_brutas_fonte
+        fonte_idx += 1
+        pagina = 1
+        urls_brutas_fonte = set()
+
+    logger.info(
+        "[mercadolivre] coleta completa: %d listagens de categoria, até %d págs cada",
+        len(_FONTES_CATEGORIA), max_paginas_por_fonte,
+    )
+
+    while fonte_idx < len(_FONTES_CATEGORIA):
+        try:
+            with criar_contexto_aquecido(_HOME_URL, bloqueado=_bloqueado, max_tentativas=3) as (ctx, page):
+                _bloquear_midia(page)
+                while fonte_idx < len(_FONTES_CATEGORIA):
+                    slug, fatia = _FONTES_CATEGORIA[fonte_idx]
+                    rotulo = slug + (f" {fatia[0]}-{fatia[1]}" if fatia else "")
+                    url = _url_categoria(slug, pagina, fatia)
+
+                    try:
+                        page.goto(url, timeout=45000, wait_until="networkidle", referer=page.url)
+                        page.wait_for_timeout(_ESPERA_NAV_MS)
+                    except Exception as exc:
+                        logger.warning("[mercadolivre] erro navegando %s pág %d: %s", rotulo, pagina, exc)
+                        erros += 1
+                        _proxima_fonte()
+                        continue
+                    total_req += 1
+
+                    if _bloqueado(page):
+                        logger.warning(
+                            "[mercadolivre] sessão bloqueada em %s pág %d — trocando de sessão",
+                            rotulo, pagina,
+                        )
+                        break  # reabre sessão aquecida; retoma da mesma página
+
+                    html = _conteudo_com_retry(page)
+                    urls_pagina = _urls_cards(html)
+                    novos = _parsear_listagem(html, data_coleta)
+
+                    if not urls_pagina:
+                        logger.info("[mercadolivre] %s pág %d: vazia — fim da listagem.", rotulo, pagina)
+                        _proxima_fonte()
+                        continue
+                    if urls_pagina <= urls_brutas_fonte:
+                        logger.info(
+                            "[mercadolivre] %s pág %d: repetida (teto de paginação) — fim da listagem.",
+                            rotulo, pagina,
+                        )
+                        _proxima_fonte()
+                        continue
+                    urls_brutas_fonte |= urls_pagina
+
+                    adicionados = 0
+                    for a in novos:
+                        if a.url not in seen:
+                            seen.add(a.url)
+                            anuncios.append(a)
+                            adicionados += 1
+
+                    logger.info(
+                        "[mercadolivre] %s pág %d: %d cards → %d válidos → %d novos (total: %d)",
+                        rotulo, pagina, len(urls_pagina), len(novos), adicionados, len(anuncios),
+                    )
+
+                    if len(urls_pagina) < _ITENS_POR_PAGINA or pagina >= max_paginas_por_fonte:
+                        _proxima_fonte()
+                    else:
+                        pagina += 1
+                    time.sleep(_RATE_LIMIT)
+        except RuntimeError as exc:
+            logger.error("[mercadolivre] não foi possível abrir sessão aquecida: %s", exc)
+            erros += 1
+            break
+
+    metricas = {
+        "fonte": FONTE,
+        "modo": "categorias",
+        "listagens": [s + (f" {f[0]}-{f[1]}" if f else "") for s, f in _FONTES_CATEGORIA],
+        "data_coleta": data_coleta,
+        "anuncios_validos": len(anuncios),
+        "erros_listagem": erros,
+        "erros_detalhe": 0,
+        "requisicoes": total_req,
+        "tempo_total_s": round(time.monotonic() - inicio, 1),
+    }
+    logger.info("[mercadolivre] coleta completa: %s", metricas)
+    return anuncios, metricas
+
+
+def coletar_por_catalogo() -> tuple[list[Anuncio], dict]:
+    """
+    Estratégia antiga de coleta batch (uso pontual/manual): busca cada par
+    (marca, modelo) do catálogo canônico (data/base_marcamodelo.csv) numa
+    sessão de browser contínua — reaproveita a mesma sessão aquecida (mesmo
+    IP residencial) para todas as buscas, abrindo uma nova só quando a
+    sessão atual for bloqueada.
+
+    Não é mais o ponto de entrada do painel (ver coletar_completo): a busca
+    por slug cai num fallback de marketplace geral quando o par tem poucos
+    carros reais, exigindo os pós-filtros agressivos abaixo — e mesmo assim
+    cobre menos que as listagens de categoria.
     """
     inicio = time.monotonic()
     data_coleta = date.today().isoformat()
@@ -265,6 +443,20 @@ def _filtrar_marca_modelo(itens: list[Anuncio], marca_norm: str, modelo_norm: st
             or modelo_norm in normalizar_texto(a.titulo)
         ]
     return itens
+
+
+def _urls_cards(html: str) -> set[str]:
+    """
+    URLs de TODOS os cards da página (válidos ou não pro nosso filtro) —
+    usado pra detectar página repetida (teto de paginação) e página vazia.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    urls: set[str] = set()
+    for card in soup.find_all("li", class_="ui-search-layout__item"):
+        link = card.find("a", class_=re.compile(r"poly-component__title"))
+        if link and link.get("href"):
+            urls.add(link["href"].split("#")[0])
+    return urls
 
 
 def _parsear_listagem(html: str, data_coleta: str) -> list[Anuncio]:
