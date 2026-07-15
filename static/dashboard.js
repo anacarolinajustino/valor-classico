@@ -231,22 +231,51 @@ function renderTabelaModelos(container, itens) {
   container.append(tabela);
 }
 
+/* ── Selects de recorte (faceta: opções contadas sob os OUTROS filtros) ── */
+
+/**
+ * Repopula um <select> preservando a seleção atual, se ela ainda existir
+ * na nova lista (senão o navegador recai pro placeholder).
+ */
+function popularSelect(select, itens, { valorFn, rotuloFn, placeholder }) {
+  const atual = select.value;
+  select.replaceChildren();
+  const optPlaceholder = document.createElement("option");
+  optPlaceholder.value = "";
+  optPlaceholder.textContent = placeholder;
+  select.append(optPlaceholder);
+  for (const item of itens) {
+    const opt = document.createElement("option");
+    opt.value = valorFn(item);
+    opt.textContent = rotuloFn(item);
+    select.append(opt);
+  }
+  if (itens.some((item) => valorFn(item) === atual)) select.value = atual;
+}
+
 /* ── Carga e composição ── */
 
 const grid = document.getElementById("dash-grid");
 const filtroFonte = document.getElementById("filtro-fonte");
+const filtroMarca = document.getElementById("filtro-marca");
+const filtroModelo = document.getElementById("filtro-modelo");
+const filtroAno = document.getElementById("filtro-ano");
 let fontesPopuladas = false;
 
 async function carregar() {
   grid.classList.add("carregando");
   try {
-    const fonte = filtroFonte.value;
-    const url = "/admin/api/dashboard" + (fonte ? `?fonte=${encodeURIComponent(fonte)}` : "");
-    const resp = await fetch(url);
+    const params = new URLSearchParams();
+    if (filtroFonte.value) params.set("fonte", filtroFonte.value);
+    if (filtroMarca.value) params.set("marca", filtroMarca.value);
+    if (filtroModelo.value) params.set("modelo", filtroModelo.value);
+    if (filtroAno.value) params.set("ano", filtroAno.value);
+    const qs = params.toString();
+    const resp = await fetch("/admin/api/dashboard" + (qs ? `?${qs}` : ""));
     const dados = await resp.json();
     if (dados.erro) throw new Error(dados.erro);
 
-    // popula o select uma única vez, com a lista completa de fontes
+    // popula o select de fontes uma única vez, com a lista completa
     if (!fontesPopuladas) {
       for (const f of dados.por_fonte) {
         const opt = document.createElement("option");
@@ -256,6 +285,26 @@ async function carregar() {
       }
       fontesPopuladas = true;
     }
+
+    popularSelect(filtroMarca, dados.opcoes.marca, {
+      valorFn: (x) => x.marca,
+      rotuloFn: (x) => `${x.marca} (${FMT_INT.format(x.qtd)})`,
+      placeholder: "Todas as marcas",
+    });
+
+    const temMarca = Boolean(filtroMarca.value);
+    filtroModelo.disabled = !temMarca;
+    popularSelect(filtroModelo, dados.opcoes.modelo, {
+      valorFn: (x) => x.modelo,
+      rotuloFn: (x) => `${x.modelo} (${FMT_INT.format(x.qtd)})`,
+      placeholder: temMarca ? "Todos os modelos" : "Selecione uma marca",
+    });
+
+    popularSelect(filtroAno, dados.opcoes.ano, {
+      valorFn: (x) => String(x.ano),
+      rotuloFn: (x) => `${x.ano} (${FMT_INT.format(x.qtd)})`,
+      placeholder: "Todos os anos",
+    });
 
     const k = dados.kpis;
     document.getElementById("kpi-total").textContent = FMT_INT.format(k.total);
@@ -300,4 +349,14 @@ async function carregar() {
 }
 
 filtroFonte.addEventListener("change", carregar);
+filtroMarca.addEventListener("change", () => {
+  filtroModelo.value = "";
+  filtroAno.value = "";
+  carregar();
+});
+filtroModelo.addEventListener("change", () => {
+  filtroAno.value = "";
+  carregar();
+});
+filtroAno.addEventListener("change", carregar);
 carregar();

@@ -197,9 +197,9 @@ class TestLogSearch:
 
 # ── AC-P07: upsert_anuncios aplica o corte de ano centralmente ────────────────
 
-def _anuncio(url: str, ano, fonte: str = "teste") -> Anuncio:
+def _anuncio(url: str, ano, fonte: str = "teste", marca: str = "VOLKSWAGEN", modelo: str = "FUSCA") -> Anuncio:
     return Anuncio(
-        titulo=f"Carro {ano}", preco=50000.0, marca="VOLKSWAGEN", modelo="FUSCA",
+        titulo=f"Carro {ano}", preco=50000.0, marca=marca, modelo=modelo,
         ano=ano, versao=None, url=url, fonte=fonte, data_coleta="2026-07-14",
     )
 
@@ -263,6 +263,37 @@ class TestGetDashboardStats:
         d = get_dashboard_stats()
         decadas = {x["decada"]: x["qtd"] for x in d["por_decada"]}
         assert decadas == {1970: 2, 1990: 1}
+
+    def _semear_marcas(self):
+        upsert_anuncios([
+            _anuncio("http://x/1", 1975, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/2", 1968, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/3", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
+            _anuncio("http://x/4", 1975, fonte="maxicar", marca="CHEVROLET", modelo="OPALA"),
+        ])
+
+    def test_opcoes_marca_conta_sob_outros_filtros(self):
+        self._semear_marcas()
+        d = get_dashboard_stats()
+        marcas = {x["marca"]: x["qtd"] for x in d["opcoes"]["marca"]}
+        assert marcas == {"VOLKSWAGEN": 3, "CHEVROLET": 1}
+
+    def test_opcoes_modelo_vazio_sem_marca(self):
+        self._semear_marcas()
+        d = get_dashboard_stats()
+        assert d["opcoes"]["modelo"] == []
+
+    def test_opcoes_modelo_em_cascata_da_marca(self):
+        self._semear_marcas()
+        d = get_dashboard_stats(marca="volkswagen")
+        modelos = {x["modelo"]: x["qtd"] for x in d["opcoes"]["modelo"]}
+        assert modelos == {"FUSCA": 2, "KOMBI": 1}
+
+    def test_opcoes_ano_conta_sob_marca_e_modelo(self):
+        self._semear_marcas()
+        d = get_dashboard_stats(marca="volkswagen", modelo="fusca")
+        anos = {x["ano"]: x["qtd"] for x in d["opcoes"]["ano"]}
+        assert anos == {1975: 1, 1968: 1}
 
 
 # ── AC-P06: get_mais_pesquisados retorna ranking ordenado por contagem DESC ───

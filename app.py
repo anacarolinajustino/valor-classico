@@ -12,7 +12,7 @@ Endpoints:
   GET  /admin/dashboard                   → dashboard com recortes dos dados
   GET  /admin/api/status                  → status do banco + conectores
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
-  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=)
+  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
 """
@@ -185,9 +185,17 @@ def admin_api_anuncios():
 
 @app.route("/admin/api/dashboard")
 def admin_api_dashboard():
-    fonte = request.args.get("fonte", "").strip() or None
+    fonte  = request.args.get("fonte",  "").strip() or None
+    marca  = request.args.get("marca",  "").strip() or None
+    modelo = request.args.get("modelo", "").strip() or None
+    ano_raw = request.args.get("ano", "").strip()
     try:
-        return jsonify(get_dashboard_stats(fonte=fonte))
+        ano = int(ano_raw) if ano_raw else None
+    except ValueError:
+        return jsonify({"erro": "Parâmetro ano inválido"}), 400
+
+    try:
+        return jsonify(get_dashboard_stats(fonte=fonte, marca=marca, modelo=modelo, ano=ano))
     except Exception as exc:
         logger.error("admin_api_dashboard erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500

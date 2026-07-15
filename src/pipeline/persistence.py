@@ -363,15 +363,39 @@ def get_db_stats() -> dict[str, Any]:
     return {"total_anuncios": total, "por_fonte": por_fonte}
 
 
-def get_dashboard_stats(fonte: str | None = None) -> dict[str, Any]:
+def get_dashboard_stats(
+    fonte: str | None = None,
+    marca: str | None = None,
+    modelo: str | None = None,
+    ano: int | None = None,
+) -> dict[str, Any]:
     """
     Agregados pro dashboard do painel admin, opcionalmente recortados por
-    fonte. Uma chamada devolve todos os blocos que a página consome, pra
-    manter os números consistentes entre si (mesma foto do banco).
+    fonte/marca/modelo/ano. Uma chamada devolve todos os blocos que a página
+    consome, pra manter os números consistentes entre si (mesma foto do
+    banco) — incluindo as opções de cada filtro com a contagem de anúncios,
+    no estilo faceta: as opções de uma dimensão são contadas sob os OUTROS
+    filtros ativos (nunca sob ela mesma, senão só sobraria a opção escolhida).
     """
-    cond = "WHERE fonte = %s" if fonte else ""
-    cond_e = f"{cond} AND" if fonte else "WHERE"
-    params: tuple = (fonte,) if fonte else ()
+    filtros: dict[str, Any] = {
+        "fonte": fonte,
+        "marca": marca.strip().upper() if marca else None,
+        "modelo": modelo.strip().upper() if modelo else None,
+        "ano": ano,
+    }
+
+    def _where(excluir: str | None = None, *extra: str) -> tuple[str, list]:
+        conds, params = [], []
+        for campo, valor in filtros.items():
+            if valor is not None and campo != excluir:
+                conds.append(f"{campo} = %s")
+                params.append(valor)
+        conds.extend(extra)
+        sql = ("WHERE " + " AND ".join(conds)) if conds else ""
+        return sql, params
+
+    cond, params = _where()
+    cond_e = f"{cond} AND" if cond else "WHERE"
 
     with _connect() as conn:
         with conn.cursor() as cur:
@@ -442,6 +466,36 @@ def get_dashboard_stats(fonte: str | None = None) -> dict[str, Any]:
             )
             top_modelos = [dict(r) for r in cur.fetchall()]
 
+            # Opções dos filtros de recorte, no estilo faceta: contadas sob os
+            # OUTROS filtros ativos, nunca sob elas mesmas. Modelo é uma cascata
+            # de marca (5,5 mil modelos distintos no banco todo — só faz sentido
+            # listar depois que uma marca reduz o universo).
+            cond_op_marca, params_op_marca = _where("marca", "marca IS NOT NULL")
+            cur.execute(
+                f"SELECT marca, COUNT(*) AS qtd FROM anuncios {cond_op_marca} "
+                "GROUP BY marca ORDER BY marca",
+                params_op_marca,
+            )
+            opcoes_marca = [dict(r) for r in cur.fetchall()]
+
+            opcoes_modelo: list[dict[str, Any]] = []
+            if filtros["marca"]:
+                cond_op_modelo, params_op_modelo = _where("modelo", "modelo IS NOT NULL")
+                cur.execute(
+                    f"SELECT modelo, COUNT(*) AS qtd FROM anuncios {cond_op_modelo} "
+                    "GROUP BY modelo ORDER BY modelo",
+                    params_op_modelo,
+                )
+                opcoes_modelo = [dict(r) for r in cur.fetchall()]
+
+            cond_op_ano, params_op_ano = _where("ano", "ano IS NOT NULL")
+            cur.execute(
+                f"SELECT ano, COUNT(*) AS qtd FROM anuncios {cond_op_ano} "
+                "GROUP BY ano ORDER BY ano DESC",
+                params_op_ano,
+            )
+            opcoes_ano = [dict(r) for r in cur.fetchall()]
+
     return {
         "kpis": {
             "total": k["total"],
@@ -454,6 +508,11 @@ def get_dashboard_stats(fonte: str | None = None) -> dict[str, Any]:
         "top_marcas": top_marcas,
         "faixas_preco": faixas_preco,
         "top_modelos": top_modelos,
+        "opcoes": {
+            "marca": opcoes_marca,
+            "modelo": opcoes_modelo,
+            "ano": opcoes_ano,
+        },
     }
 
 
