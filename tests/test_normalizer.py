@@ -192,6 +192,88 @@ class TestInferirMarcaModeloAno:
         assert modelo == "KARMANN GHIA"
         assert ano == 1969
 
+    # ── auditoria 2026-07-15: marca=ano, marca=lixo, "VW/Fusca" grudado ──
+
+    def test_barra_como_separador_marca_modelo(self):
+        # "Vw/fusca" virava um token só ("VWFUSCA") e não casava com nada
+        marca, modelo, ano = inferir_marca_modelo_ano("Vw/fusca 1600 S")
+        assert marca == "VOLKSWAGEN"
+        assert "FUSCA" in modelo
+
+    def test_barra_gm_chevrolet(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Gm/chevrolet C10")
+        assert marca == "CHEVROLET"
+
+    def test_barra_alias_seguido_de_marca_real(self):
+        # Puma é marca própria (usava motor VW) — "Vw/" aqui é só o selo
+        # do motor, igual ao caso já existente "GM Oldsmobile"
+        marca, modelo, ano = inferir_marca_modelo_ano("Vw/puma Gtc Conversivel 1981")
+        assert marca == "PUMA"
+
+    def test_hifen_colado_alias_marca_real(self):
+        # "Vw-volkswagen" sem espaço vira um único token
+        marca, modelo, ano = inferir_marca_modelo_ano("Vw-volkswagen Santana Cd 1.8 1984/85")
+        assert marca == "VOLKSWAGEN"
+
+    def test_ano_solto_no_inicio_nao_vira_marca(self):
+        # "1929" na frente sobrava como marca quando outro número no fim
+        # ("1930") já tinha sido consumido como ano
+        marca, modelo, ano = inferir_marca_modelo_ano("1929 Pickup Ford 1930 Hotrod Motor Opala")
+        assert marca == "FORD"
+        assert ano == 1930
+
+    def test_ano_solto_alfa_romeo(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("1972 Alfa Romeo Spider Veloce 2000")
+        assert marca == "ALFA ROMEO"
+
+    def test_modelo_numerico_147_sem_marca_no_titulo(self):
+        # "147" é ambíguo no catálogo geral (Fiat e Alfa Romeo), mas neste
+        # recorte de clássico brasileiro é sempre o Fiat 147
+        marca, modelo, ano = inferir_marca_modelo_ano("147 1.3L")
+        assert marca == "FIAT"
+        assert "147" in modelo
+
+    def test_alias_fordinho(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Fordinho 29 Hotrod Pickup 1930")
+        assert marca == "FORD"
+
+    def test_alias_for_abreviado(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("For Mustang Gt 5.0 302 V8")
+        assert marca == "FORD"
+
+    def test_grafias_erradas_diversas(self):
+        assert inferir_marca_modelo_ano("Chrevolet Opala 1978")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Dogde Dart 1974")[0] == "DODGE"
+        assert inferir_marca_modelo_ano("Hoonda Civic 1994")[0] == "HONDA"
+        assert inferir_marca_modelo_ano("Porche 356 1962")[0] == "PORSCHE"
+        assert inferir_marca_modelo_ano("Guegel X12 1980")[0] == "GURGEL"
+        assert inferir_marca_modelo_ano("Mercuri Heigt 1948")[0] == "MERCURY"
+
+    def test_willys_overland_canonicaliza_pra_willys(self):
+        # Catálogo tem "WILLYS" e "WILLYS OVERLAND" como marcas separadas
+        # pro mesmo fabricante — usuária pediu (2026-07-15) pra manter só
+        # "WILLYS", sem fragmentar o grupo já estabelecido de 117 anúncios.
+        marca, modelo, ano = inferir_marca_modelo_ano("Willys Overland 1958")
+        assert marca == "WILLYS"
+        assert "OVERLAND" in modelo
+        assert ano == 1958
+
+    def test_modelo_ford_ausente_do_catalogo(self):
+        # F100/F150/F1000/F75/XR3 não estão no CSV mas não são ambíguos
+        # no Brasil (diferente de RANGER, que o catálogo compartilha com
+        # a Edsel e por isso fica de fora de propósito)
+        assert inferir_marca_modelo_ano("F150 Xlt S 1988")[0] == "FORD"
+        assert inferir_marca_modelo_ano("Xr3 Conversivel 1990")[0] == "FORD"
+
+    def test_modelo_chevrolet_ausente_do_catalogo(self):
+        assert inferir_marca_modelo_ano("Diplomata 6cc Placa Preta 1985")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Cheyenne Super 10 1974")[0] == "CHEVROLET"
+
+    def test_prefixo_hotrod_ignorado(self):
+        marca, modelo, ano = inferir_marca_modelo_ano("Hotrod 1932 Ford 1929 Conversível Roadster 32")
+        assert marca == "FORD"
+        assert ano == 1929
+
     def test_sem_ano(self):
         marca, modelo, ano = inferir_marca_modelo_ano("Ford Mustang")
         assert marca == "FORD"

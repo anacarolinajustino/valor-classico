@@ -77,13 +77,18 @@ def normalizar_texto(texto: str) -> str:
     Normalização completa para indexação/matching:
     - Remove acentos
     - Converte para UPPERCASE
+    - Trata barra como separador de token (vira espaço)
     - Colapsa espaços duplicados
     - Remove pontuação irrelevante (mantém hífen e ponto)
     """
     sem_acento = remover_acentos(texto)
     maiusculo = sem_acento.upper()
+    # Muitos anunciantes usam "/" como separador marca/modelo ("Vw/fusca",
+    # "Gm/chevrolet") — sem virar espaço, os tokens grudam ("VWFUSCA",
+    # "GMCHEVROLET") e a marca nunca é reconhecida (auditoria 2026-07-15).
+    com_espacos = maiusculo.replace("/", " ")
     # Colapsar espaços
-    sem_espacos_dup = re.sub(r"\s+", " ", maiusculo).strip()
+    sem_espacos_dup = re.sub(r"\s+", " ", com_espacos).strip()
     # Remover pontuação irrelevante (vírgula, parênteses, etc.), manter hífen e ponto
     limpo = re.sub(r"[^\w\s.\-]", "", sem_espacos_dup)
     return limpo
@@ -105,14 +110,71 @@ _ALIASES_MARCA: dict[str, str] = {
     "VOLKSWAGEM": "VOLKSWAGEN",
     "VOLKSVAGEM": "VOLKSWAGEN",
     "VOLKWAGEM": "VOLKSWAGEN",
+    # Grafias erradas/apelidos comuns (auditoria 2026-07-15: marca=ano ou
+    # marca=lixo em ~150 anúncios — ver reprocessar_marca_modelo.py)
+    "VOLKS": "VOLKSWAGEN",
+    "FOR": "FORD",
+    "FORDINHO": "FORD",  # apelido popular do Ford Model A/T no Brasil
+    "FUSCAO": "VOLKSWAGEN",  # apelido popular do Fusca "grande"/customizado
+    "VOIAGE": "VOLKSWAGEN",  # grafia errada de "Voyage" (o modelo, não a marca)
+    "CHREVOLET": "CHEVROLET",
+    "CHREVROLET": "CHEVROLET",
+    "CHVEROLET": "CHEVROLET",
+    "DOGDE": "DODGE",
+    "HOONDA": "HONDA",
+    "HYUNDAY": "HYUNDAI",
+    "PORCHE": "PORSCHE",
+    "OLSDMOBILE": "OLDSMOBILE",
+    "MERCEDENS": "MERCEDES-BENZ",
+    "GUEGEL": "GURGEL",
+    "STUDBAKER": "STUDEBAKER",
+    "DKV": "DKW",
+    "VEMAG": "DKW",  # fabricante original do DKW-Vemag no Brasil
+    "MERCURI": "MERCURY",
+    "DKW-VEMAG": "DKW",  # catálogo tem as duas grafias como marcas separadas
+    "AUTO UNION": "DKW",  # holding alemã dona da DKW; "Auto-Union" nos anúncios
+    # BELCAR é modelo DKW, mas o catálogo lista o mesmo modelo sob "DKW" E
+    # "DKW-VEMAG" (grafias diferentes do mesmo fabricante) — isso faz o
+    # modelo parecer ambíguo pro vocabulário automático (passo 3) e cai no
+    # fallback errado. Resolvido aqui direto, como os outros modelos-alias.
+    "BELCAR": "DKW",
+    # Anunciante escreve o alias colado ao nome oficial com hífen, sem
+    # espaço ("Vw-volkswagen Santana", "Gm-chevrolet Opala") — vira um
+    # único token que não bate nem no alias simples nem no catálogo.
+    "VW-": "VOLKSWAGEN",
+    "GM-": "CHEVROLET",
+    "VW-VOLKSWAGEN": "VOLKSWAGEN",
+    "GM-CHEVROLET": "CHEVROLET",
+}
+
+# Modelos cujo nome sozinho é ambíguo no catálogo geral (ex.: "147" é Fiat
+# E Alfa Romeo; "Voyage" tem outras leituras fora do Brasil) mas que, no
+# recorte de carro clássico brasileiro deste projeto, têm uma leitura
+# dominante e seguem sem marca no título ("147 1.3L", sem "Fiat" na frente).
+# Diferente de _ALIASES_MARCA (marca escrita errado), aqui o token É o
+# nome do modelo — a marca nunca apareceu no anúncio.
+_MODELO_NUMERICO_MARCA: dict[str, str] = {
+    "147": "FIAT",
+}
+
+# O catálogo geral grafa a mesma marca de mais de um jeito ("WILLYS" e
+# "WILLYS OVERLAND" são o mesmo fabricante) — a regra "prefixo mais longo
+# primeiro" do passo 1 preferiria a forma composta, fragmentando o grupo já
+# estabelecido (usuária pediu 2026-07-15 pra manter só "WILLYS").
+_MARCA_CANONICA: dict[str, str] = {
+    "WILLYS OVERLAND": "WILLYS",
 }
 
 # Primeiros tokens que descrevem o anúncio, não o veículo ("Vendo Ford F-75",
 # "Moto Harley-Davidson", "Perua Kombi") — pulados antes de inferir a marca.
 _PREFIXOS_NAO_MARCA: frozenset = frozenset({
     "VENDO", "VENDE-SE", "VENDESE", "MOTO", "CARRO", "VEICULO",
-    "CAMINHONETE", "PERUA", "FURGAO", "PICK-UP", "PICKUP",
+    "CAMINHONETE", "CAMIONETA", "PERUA", "FURGAO", "PICK-UP", "PICKUP",
     "RARIDADE", "ANTIGO", "ANTIGA", "CLASSICO", "CLASSICA",
+    # Descrevem o estilo/preparação do carro, não o veículo em si
+    # (auditoria 2026-07-15: "Hotrod 1930 ... Pickup Ford 1929" perdia o
+    # Ford pro fallback "primeiro token")
+    "HOTROD", "HOT-ROD", "MOTOR",
 })
 
 # Cache do vocabulário derivado do catálogo canônico:
@@ -219,15 +281,24 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
 
     marcas_catalogo, modelo_marca = _catalogo_vocab()
 
-    # 0) Pula prefixos descritivos que não são marca ("Vendo...", "Moto...")
-    while len(tokens_sem_ano) > 1 and tokens_sem_ano[0] in _PREFIXOS_NAO_MARCA:
+    # 0) Pula prefixos descritivos ("Vendo...", "Moto...") e ano solto no
+    #    início do título ("1929 Pickup Ford 1930" — o ano de trás já foi
+    #    capturado acima; sem isso "1929" sobra e vira marca no fallback).
+    while len(tokens_sem_ano) > 1 and (
+        tokens_sem_ano[0] in _PREFIXOS_NAO_MARCA
+        or re.fullmatch(r"(19|20)\d{2}", tokens_sem_ano[0])
+    ):
         tokens_sem_ano = tokens_sem_ano[1:]
 
-    # 1) Prefixo mais longo que seja marca conhecida do catálogo
+    # 1) Prefixo mais longo que seja marca conhecida do catálogo. Prefixos
+    # rebaixados por _MARCA_CANONICA são pulados aqui (não só renomeados no
+    # retorno) pra não engolir de "modelo" um token que já vira a forma
+    # canônica mais curta ("Willys Overland" não pode consumir "Overland"
+    # inteiro só pra depois virar marca="WILLYS" e modelo="").
     for n in (3, 2, 1):
         if len(tokens_sem_ano) >= n:
             prefixo = " ".join(tokens_sem_ano[:n])
-            if prefixo in marcas_catalogo:
+            if prefixo in marcas_catalogo and prefixo not in _MARCA_CANONICA:
                 return (prefixo, " ".join(tokens_sem_ano[n:]), ano)
 
     # 2) Alias de marca (2 tokens antes de 1: "MERCEDES BENZ" > "MERCEDES")
@@ -253,6 +324,13 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     #    uma única marca no catálogo — o modelo mantém todos os tokens
     if tokens_sem_ano[0] in modelo_marca:
         return (modelo_marca[tokens_sem_ano[0]], " ".join(tokens_sem_ano), ano)
+
+    # 3.5) Modelo numérico sem marca no título ("147 1.3L") — tokens só de
+    # dígitos ficam fora do vocabulário automático do catálogo (ambíguos
+    # demais em geral: "1600" é de várias marcas), mas alguns têm leitura
+    # dominante neste recorte de clássico brasileiro (ver dict acima).
+    if tokens_sem_ano[0] in _MODELO_NUMERICO_MARCA:
+        return (_MODELO_NUMERICO_MARCA[tokens_sem_ano[0]], " ".join(tokens_sem_ano), ano)
 
     # 4) Fallback original: primeiro token é a marca
     marca = tokens_sem_ano[0]

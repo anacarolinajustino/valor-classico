@@ -61,6 +61,20 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     # anúncios escrevem "Karmann Ghia" — sem esta entrada o primeiro token
     # não casa e a marca não é inferida.
     ("VOLKSWAGEN", "KARMANN GHIA"): set(range(1962, 1976)),
+    # Modelos clássicos brasileiros ausentes do CSV (auditoria 2026-07-15):
+    # apareciam sozinhos no título, sem a marca na frente, e o token não é
+    # ambíguo entre marcas no mercado brasileiro (diferente de CARAVAN,
+    # KADETT, BLAZER, SILVERADO e RANGER, que o catálogo geral compartilha
+    # entre mais de uma marca e por isso ficam de fora de propósito).
+    ("CHEVROLET", "DIPLOMATA"): set(range(1980, 1993)),
+    ("CHEVROLET", "COMODORO"):  set(range(1977, 1987)),
+    ("CHEVROLET", "CHEYENNE"):  set(range(1975, 1997)),
+    ("FORD",      "F100"):      set(range(1957, 1993)),
+    ("FORD",      "F150"):      set(range(1975, 1997)),
+    ("FORD",      "F1000"):     set(range(1980, 1998)),
+    ("FORD",      "F75"):       set(range(1973, 1980)),
+    ("FORD",      "XR3"):       set(range(1984, 1993)),
+    ("MERCEDES-BENZ", "C280"):  set(range(1993, 2001)),
 }
 
 # (marca_norm, modelo_norm) -> set de anos disponíveis
