@@ -27,6 +27,17 @@ foi autorizado explicitamente pelo usuário em 2026-07-08.
 
 Compliance: apenas dados públicos de anúncios (sem login, sem dados pessoais).
 Rate limit: ~2s entre navegações para não se comportar como scraper agressivo.
+
+Ficha técnica (2026-07-15): a página de LISTAGEM só tem título + preço + o
+badge de ano do card — marca/modelo vinham só de adivinhar o título, o que
+falha quando o título começa por outra coisa que não a marca (ex.: "AP
+2000..." é o código do motor VW, não a marca; a marca real — Ford Versailles
+— só aparece na ficha técnica da página do anúncio). Diferente da listagem,
+a página de detalhe do anúncio NÃO tem o mesmo bloqueio anti-bot (testado
+ao vivo: 200 sem proxy/stealth, ~1s) — por isso o enriquecimento usa
+`requests` puro, sem gastar sessão/IP residencial da listagem. Usuária
+decidiu (2026-07-15) enriquecer TODO anúncio, aceitando o custo de ~1
+requisição extra por anúncio coletado.
 """
 from __future__ import annotations
 
@@ -34,9 +45,11 @@ import logging
 import re
 import time
 import unicodedata
+from dataclasses import replace
 from datetime import date
 from typing import Optional
 
+import requests
 from bs4 import BeautifulSoup
 
 from src.catalog.loader import carregar_catalogo
@@ -51,6 +64,14 @@ FONTE = "mercadolivre"
 _HOME_URL = "https://www.mercadolivre.com.br/"
 _CATEGORIA_SLUG = "carros-vans-utilitarios"
 _ITENS_POR_PAGINA = 48
+
+# Enriquecimento via ficha técnica (requests puro — ver docstring do módulo).
+_FICHA_TIMEOUT_S = 15
+_FICHA_RATE_LIMIT = 1.0
+_FICHA_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
 
 # Categorias de veículos usadas pela coleta batch (descobertas pelo usuário em
 # 2026-07-14). São categorias REAIS de veículo — todo card é um carro à venda,
@@ -164,6 +185,8 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
     seen: set[str] = set()
     total_req = 0
     erros = 0
+    fichas_ok = 0
+    fichas_ausentes = 0
     fonte_idx = 0
     pagina = 1
     # URLs brutas (todos os cards) da listagem atual — detecta teto de
@@ -226,14 +249,31 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
 
                     adicionados = 0
                     for a in novos:
-                        if a.url not in seen:
-                            seen.add(a.url)
-                            anuncios.append(a)
-                            adicionados += 1
+                        if a.url in seen:
+                            continue
+                        seen.add(a.url)
+
+                        # Ficha técnica da página de detalhe é autoridade
+                        # sobre marca/modelo/ano (o título só é usado como
+                        # fallback quando ela não está disponível) — ver
+                        # docstring do módulo. 1 requisição extra por
+                        # anúncio, sem sessão Playwright (não precisa do
+                        # stealth/proxy da listagem).
+                        a_enriquecido = _enriquecer_com_ficha_tecnica(a)
+                        time.sleep(_FICHA_RATE_LIMIT)
+                        if a_enriquecido is None:
+                            continue  # ficha revelou ano fora do corte de clássico
+                        if a_enriquecido is not a:
+                            fichas_ok += 1
+                        else:
+                            fichas_ausentes += 1
+
+                        anuncios.append(a_enriquecido)
+                        adicionados += 1
 
                     logger.info(
-                        "[mercadolivre] %s pág %d: %d cards → %d válidos → %d novos (total: %d)",
-                        rotulo, pagina, len(urls_pagina), len(novos), adicionados, len(anuncios),
+                        "[mercadolivre] %s pág %d: %d cards → %d válidos → %d novos (total: %d, fichas ok: %d)",
+                        rotulo, pagina, len(urls_pagina), len(novos), adicionados, len(anuncios), fichas_ok,
                     )
 
                     if len(urls_pagina) < _ITENS_POR_PAGINA or pagina >= max_paginas_por_fonte:
@@ -253,7 +293,8 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
         "data_coleta": data_coleta,
         "anuncios_validos": len(anuncios),
         "erros_listagem": erros,
-        "erros_detalhe": 0,
+        "erros_detalhe": fichas_ausentes,
+        "fichas_tecnicas_ok": fichas_ok,
         "requisicoes": total_req,
         "tempo_total_s": round(time.monotonic() - inicio, 1),
     }
@@ -375,9 +416,13 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
 
                 itens = _filtrar_marca_modelo(novos, marca_norm, modelo_norm)
                 for a in itens:
-                    if a.url not in seen:
-                        seen.add(a.url)
-                        anuncios.append(a)
+                    if a.url in seen:
+                        continue
+                    seen.add(a.url)
+                    a_enriquecido = _enriquecer_com_ficha_tecnica(a)
+                    time.sleep(_FICHA_RATE_LIMIT)
+                    if a_enriquecido is not None:
+                        anuncios.append(a_enriquecido)
 
                 if len(novos) < _ITENS_POR_PAGINA:
                     break
@@ -544,3 +589,89 @@ def _extrair_ano_cartao(card) -> Optional[int]:
         if 1900 <= ano <= date.today().year + 1:
             return ano
     return None
+
+
+# ── Ficha técnica (página de detalhe do anúncio) ──────────────────────────────
+
+def _extrair_ficha_tecnica(html: str) -> dict[str, str]:
+    """
+    Extrai a tabela "Características do veículo" da página do anúncio como
+    um dict {rótulo: valor}, com rótulos normalizados (maiúsculo, sem acento)
+    pra lookup robusto — ex.: {"MARCA": "Ford", "MODELO": "Versailles",
+    "ANO": "1996", "VERSAO": "GL 2.0i"}. Dict vazio se a tabela não existir
+    (anúncio sem ficha preenchida) ou a página não for a esperada.
+    """
+    soup = BeautifulSoup(html, "lxml")
+    tabela = soup.find("div", class_="ui-pdp-specs__table")
+    if not tabela:
+        return {}
+
+    ficha: dict[str, str] = {}
+    for linha in tabela.find_all("tr"):
+        rotulo_el = linha.find("th")
+        valor_el = linha.find("td")
+        if not rotulo_el or not valor_el:
+            continue
+        rotulo = normalizar_texto(rotulo_el.get_text(strip=True))
+        valor = valor_el.get_text(strip=True)
+        if rotulo and valor:
+            ficha[rotulo] = valor
+    return ficha
+
+
+def _buscar_ficha_tecnica(url: str) -> Optional[dict[str, str]]:
+    """
+    Busca a página do anúncio e extrai a ficha técnica via `requests` puro —
+    a página de detalhe não tem o mesmo bloqueio anti-bot da listagem (ver
+    docstring do módulo), então não precisa da sessão Playwright com stealth
+    e proxy residencial. None se a requisição falhar (timeout, bloqueio,
+    HTTP != 200) — o chamador deve degradar pro anúncio original (do título).
+    """
+    try:
+        resp = requests.get(
+            url, headers={"User-Agent": _FICHA_USER_AGENT}, timeout=_FICHA_TIMEOUT_S,
+        )
+    except requests.RequestException as exc:
+        logger.warning("[mercadolivre] erro buscando ficha técnica de %s: %s", url, exc)
+        return None
+    if resp.status_code != 200 or "/gz/" in resp.url or "/captcha/" in resp.url:
+        logger.warning(
+            "[mercadolivre] ficha técnica indisponível (status=%d) em %s",
+            resp.status_code, url,
+        )
+        return None
+    return _extrair_ficha_tecnica(resp.text)
+
+
+def _enriquecer_com_ficha_tecnica(anuncio: Anuncio) -> Optional[Anuncio]:
+    """
+    Sobrescreve marca/modelo/versão (e ano, se presente) do anúncio com os
+    valores estruturados da ficha técnica, quando disponível. Sem isso,
+    marca/modelo vêm só de adivinhar o título — que erra quando o título
+    começa por outra coisa que não a marca (ex.: "AP 2000..." é o código
+    do motor, não a marca; a marca real só está na ficha técnica).
+
+    Retorna o anúncio original (do título) se a ficha técnica não estiver
+    disponível ou não tiver marca/modelo. Retorna None (descarta o anúncio)
+    se a ficha técnica revelar um ano fora do corte de clássico — mesma
+    regra central de upsert_anuncios, aplicada aqui também porque o ano da
+    ficha pode divergir do ano inferido do título/card.
+    """
+    ficha = _buscar_ficha_tecnica(anuncio.url)
+    if not ficha or "MARCA" not in ficha or "MODELO" not in ficha:
+        return anuncio
+
+    ano_novo = anuncio.ano
+    ano_raw = ficha.get("ANO", "")
+    if re.fullmatch(r"(19|20)\d{2}", ano_raw):
+        ano_novo = int(ano_raw)
+        if ano_novo > ANO_CORTE_CLASSICO:
+            return None
+
+    return replace(
+        anuncio,
+        marca=ficha["MARCA"].upper(),
+        modelo=ficha["MODELO"].upper(),
+        ano=ano_novo,
+        versao=ficha.get("VERSAO") or anuncio.versao,
+    )
