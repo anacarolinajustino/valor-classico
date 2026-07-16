@@ -32,6 +32,20 @@ _EXCLUIR: set[tuple[str, str]] = {
     # título, não a marca; a real (Ford Versailles) só apareceu na ficha
     # técnica do anúncio #34724 (ver src/connectors/mercadolivre.py).
     ("FORD", "AP"),
+    # Auditoria 2026-07-15 (2ª rodada) — correções manuais pontuais onde a
+    # marca real está no MEIO/FIM do título, não no prefixo. A inferência
+    # por título sozinho não alcança esses casos (só olha prefixo/fallback
+    # 1º token) e reverteria pra marca-lixo se reprocessada às cegas.
+    ("YAMAHA", "DT"),            # #572  "DT 180 Z" — DT é código de modelo Yamaha
+    ("YAMAHA", "RD"),            # #573  "RD 135 1988/89" — idem
+    ("MONARK", "MONARETA"),      # #1736 "Monareta Monark AVX" — Monareta é o modelo
+    ("HONDA", "CB"),             # #6169 "CB 360 Cafe Racer" — CB é código de modelo Honda
+    ("MERCEDES-BENZ", "EXCLUSIVA"),  # #6424 "Exclusiva Mercedes Benz SL190"
+    ("VOLKSWAGEN", "GOL."),      # #34963 "Gol. 1.3..." — ponto colado quebra o parsing
+    ("PONTIAC", "IMP"),          # #35160 "Imp / Pontiac Trans Sport" — Imp = "importado"
+    ("CHEVROLET", "MARTA"),      # #35231 "Marta Rocha Chevrolet" — marca no fim do título
+    ("LANZ", "LOCOMOVEL"),       # #35283 "Locomóvel...Heinrich Lanz" — marca no fim
+    ("CADILLAC", "LIMOUSINE"),   # #36518 "Limousine Fleetwood" — Fleetwood é linha Cadillac
 }
 
 

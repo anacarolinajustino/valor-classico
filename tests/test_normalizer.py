@@ -120,10 +120,13 @@ class TestInferirMarcaModeloAno:
         assert modelo == "FUSCA 1600"
         assert ano == 1985
 
-    def test_modelo_ambiguo_nao_infere_marca(self):
-        # CARAVAN existe em mais de uma marca no catálogo — mantém comportamento antigo
+    def test_modelo_ambiguo_usa_marca_dominante_no_brasil(self):
+        # CARAVAN existe em mais de uma marca no catálogo geral, mas no
+        # recorte de clássico brasileiro é sempre Chevrolet (perua do Opala)
+        # — auditoria 2026-07-15, 2ª rodada: usuária pediu pra resolver em
+        # vez de deixar como marca=lixo (ver _MODELO_AMBIGUO_MARCA).
         marca, modelo, ano = inferir_marca_modelo_ano("Caravan Comodoro 1985")
-        assert marca == "CARAVAN"
+        assert marca == "CHEVROLET"
 
     def test_ano_grudado_em_palavra(self):
         # brunelli concatena modelo e ano sem espaço
@@ -259,15 +262,77 @@ class TestInferirMarcaModeloAno:
         assert ano == 1958
 
     def test_modelo_ford_ausente_do_catalogo(self):
-        # F100/F150/F1000/F75/XR3 não estão no CSV mas não são ambíguos
-        # no Brasil (diferente de RANGER, que o catálogo compartilha com
-        # a Edsel e por isso fica de fora de propósito)
+        # F100/F150/F1000/F75/XR3 não estão no CSV mas não são ambíguos no Brasil
         assert inferir_marca_modelo_ano("F150 Xlt S 1988")[0] == "FORD"
         assert inferir_marca_modelo_ano("Xr3 Conversivel 1990")[0] == "FORD"
 
     def test_modelo_chevrolet_ausente_do_catalogo(self):
         assert inferir_marca_modelo_ano("Diplomata 6cc Placa Preta 1985")[0] == "CHEVROLET"
         assert inferir_marca_modelo_ano("Cheyenne Super 10 1974")[0] == "CHEVROLET"
+
+    # ── auditoria 2026-07-15, 2ª rodada: marcas fora do CSV de carros
+    # (motos/caminhões/tratores/marcas raras) e mais modelos ambíguos ──
+
+    def test_prefixo_tipo_veiculo_com_marca_propria_depois(self):
+        assert inferir_marca_modelo_ano("Trator Zetor")[0] == "ZETOR"
+        assert inferir_marca_modelo_ano("Onibus Chevrolet 6100 Boca de Sapo 1952")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Caminhao Chevrolet Coe 46")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Caminhoneta Aberta Cabine Dupla")[0] == "ABERTA"
+
+    def test_marca_fora_do_catalogo_de_carros_via_fallback(self):
+        # Moto/trator/marca rara: não estão no CSV de carros, mas o
+        # fallback "primeiro token" já acerta — usuária decidiu (2ª rodada,
+        # 2026-07-15) manter esses veículos na base.
+        assert inferir_marca_modelo_ano("Yamaha Tenere 600 1991")[0] == "YAMAHA"
+        assert inferir_marca_modelo_ano("Austin Imp A40 1982")[0] == "AUSTIN"
+        assert inferir_marca_modelo_ano("Reo 1928 Street Rod")[0] == "REO"
+
+    def test_marca_duas_palavras_fora_do_catalogo(self):
+        # Sem alias, o fallback pegaria só o 1º token ("AM"/"DIAMOND"/
+        # "PIERCE"/"HARLEY") e devolveria o resto como modelo
+        assert inferir_marca_modelo_ano("1982 AM General Humvee")[0] == "AM GENERAL"
+        assert inferir_marca_modelo_ano("Diamond T Model 969-A 1943")[0] == "DIAMOND T"
+        assert inferir_marca_modelo_ano("Pierce Arrow Bombeiros")[0] == "PIERCE-ARROW"
+        assert inferir_marca_modelo_ano("Harley Davidson Sportster 1998")[0] == "HARLEY-DAVIDSON"
+
+    def test_alias_sinca_wyllis_alfa_caloicross(self):
+        assert inferir_marca_modelo_ano("Sinca esplanada 1969")[0] == "SIMCA"
+        assert inferir_marca_modelo_ano("Rural Wyllis 4 Cilindros 4x4")[0] == "WILLYS"
+        assert inferir_marca_modelo_ano("Alfa Rtomeu Spider Veloce 2000")[0] == "ALFA ROMEO"
+        assert inferir_marca_modelo_ano("Caloicross Freestyle")[0] == "CALOI"
+
+    def test_modelo_ambiguo_marca_dominante_ampliado(self):
+        assert inferir_marca_modelo_ano("Kadett Gsi 1993")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Silverado Z88 1991 Cabine Estendida")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Blazer DLX 96 placa preta")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Ranger 4.0 XLT CS 1998")[0] == "FORD"
+        assert inferir_marca_modelo_ano("Rural Willys")[0] == "WILLYS"
+        assert inferir_marca_modelo_ano("Rural 4x4")[0] == "WILLYS"
+        assert inferir_marca_modelo_ano("D-10 3.9 Diesel 1982")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("D-20 Custom S 4.0 Diesel 1995")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("C-10 Ano 1971 6cc Alcool")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("C1500 Silverado Pace Car")[0] == "CHEVROLET"
+        assert inferir_marca_modelo_ano("Premio Sl 1992 Motor 1.6 Alcool")[0] == "FIAT"
+
+    def test_prefixo_e_sem_acento_e_adjetivos_de_venda(self):
+        # "É Dauphine..." perde o acento na normalização e vira "E" sozinho
+        marca, _, _ = inferir_marca_modelo_ano("E Puma Gts Conversivel Nao Gtb Santa Matilde")
+        assert marca == "PUMA"
+        assert inferir_marca_modelo_ano("Rara Mobylette Caloi CX 1985")[0] == "MOBYLETTE"
+        assert inferir_marca_modelo_ano("Lindo Buggy 1975 Polauto")[0] == "BUGGY"
+
+    def test_prefixo_outros_duplicado_do_ml(self):
+        # Categoria do Mercado Livre colada 2x ao título; Santa Matilde é
+        # marca real (clássico brasileiro) já no catálogo
+        marca, _, ano = inferir_marca_modelo_ano("Outros Outros 1985 Santa Matilde Sm 4.1")
+        assert marca == "SANTA MATILDE"
+        assert ano == 1985
+
+    def test_cilindros_solto_no_inicio_nao_vira_marca(self):
+        # "6" sobraria como marca se não fosse pulado como o ano já é
+        marca, _, ano = inferir_marca_modelo_ano("Hotrod 1930 6 Cilindros Pickup Ford 1929")
+        assert marca == "FORD"
+        assert ano == 1929
 
     def test_prefixo_hotrod_ignorado(self):
         marca, modelo, ano = inferir_marca_modelo_ano("Hotrod 1932 Ford 1929 Conversível Roadster 32")
