@@ -328,6 +328,29 @@ class TestInferirMarcaModeloAno:
         assert marca == "SANTA MATILDE"
         assert ano == 1985
 
+    # ── verificação geral 2026-07-15: hífen solto e preposição escondendo marca ──
+
+    def test_hifen_solto_nao_vira_marca(self):
+        # "Raridade - Volkswagen..." — o hífen cercado de espaços sobra
+        # como token próprio (normalizar_texto preserva hífen)
+        marca, modelo, ano = inferir_marca_modelo_ano(
+            "Raridade - Volkswagen Golf GTI 2.0 1995 (Consigo dividir no cartao em ate 21x)"
+        )
+        assert marca == "VOLKSWAGEN"
+        assert ano == 1995
+
+    def test_prefixo_colecao_mas_nao_de(self):
+        # "COLECAO" é pulado, mas "DE" propositalmente não entra em
+        # _PREFIXOS_NAO_MARCA (colidiria com "De Soto"/"De Tomaso") — este
+        # título específico ("Carro de Coleção! Escort...") só resolve com
+        # correção manual pontual, não regra genérica.
+        marca, modelo, ano = inferir_marca_modelo_ano("Carro Colecao Escort GL 1.6 Alcool 1985")
+        assert marca == "FORD"
+
+    def test_de_soto_de_tomaso_nao_perdem_o_de(self):
+        assert inferir_marca_modelo_ano("De Soto Firedome Coupe 1951")[0] == "DE SOTO"
+        assert inferir_marca_modelo_ano("De Tomaso Pantera 5.8 Coupe")[0] == "DE TOMASO"
+
     def test_cilindros_solto_no_inicio_nao_vira_marca(self):
         # "6" sobraria como marca se não fosse pulado como o ano já é
         marca, _, ano = inferir_marca_modelo_ano("Hotrod 1930 6 Cilindros Pickup Ford 1929")

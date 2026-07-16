@@ -46,6 +46,15 @@ _EXCLUIR: set[tuple[str, str]] = {
     ("CHEVROLET", "MARTA"),      # #35231 "Marta Rocha Chevrolet" — marca no fim do título
     ("LANZ", "LOCOMOVEL"),       # #35283 "Locomóvel...Heinrich Lanz" — marca no fim
     ("CADILLAC", "LIMOUSINE"),   # #36518 "Limousine Fleetwood" — Fleetwood é linha Cadillac
+    # Verificação geral 2026-07-15 (3ª rodada) — mais correções pontuais
+    # com marca no meio/fim do título ou exigindo conhecimento externo
+    # (typo de modelo, sub-marca) que o algoritmo não alcança.
+    ("WILLYS", "AERO"),          # #643   "Aero Willys 2600" — Aero-Willys é a linha, marca é Willys
+    ("FORD", "DE"),              # #18447 "Carro de Coleção! Escort..." — "DE" não é prefixo (colide com "De Soto"/"De Tomaso")
+    ("FORD", "29"),              # #34736 "Hot Rod 29 V8 Ford Tudor..." — "29" é o ano abreviado (Ford 1929), não marca
+    ("VOLKSWAGEN", "PASSAR"),    # #34906 "Passar Ts 1978" — typo de "Passat" (TS é versão real do Passat)
+    ("CHEVROLET", "C1404"),      # #35040 "Picape C1404 - D10 Diesel..." — D10 confirma Chevrolet, C1404 não é marca
+    ("CHEVROLET", "PERFEITO"),   # #36076 "Perfeito Barn Find Rat Look - Bel Air 55..." — Bel Air é modelo Chevrolet
 }
 
 

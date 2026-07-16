@@ -181,6 +181,8 @@ _MODELO_AMBIGUO_MARCA: dict[str, str] = {
     "BLAZER": "CHEVROLET",
     "D-10": "CHEVROLET",
     "D-20": "CHEVROLET",
+    "D10": "CHEVROLET",  # mesma picape, alguns anúncios sem hífen
+    "D20": "CHEVROLET",
     "C-10": "CHEVROLET",
     "C1500": "CHEVROLET",
     "RANGER": "FORD",
@@ -212,12 +214,15 @@ _PREFIXOS_NAO_MARCA: frozenset = frozenset({
     # Tipo de veículo fora do catálogo de carros, mas com marca própria
     # depois no título ("Trator Zetor", "Ônibus Chevrolet 6100") — 2ª
     # rodada da auditoria 2026-07-15.
-    "TRATOR", "ONIBUS", "CAMINHAO", "CAMINHONETA", "IMPLEMENTO",
+    "TRATOR", "ONIBUS", "CAMINHAO", "CAMINHONETA", "IMPLEMENTO", "PICAPE",
     # "É Dauphine 1961!..." perde o acento na normalização e vira "E" sozinho
     # (artigo, não marca); "Outros Outros ..." é categoria do ML duplicada
     # colada ao título; adjetivos de venda que só atrapalham quando são o
     # 1º token ("Rara Mobylette...", "Lindo Buggy...").
-    "E", "OUTROS", "RARA", "RARO", "LINDO",
+    # NB: "DE" NÃO entra aqui — colide com marcas reais de 2 palavras que
+    # começam com "De" ("De Soto", "De Tomaso"); ver correção pontual do
+    # único caso ("Carro de Coleção! Escort...") em _EXCLUIR do script.
+    "E", "OUTROS", "RARA", "RARO", "LINDO", "COLECAO",
     # Cauda de "N CILINDROS"/"N CC" solto no início (o número é pulado à
     # parte, ver passo 0) — sem isso "CILINDROS" sobra como marca na
     # iteração seguinte do loop.
@@ -342,6 +347,10 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
             tokens_sem_ano[0] in _PREFIXOS_NAO_MARCA
             or re.fullmatch(r"(19|20)\d{2}", tokens_sem_ano[0])
             or (tokens_sem_ano[0].isdigit() and tokens_sem_ano[1] in ("CILINDROS", "CC"))
+            # Hífen solto sobra como token próprio ("Raridade - Volkswagen
+            # Golf GTI..." — normalizar_texto mantém hífen, então "-" vira
+            # um token isolado quando cercado de espaços).
+            or tokens_sem_ano[0] == "-"
         ):
             tokens_sem_ano = tokens_sem_ano[1:]
         else:
