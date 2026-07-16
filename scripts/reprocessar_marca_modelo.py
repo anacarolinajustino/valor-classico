@@ -24,12 +24,14 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 from src.pipeline.normalizer import inferir_marca_modelo_ano
 from src.pipeline.persistence import _connect
 
-# Reclassificações que o reprocessamento encontra mas que são decisão de
-# nomenclatura separada da confusão desta auditoria (marca=lixo/ano/typo) —
-# ficam de fora deste lote até o usuário decidir qual grafia é a canônica.
-# Formato: (marca_antiga, marca_nova) a pular.
+# Reclassificações que o reprocessamento por TÍTULO encontraria mas que já
+# foram corrigidas por uma fonte mais confiável que o título sozinho —
+# reprocessar reverteria a correção. Formato: (marca_antiga, marca_nova) a pular.
 _EXCLUIR: set[tuple[str, str]] = {
-    ("WILLYS", "WILLYS OVERLAND"),
+    # "Ap 2000,injecao,4 portas..." — "AP" é o código do motor VW no
+    # título, não a marca; a real (Ford Versailles) só apareceu na ficha
+    # técnica do anúncio #34724 (ver src/connectors/mercadolivre.py).
+    ("FORD", "AP"),
 }
 
 
