@@ -157,13 +157,12 @@ def admin_status():
 
 @app.route("/admin/api/anuncios")
 def admin_api_anuncios():
-    fonte        = request.args.get("fonte",     "").strip() or None
-    marca        = request.args.get("marca",     "").strip() or None
-    modelo       = request.args.get("modelo",    "").strip() or None
-    modelo_exato = request.args.get("modelo_exato", "").strip() == "1"
-    q            = request.args.get("q",         "").strip() or None
-    order_by     = request.args.get("order_by",  "ultima_vista").strip()
-    order_dir    = request.args.get("order_dir", "desc").strip()
+    fonte     = request.args.get("fonte",     "").strip() or None
+    marca     = request.args.get("marca",     "").strip() or None
+    modelo    = request.args.get("modelo",    "").strip() or None
+    q         = request.args.get("q",         "").strip() or None
+    order_by  = request.args.get("order_by",  "ultima_vista").strip()
+    order_dir = request.args.get("order_dir", "desc").strip()
     try:
         page      = max(1, int(request.args.get("page", 1)))
         page_size = min(200, max(10, int(request.args.get("page_size", 50))))
@@ -174,7 +173,7 @@ def admin_api_anuncios():
 
     try:
         result = listar_anuncios(
-            fonte=fonte, marca=marca, modelo=modelo, modelo_exato=modelo_exato,
+            fonte=fonte, marca=marca, modelo=modelo,
             ano=ano, q=q, order_by=order_by, order_dir=order_dir,
             page=page, page_size=page_size,
         )

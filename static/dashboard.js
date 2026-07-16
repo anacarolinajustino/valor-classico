@@ -215,10 +215,7 @@ function renderTabelaModelos(container, itens) {
     const tr = document.createElement("tr");
     tr.className = "dash-tabela-row-link";
     tr.title = `Ver anúncios de ${item.marca} ${item.modelo}`;
-    // modelo_exato=1: marca+modelo vêm de um GROUP BY exato (ver top_modelos
-    // em persistence.py) — sem essa flag a busca de /admin/anuncios usa LIKE
-    // e traria outros modelos parecidos, com contagem maior que o card mostra.
-    const params = new URLSearchParams({ marca: item.marca, modelo: item.modelo, modelo_exato: "1" });
+    const params = new URLSearchParams({ marca: item.marca, modelo: item.modelo });
     const href = `/admin/anuncios?${params}`;
     tr.addEventListener("click", (ev) => {
       // Clique já caiu num <a> (marca/modelo) — deixa o link nativo cuidar

@@ -363,6 +363,67 @@ def get_db_stats() -> dict[str, Any]:
     return {"total_anuncios": total, "por_fonte": por_fonte}
 
 
+def _opcoes_marca_modelo_ano(
+    cur, fonte: str | None, marca: str | None, modelo: str | None, ano: int | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Opções pros dropdowns de marca/modelo/ano (dashboard e /admin/anuncios),
+    no estilo faceta: cada dimensão é contada sob os OUTROS filtros ativos,
+    nunca sob ela mesma (senão só sobraria a opção já escolhida). Modelo é
+    uma cascata de marca (5,5 mil modelos distintos no banco todo — só faz
+    sentido listar depois que uma marca reduz o universo).
+    """
+    filtros: dict[str, Any] = {
+        "fonte": fonte,
+        "marca": marca.strip().upper() if marca else None,
+        "modelo": modelo.strip().upper() if modelo else None,
+        "ano": ano,
+    }
+
+    def _where(excluir: tuple[str, ...] = (), *extra: str) -> tuple[str, list]:
+        conds, params = [], []
+        for campo, valor in filtros.items():
+            if valor is not None and campo not in excluir:
+                conds.append(f"{campo} = %s")
+                params.append(valor)
+        conds.extend(extra)
+        sql = ("WHERE " + " AND ".join(conds)) if conds else ""
+        return sql, params
+
+    # Marca exclui também "modelo" do facetamento (não só "marca" de si
+    # mesma) — modelo é subordinado à marca, não o contrário. Sem isso, um
+    # link que chega com marca+modelo já setados (ex.: "ver anúncios" do
+    # dashboard) mostraria só a própria marca de origem no dropdown —
+    # qualquer outra marca não tem esse modelo específico, então sumiria.
+    cond_op_marca, params_op_marca = _where(("marca", "modelo"), "marca IS NOT NULL")
+    cur.execute(
+        f"SELECT marca, COUNT(*) AS qtd FROM anuncios {cond_op_marca} "
+        "GROUP BY marca ORDER BY marca",
+        params_op_marca,
+    )
+    opcoes_marca = [dict(r) for r in cur.fetchall()]
+
+    opcoes_modelo: list[dict[str, Any]] = []
+    if filtros["marca"]:
+        cond_op_modelo, params_op_modelo = _where(("modelo",), "modelo IS NOT NULL")
+        cur.execute(
+            f"SELECT modelo, COUNT(*) AS qtd FROM anuncios {cond_op_modelo} "
+            "GROUP BY modelo ORDER BY modelo",
+            params_op_modelo,
+        )
+        opcoes_modelo = [dict(r) for r in cur.fetchall()]
+
+    cond_op_ano, params_op_ano = _where(("ano",), "ano IS NOT NULL")
+    cur.execute(
+        f"SELECT ano, COUNT(*) AS qtd FROM anuncios {cond_op_ano} "
+        "GROUP BY ano ORDER BY ano DESC",
+        params_op_ano,
+    )
+    opcoes_ano = [dict(r) for r in cur.fetchall()]
+
+    return {"marca": opcoes_marca, "modelo": opcoes_modelo, "ano": opcoes_ano}
+
+
 def get_dashboard_stats(
     fonte: str | None = None,
     marca: str | None = None,
@@ -374,8 +435,7 @@ def get_dashboard_stats(
     fonte/marca/modelo/ano. Uma chamada devolve todos os blocos que a página
     consome, pra manter os números consistentes entre si (mesma foto do
     banco) — incluindo as opções de cada filtro com a contagem de anúncios,
-    no estilo faceta: as opções de uma dimensão são contadas sob os OUTROS
-    filtros ativos (nunca sob ela mesma, senão só sobraria a opção escolhida).
+    no estilo faceta (ver `_opcoes_marca_modelo_ano`).
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -466,35 +526,7 @@ def get_dashboard_stats(
             )
             top_modelos = [dict(r) for r in cur.fetchall()]
 
-            # Opções dos filtros de recorte, no estilo faceta: contadas sob os
-            # OUTROS filtros ativos, nunca sob elas mesmas. Modelo é uma cascata
-            # de marca (5,5 mil modelos distintos no banco todo — só faz sentido
-            # listar depois que uma marca reduz o universo).
-            cond_op_marca, params_op_marca = _where("marca", "marca IS NOT NULL")
-            cur.execute(
-                f"SELECT marca, COUNT(*) AS qtd FROM anuncios {cond_op_marca} "
-                "GROUP BY marca ORDER BY marca",
-                params_op_marca,
-            )
-            opcoes_marca = [dict(r) for r in cur.fetchall()]
-
-            opcoes_modelo: list[dict[str, Any]] = []
-            if filtros["marca"]:
-                cond_op_modelo, params_op_modelo = _where("modelo", "modelo IS NOT NULL")
-                cur.execute(
-                    f"SELECT modelo, COUNT(*) AS qtd FROM anuncios {cond_op_modelo} "
-                    "GROUP BY modelo ORDER BY modelo",
-                    params_op_modelo,
-                )
-                opcoes_modelo = [dict(r) for r in cur.fetchall()]
-
-            cond_op_ano, params_op_ano = _where("ano", "ano IS NOT NULL")
-            cur.execute(
-                f"SELECT ano, COUNT(*) AS qtd FROM anuncios {cond_op_ano} "
-                "GROUP BY ano ORDER BY ano DESC",
-                params_op_ano,
-            )
-            opcoes_ano = [dict(r) for r in cur.fetchall()]
+            opcoes = _opcoes_marca_modelo_ano(cur, fonte, marca, modelo, ano)
 
     return {
         "kpis": {
@@ -508,11 +540,7 @@ def get_dashboard_stats(
         "top_marcas": top_marcas,
         "faixas_preco": faixas_preco,
         "top_modelos": top_modelos,
-        "opcoes": {
-            "marca": opcoes_marca,
-            "modelo": opcoes_modelo,
-            "ano": opcoes_ano,
-        },
+        "opcoes": opcoes,
     }
 
 
@@ -520,7 +548,6 @@ def listar_anuncios(
     fonte: str | None = None,
     marca: str | None = None,
     modelo: str | None = None,
-    modelo_exato: bool = False,
     ano: int | None = None,
     q: str | None = None,
     order_by: str = "ultima_vista",
@@ -532,12 +559,9 @@ def listar_anuncios(
     Retorna anúncios paginados com filtros opcionais.
     Usado pelo painel /admin/anuncios.
 
-    `modelo` por padrão é busca livre (LIKE, pro campo de filtro manual da
-    tela). `modelo_exato=True` usa igualdade — necessário quando o modelo
-    vem de um agrupamento exato (ex.: link "ver anúncios" da tabela de
-    modelos mais anunciados do dashboard, que usa GROUP BY marca, modelo):
-    sem isso, "Fusca 1300" também traria "Fusca 1300 Standard"/"1300L" e a
-    contagem não bateria com a do dashboard.
+    fonte/marca/modelo/ano são dropdowns (valores exatos do catálogo — ver
+    `opcoes` no retorno, no estilo faceta de `_opcoes_marca_modelo_ano`); `q`
+    é a única busca livre (LIKE em título/marca/modelo).
     """
     allowed_order = {"ultima_vista", "preco", "ano", "marca", "modelo", "fonte", "titulo"}
     if order_by not in allowed_order:
@@ -554,12 +578,8 @@ def listar_anuncios(
         conditions.append("UPPER(marca) = %s")
         params.append(marca.strip().upper())
     if modelo:
-        if modelo_exato:
-            conditions.append("UPPER(modelo) = %s")
-            params.append(modelo.strip().upper())
-        else:
-            conditions.append("UPPER(modelo) LIKE %s")
-            params.append(f"%{modelo.strip().upper()}%")
+        conditions.append("UPPER(modelo) = %s")
+        params.append(modelo.strip().upper())
     if ano:
         conditions.append("ano = %s")
         params.append(ano)
@@ -587,11 +607,10 @@ def listar_anuncios(
             cur.execute(sql_rows, params + [page_size, offset])
             rows = [dict(r) for r in cur.fetchall()]
 
-    fontes_sql = "SELECT DISTINCT fonte FROM anuncios ORDER BY fonte"
-    with _connect() as conn:
-        with conn.cursor() as cur:
-            cur.execute(fontes_sql)
+            cur.execute("SELECT DISTINCT fonte FROM anuncios ORDER BY fonte")
             fontes = [r["fonte"] for r in cur.fetchall()]
+
+            opcoes = _opcoes_marca_modelo_ano(cur, fonte, marca, modelo, ano)
 
     return {
         "total": total,
@@ -600,6 +619,7 @@ def listar_anuncios(
         "pages": max(1, -(-total // page_size)),
         "rows": rows,
         "fontes_disponiveis": fontes,
+        "opcoes": opcoes,
     }
 
 

@@ -1518,10 +1518,15 @@ a { color: inherit; text-decoration: none; }
 }
 .an-filter-input--short { min-width: 90px; max-width: 90px; }
 .an-filter-select--sm   { min-width: 70px; max-width: 70px; }
+.an-filter-select--ano  { min-width: 140px; max-width: 140px; }
 .an-filter-input:focus,
 .an-filter-select:focus {
   outline: 2px solid var(--vc-accent);
   outline-offset: 2px;
+}
+.an-filter-select:disabled {
+  opacity: .55;
+  cursor: not-allowed;
 }
 .an-filter-btn { height: 36px; align-self: flex-end; }
 

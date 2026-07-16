@@ -6,11 +6,10 @@
 let currentPage   = 1;
 let currentOrder  = 'ultima_vista';
 let currentDir    = 'desc';
-// True quando o modelo veio de um link "ver anúncios" (marca+modelo exatos
-// de um agrupamento, ex.: dashboard) — busca por igualdade em vez de LIKE,
-// senão a contagem não bate com a do card de origem. Editar o campo modelo
-// à mão volta pro modo de busca livre (ver listener mais abaixo).
-let modeloExato   = false;
+// Filtros vindos da URL (ex.: link "ver anúncios" do dashboard) que ainda
+// não foram aplicados aos selects — eles só existem depois da 1ª resposta
+// da API (ver aplicarFiltrosPendentes()).
+let filtrosPendentesDaUrl = null;
 
 // ── Helpers de formatação ──────────────────────────────────────────────
 function fmtPreco(val) {
@@ -23,21 +22,45 @@ function fmtData(val) {
   return val.slice(0, 10);
 }
 
+/**
+ * Repopula um <select> preservando a seleção atual, se ela ainda existir
+ * na nova lista (senão o navegador recai pro placeholder).
+ */
+function popularSelect(select, itens, { valorFn, rotuloFn, placeholder }) {
+  const atual = select.value;
+  select.replaceChildren();
+  const optPlaceholder = document.createElement('option');
+  optPlaceholder.value = '';
+  optPlaceholder.textContent = placeholder;
+  select.append(optPlaceholder);
+  for (const item of itens) {
+    const opt = document.createElement('option');
+    opt.value = valorFn(item);
+    opt.textContent = rotuloFn(item);
+    select.append(opt);
+  }
+  if (itens.some((item) => valorFn(item) === atual)) select.value = atual;
+}
+
 // ── Filtros ────────────────────────────────────────────────────────────
 function params(page) {
   const p = new URLSearchParams();
   const q      = document.getElementById('filter-q').value.trim();
   const fonte  = document.getElementById('filter-fonte').value;
-  const marca  = document.getElementById('filter-marca').value.trim();
-  const modelo = document.getElementById('filter-modelo').value.trim();
-  const ano    = document.getElementById('filter-ano').value.trim();
+  // Antes da 1ª resposta chegar, marca/modelo/ano vindos da URL ainda não
+  // existem como <option> nos selects (não dá pra setar .value) — usa o
+  // valor pendente pra já buscar com o recorte certo (e trazer, na mesma
+  // resposta, a cascata de opções que inclui esse valor).
+  const pend   = filtrosPendentesDaUrl || {};
+  const marca  = document.getElementById('filter-marca').value  || pend.marca  || '';
+  const modelo = document.getElementById('filter-modelo').value || pend.modelo || '';
+  const ano    = document.getElementById('filter-ano').value    || pend.ano    || '';
   const ps     = document.getElementById('filter-page-size').value;
 
   if (q)      p.set('q',      q);
   if (fonte)  p.set('fonte',  fonte);
   if (marca)  p.set('marca',  marca);
   if (modelo) p.set('modelo', modelo);
-  if (modelo && modeloExato) p.set('modelo_exato', '1');
   if (ano)    p.set('ano',    ano);
   p.set('order_by',  currentOrder);
   p.set('order_dir', currentDir);
@@ -80,19 +103,18 @@ function atualizarIconesSort() {
   });
 }
 
-// ── Carregar fontes para o select ──────────────────────────────────────
-async function carregarFontes() {
-  try {
-    const res  = await fetch('/admin/api/anuncios?page=1&page_size=10');
-    const data = await res.json();
-    const sel  = document.getElementById('filter-fonte');
-    (data.fontes_disponiveis || []).forEach(f => {
-      const opt = document.createElement('option');
-      opt.value = f;
-      opt.textContent = f;
-      sel.appendChild(opt);
-    });
-  } catch (_) {}
+/**
+ * Aplica marca/modelo/ano vindos da URL (ex.: link do dashboard) assim que
+ * as opções existirem nos selects — antes disso, setar .value é um no-op
+ * silencioso (a <option> ainda não existe no DOM).
+ */
+function aplicarFiltrosPendentes() {
+  if (!filtrosPendentesDaUrl) return;
+  const { marca, modelo, ano } = filtrosPendentesDaUrl;
+  if (marca)  document.getElementById('filter-marca').value  = marca;
+  if (modelo) document.getElementById('filter-modelo').value = modelo;
+  if (ano)    document.getElementById('filter-ano').value    = ano;
+  filtrosPendentesDaUrl = null;
 }
 
 // ── Busca / render ─────────────────────────────────────────────────────
@@ -123,20 +145,48 @@ async function buscar(page) {
         ? `${total.toLocaleString('pt-BR')} anúncios — exibindo ${inicio}–${fim}`
         : 'Nenhum anúncio encontrado.';
 
-    // Atualiza fontes disponíveis no select (uma vez que chegam)
-    if (data.fontes_disponiveis && data.fontes_disponiveis.length) {
-      const sel = document.getElementById('filter-fonte');
-      const current = sel.value;
-      // Preserva seleção atual
-      while (sel.options.length > 1) sel.remove(1);
-      data.fontes_disponiveis.forEach(f => {
-        const opt = document.createElement('option');
-        opt.value = f;
-        opt.textContent = f;
-        if (f === current) opt.selected = true;
-        sel.appendChild(opt);
+    // Fonte: lista fixa (não depende dos outros filtros)
+    if (data.fontes_disponiveis) {
+      popularSelect(document.getElementById('filter-fonte'), data.fontes_disponiveis, {
+        valorFn: (f) => f,
+        rotuloFn: (f) => f,
+        placeholder: 'Todas',
       });
     }
+
+    // Marca/modelo/ano: opções em cascata, contadas sob os outros filtros
+    // ativos (mesmo estilo faceta do dashboard)
+    if (data.opcoes) {
+      const filtroMarca  = document.getElementById('filter-marca');
+      const filtroModelo = document.getElementById('filter-modelo');
+      const filtroAno    = document.getElementById('filter-ano');
+
+      popularSelect(filtroMarca, data.opcoes.marca, {
+        valorFn: (x) => x.marca,
+        rotuloFn: (x) => `${x.marca} (${x.qtd.toLocaleString('pt-BR')})`,
+        placeholder: 'Todas',
+      });
+
+      // Antes de aplicarFiltrosPendentes() rodar, filtroMarca.value ainda
+      // pode estar vazio mesmo com uma marca "efetiva" vinda da URL — sem
+      // considerar o pendente aqui, o select de modelo ficaria travado
+      // desabilitado na 1ª carga de um link com marca+modelo já setados.
+      const temMarca = Boolean(filtroMarca.value || filtrosPendentesDaUrl?.marca);
+      filtroModelo.disabled = !temMarca;
+      popularSelect(filtroModelo, data.opcoes.modelo, {
+        valorFn: (x) => x.modelo,
+        rotuloFn: (x) => `${x.modelo} (${x.qtd.toLocaleString('pt-BR')})`,
+        placeholder: temMarca ? 'Todos' : 'Selecione uma marca',
+      });
+
+      popularSelect(filtroAno, data.opcoes.ano, {
+        valorFn: (x) => String(x.ano),
+        rotuloFn: (x) => `${x.ano} (${x.qtd.toLocaleString('pt-BR')})`,
+        placeholder: 'Todos',
+      });
+    }
+
+    aplicarFiltrosPendentes();
 
     // Tabela
     if (!rows.length) {
@@ -207,37 +257,45 @@ function escapeAttr(str) {
     .replace(/'/g, '&#39;');
 }
 
-// ── Enter nos inputs ───────────────────────────────────────────────────
-['filter-q', 'filter-marca', 'filter-modelo', 'filter-ano'].forEach(id => {
-  document.getElementById(id)?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') buscar(1);
-  });
+// ── Enter no campo de busca livre ────────────────────────────────────────
+document.getElementById('filter-q')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') buscar(1);
 });
+
+// ── Dropdowns buscam assim que trocam (fonte/marca/modelo/ano) ──────────
+// Trocar marca invalida o modelo escolhido (cascata); trocar modelo
+// invalida o ano só no sentido de re-facetar as opções, não precisa zerar.
+document.getElementById('filter-fonte')?.addEventListener('change', () => buscar(1));
+document.getElementById('filter-marca')?.addEventListener('change', () => {
+  document.getElementById('filter-modelo').value = '';
+  document.getElementById('filter-ano').value = '';
+  buscar(1);
+});
+document.getElementById('filter-modelo')?.addEventListener('change', () => {
+  document.getElementById('filter-ano').value = '';
+  buscar(1);
+});
+document.getElementById('filter-ano')?.addEventListener('change', () => buscar(1));
 
 // ── Init ───────────────────────────────────────────────────────────────
 /**
- * Pré-popula os filtros a partir da query string (ex.: link "ver anúncios"
- * do dashboard: /admin/anuncios?marca=Volkswagen&modelo=Fusca) antes da
- * primeira busca.
+ * Lê marca/modelo/ano da query string (ex.: link "ver anúncios" do
+ * dashboard: /admin/anuncios?marca=Volkswagen&modelo=Fusca) — os valores só
+ * são aplicados aos selects depois que a 1ª busca traz as opções (são
+ * dropdowns agora, não dá pra setar .value antes da <option> existir).
+ * "q" é texto livre, pode ser pré-preenchido direto.
  */
-function aplicarFiltrosDaUrl() {
-  // "fonte" fica de fora: é um <select> cujas opções só chegam depois da
-  // primeira busca (ver carregarFontes/buscar), setar o value antes disso
-  // falha silenciosamente. q/marca/modelo/ano são inputs simples, funcionam
-  // de cara.
-  const params = new URLSearchParams(window.location.search);
-  const mapa = { q: 'filter-q', marca: 'filter-marca', modelo: 'filter-modelo', ano: 'filter-ano' };
-  for (const [chave, id] of Object.entries(mapa)) {
-    const valor = params.get(chave);
-    if (valor) document.getElementById(id).value = valor;
-  }
-  if (params.get('modelo') && params.get('modelo_exato') === '1') modeloExato = true;
+function lerFiltrosDaUrl() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const q = urlParams.get('q');
+  if (q) document.getElementById('filter-q').value = q;
+
+  const marca = urlParams.get('marca');
+  const modelo = urlParams.get('modelo');
+  const ano = urlParams.get('ano');
+  if (marca || modelo || ano) filtrosPendentesDaUrl = { marca, modelo, ano };
 }
 
-// Editar o modelo à mão é sempre busca livre — só um link externo (ex.:
-// dashboard) ativa o modo exato.
-document.getElementById('filter-modelo')?.addEventListener('input', () => { modeloExato = false; });
-
-aplicarFiltrosDaUrl();
+lerFiltrosDaUrl();
 atualizarIconesSort();
 buscar(1);

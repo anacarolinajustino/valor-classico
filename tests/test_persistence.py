@@ -297,7 +297,7 @@ class TestGetDashboardStats:
         assert anos == {1975: 1, 1968: 1}
 
 
-# ── listar_anuncios: modelo_exato pro link "ver anúncios" do dashboard ────────
+# ── listar_anuncios: marca/modelo/ano são dropdowns, filtro por igualdade ─────
 
 class TestListarAnuncios:
     def _semear_modelos_parecidos(self):
@@ -308,20 +308,36 @@ class TestListarAnuncios:
             _anuncio("http://x/4", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA 1300L"),
         ])
 
-    def test_modelo_busca_livre_traz_variantes_parecidas(self):
-        # Comportamento padrão (filtro manual da tela): LIKE, pra digitar
-        # "Fusca" e achar tudo que contém — inclui as variantes
+    def test_modelo_filtra_por_igualdade_nao_por_substring(self):
+        # marca/modelo vêm de um dropdown com valores exatos do catálogo
+        # (ex.: link "ver anúncios" da tabela de modelos mais anunciados do
+        # dashboard, que usa GROUP BY marca, modelo) — não pode trazer
+        # "Fusca 1300 Standard"/"1300L" junto, senão a contagem não bate
+        # com o card de origem.
         self._semear_modelos_parecidos()
         r = listar_anuncios(marca="VOLKSWAGEN", modelo="FUSCA 1300")
-        assert r["total"] == 4
-
-    def test_modelo_exato_so_traz_o_grupo_igual(self):
-        # Link do dashboard: marca+modelo vêm de um GROUP BY exato — a
-        # contagem tem que bater com o card de origem, não um superset
-        self._semear_modelos_parecidos()
-        r = listar_anuncios(marca="VOLKSWAGEN", modelo="FUSCA 1300", modelo_exato=True)
         assert r["total"] == 2
         assert all(row["modelo"] == "FUSCA 1300" for row in r["rows"])
+
+    def test_opcoes_no_retorno_para_popular_os_dropdowns(self):
+        self._semear_modelos_parecidos()
+        r = listar_anuncios(marca="VOLKSWAGEN")
+        modelos = {x["modelo"] for x in r["opcoes"]["modelo"]}
+        assert modelos == {"FUSCA 1300", "FUSCA 1300 STANDARD", "FUSCA 1300L"}
+
+    def test_opcoes_marca_nao_fica_presa_ao_modelo_do_link(self):
+        # Link "ver anúncios" do dashboard chega com marca+modelo JÁ
+        # setados juntos (não em cascata pela UI) — opções de marca não
+        # podem ficar restritas ao modelo escolhido, senão qualquer marca
+        # que não tem esse modelo específico some do dropdown (bug real:
+        # trocar de VOLKSWAGEN pra CHEVROLET ficava impossível).
+        upsert_anuncios([
+            _anuncio("http://x/1", 1975, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA 1300"),
+            _anuncio("http://x/2", 1975, fonte="olx", marca="CHEVROLET", modelo="OPALA"),
+        ])
+        r = listar_anuncios(marca="VOLKSWAGEN", modelo="FUSCA 1300")
+        marcas = {x["marca"] for x in r["opcoes"]["marca"]}
+        assert marcas == {"VOLKSWAGEN", "CHEVROLET"}
 
 
 # ── AC-P06: get_mais_pesquisados retorna ranking ordenado por contagem DESC ───

@@ -47,15 +47,21 @@
         </div>
         <div class="an-filter-group">
           <label class="an-filter-label" for="filter-marca">Marca</label>
-          <input type="text" id="filter-marca" class="an-filter-input" placeholder="ex: VW" />
+          <select id="filter-marca" class="an-filter-select">
+            <option value="">Todas</option>
+          </select>
         </div>
         <div class="an-filter-group">
           <label class="an-filter-label" for="filter-modelo">Modelo</label>
-          <input type="text" id="filter-modelo" class="an-filter-input" placeholder="ex: Fusca" />
+          <select id="filter-modelo" class="an-filter-select" disabled>
+            <option value="">Selecione uma marca</option>
+          </select>
         </div>
         <div class="an-filter-group">
           <label class="an-filter-label" for="filter-ano">Ano</label>
-          <input type="number" id="filter-ano" class="an-filter-input an-filter-input--short" placeholder="ex: 1975" min="1900" max="2000" />
+          <select id="filter-ano" class="an-filter-select an-filter-select--ano">
+            <option value="">Todos</option>
+          </select>
         </div>
         <button class="btn btn-primary an-filter-btn" id="btn-filtrar" onclick="buscar(1)">Filtrar</button>
         <button class="btn btn-ghost an-filter-btn" id="btn-limpar" onclick="limparFiltros()">Limpar</button>
