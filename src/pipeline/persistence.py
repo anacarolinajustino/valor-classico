@@ -520,6 +520,7 @@ def listar_anuncios(
     fonte: str | None = None,
     marca: str | None = None,
     modelo: str | None = None,
+    modelo_exato: bool = False,
     ano: int | None = None,
     q: str | None = None,
     order_by: str = "ultima_vista",
@@ -530,6 +531,13 @@ def listar_anuncios(
     """
     Retorna anúncios paginados com filtros opcionais.
     Usado pelo painel /admin/anuncios.
+
+    `modelo` por padrão é busca livre (LIKE, pro campo de filtro manual da
+    tela). `modelo_exato=True` usa igualdade — necessário quando o modelo
+    vem de um agrupamento exato (ex.: link "ver anúncios" da tabela de
+    modelos mais anunciados do dashboard, que usa GROUP BY marca, modelo):
+    sem isso, "Fusca 1300" também traria "Fusca 1300 Standard"/"1300L" e a
+    contagem não bateria com a do dashboard.
     """
     allowed_order = {"ultima_vista", "preco", "ano", "marca", "modelo", "fonte", "titulo"}
     if order_by not in allowed_order:
@@ -546,8 +554,12 @@ def listar_anuncios(
         conditions.append("UPPER(marca) = %s")
         params.append(marca.strip().upper())
     if modelo:
-        conditions.append("UPPER(modelo) LIKE %s")
-        params.append(f"%{modelo.strip().upper()}%")
+        if modelo_exato:
+            conditions.append("UPPER(modelo) = %s")
+            params.append(modelo.strip().upper())
+        else:
+            conditions.append("UPPER(modelo) LIKE %s")
+            params.append(f"%{modelo.strip().upper()}%")
     if ano:
         conditions.append("ano = %s")
         params.append(ano)

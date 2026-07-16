@@ -6,6 +6,11 @@
 let currentPage   = 1;
 let currentOrder  = 'ultima_vista';
 let currentDir    = 'desc';
+// True quando o modelo veio de um link "ver anúncios" (marca+modelo exatos
+// de um agrupamento, ex.: dashboard) — busca por igualdade em vez de LIKE,
+// senão a contagem não bate com a do card de origem. Editar o campo modelo
+// à mão volta pro modo de busca livre (ver listener mais abaixo).
+let modeloExato   = false;
 
 // ── Helpers de formatação ──────────────────────────────────────────────
 function fmtPreco(val) {
@@ -32,6 +37,7 @@ function params(page) {
   if (fonte)  p.set('fonte',  fonte);
   if (marca)  p.set('marca',  marca);
   if (modelo) p.set('modelo', modelo);
+  if (modelo && modeloExato) p.set('modelo_exato', '1');
   if (ano)    p.set('ano',    ano);
   p.set('order_by',  currentOrder);
   p.set('order_dir', currentDir);
@@ -209,5 +215,29 @@ function escapeAttr(str) {
 });
 
 // ── Init ───────────────────────────────────────────────────────────────
+/**
+ * Pré-popula os filtros a partir da query string (ex.: link "ver anúncios"
+ * do dashboard: /admin/anuncios?marca=Volkswagen&modelo=Fusca) antes da
+ * primeira busca.
+ */
+function aplicarFiltrosDaUrl() {
+  // "fonte" fica de fora: é um <select> cujas opções só chegam depois da
+  // primeira busca (ver carregarFontes/buscar), setar o value antes disso
+  // falha silenciosamente. q/marca/modelo/ano são inputs simples, funcionam
+  // de cara.
+  const params = new URLSearchParams(window.location.search);
+  const mapa = { q: 'filter-q', marca: 'filter-marca', modelo: 'filter-modelo', ano: 'filter-ano' };
+  for (const [chave, id] of Object.entries(mapa)) {
+    const valor = params.get(chave);
+    if (valor) document.getElementById(id).value = valor;
+  }
+  if (params.get('modelo') && params.get('modelo_exato') === '1') modeloExato = true;
+}
+
+// Editar o modelo à mão é sempre busca livre — só um link externo (ex.:
+// dashboard) ativa o modo exato.
+document.getElementById('filter-modelo')?.addEventListener('input', () => { modeloExato = false; });
+
+aplicarFiltrosDaUrl();
 atualizarIconesSort();
 buscar(1);

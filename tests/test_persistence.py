@@ -15,6 +15,7 @@ from src.pipeline.persistence import (
     CHART_MIN_DIAS,
     get_dashboard_stats,
     init_db,
+    listar_anuncios,
     upsert_anuncios,
     upsert_preco,
     log_search,
@@ -294,6 +295,33 @@ class TestGetDashboardStats:
         d = get_dashboard_stats(marca="volkswagen", modelo="fusca")
         anos = {x["ano"]: x["qtd"] for x in d["opcoes"]["ano"]}
         assert anos == {1975: 1, 1968: 1}
+
+
+# ── listar_anuncios: modelo_exato pro link "ver anúncios" do dashboard ────────
+
+class TestListarAnuncios:
+    def _semear_modelos_parecidos(self):
+        upsert_anuncios([
+            _anuncio("http://x/1", 1975, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA 1300"),
+            _anuncio("http://x/2", 1976, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA 1300"),
+            _anuncio("http://x/3", 1978, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA 1300 STANDARD"),
+            _anuncio("http://x/4", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA 1300L"),
+        ])
+
+    def test_modelo_busca_livre_traz_variantes_parecidas(self):
+        # Comportamento padrão (filtro manual da tela): LIKE, pra digitar
+        # "Fusca" e achar tudo que contém — inclui as variantes
+        self._semear_modelos_parecidos()
+        r = listar_anuncios(marca="VOLKSWAGEN", modelo="FUSCA 1300")
+        assert r["total"] == 4
+
+    def test_modelo_exato_so_traz_o_grupo_igual(self):
+        # Link do dashboard: marca+modelo vêm de um GROUP BY exato — a
+        # contagem tem que bater com o card de origem, não um superset
+        self._semear_modelos_parecidos()
+        r = listar_anuncios(marca="VOLKSWAGEN", modelo="FUSCA 1300", modelo_exato=True)
+        assert r["total"] == 2
+        assert all(row["modelo"] == "FUSCA 1300" for row in r["rows"])
 
 
 # ── AC-P06: get_mais_pesquisados retorna ranking ordenado por contagem DESC ───

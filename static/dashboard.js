@@ -213,6 +213,20 @@ function renderTabelaModelos(container, itens) {
   const tbody = document.createElement("tbody");
   for (const item of itens) {
     const tr = document.createElement("tr");
+    tr.className = "dash-tabela-row-link";
+    tr.title = `Ver anúncios de ${item.marca} ${item.modelo}`;
+    // modelo_exato=1: marca+modelo vêm de um GROUP BY exato (ver top_modelos
+    // em persistence.py) — sem essa flag a busca de /admin/anuncios usa LIKE
+    // e traria outros modelos parecidos, com contagem maior que o card mostra.
+    const params = new URLSearchParams({ marca: item.marca, modelo: item.modelo, modelo_exato: "1" });
+    const href = `/admin/anuncios?${params}`;
+    tr.addEventListener("click", (ev) => {
+      // Clique já caiu num <a> (marca/modelo) — deixa o link nativo cuidar
+      // (Ctrl+clique, nova aba pelo menu etc.); só o resto da linha usa o open manual.
+      if (ev.target.closest("a")) return;
+      window.open(href, "_blank", "noopener");
+    });
+
     const celulas = [
       [item.marca, false],
       [item.modelo, false],
@@ -221,8 +235,20 @@ function renderTabelaModelos(container, itens) {
     ];
     for (const [texto, num] of celulas) {
       const td = document.createElement("td");
-      td.textContent = texto;
-      if (num) td.className = "num";
+      if (num) {
+        td.textContent = texto;
+        td.className = "num";
+      } else {
+        // Link real (não só onclick na linha) — funciona com Ctrl/Cmd+clique,
+        // "abrir em nova aba" do menu de contexto, e leitores de tela.
+        const a = document.createElement("a");
+        a.href = href;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = texto;
+        a.className = "dash-tabela-link";
+        td.append(a);
+      }
       tr.append(td);
     }
     tbody.append(tr);
