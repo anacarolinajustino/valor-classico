@@ -229,6 +229,26 @@ _PREFIXOS_NAO_MARCA: frozenset = frozenset({
     "CILINDROS", "CC",
 })
 
+# Sentinela pra anúncio cujo título não cita marca identificável nenhuma
+# (ex.: "Veículo Ótimo Estado De Conservação", "Placa Preta") — usada em vez
+# de aceitar a primeira palavra qualquer como se fosse marca real. Facilita
+# achar esses casos pra revisão manual: `WHERE marca = 'NAO IDENTIFICADA'`.
+MARCA_NAO_IDENTIFICADA = "NAO IDENTIFICADA"
+
+# Palavras comuns de português (adjetivo, conectivo, substantivo de venda)
+# que nunca são nome de marca — quando são o único candidato restante no
+# fallback do passo 4, o anúncio vai para MARCA_NAO_IDENTIFICADA em vez de
+# uma palavra-lixo (auditoria 2026-07-15, 3ª rodada). Não inclui "RARA"/
+# "RARO"/"LINDO"/"E"/"OUTROS" — esses já são pulados como prefixo no passo 0
+# quando seguidos de outro token; ficam aqui só como rede de segurança para
+# quando sobram sozinhos.
+_PALAVRAS_NAO_MARCA: frozenset = frozenset({
+    "MUITO", "PLACA", "COM", "OTIMO", "OTIMA", "PARA", "ABERTA", "ABERTO",
+    "VERSAO", "ROBUSTO", "ROBUSTA", "CAUTELAR", "TODO", "TODA", "SO",
+    "BONITO", "BONITA", "IMPECAVEL", "EXCELENTE", "COMPLETO", "COMPLETA",
+    "ORIGINAL", "DE", "DA", "DO", "EM", "SEM", "RARA", "RARO", "LINDO",
+})
+
 # Cache do vocabulário derivado do catálogo canônico:
 # (marcas conhecidas, primeiro-token-de-modelo -> marca exclusiva)
 _vocab_catalogo: Optional[tuple[set, dict]] = None
@@ -399,7 +419,16 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     if tokens_sem_ano[0] in _MODELO_AMBIGUO_MARCA:
         return (_MODELO_AMBIGUO_MARCA[tokens_sem_ano[0]], " ".join(tokens_sem_ano), ano)
 
-    # 4) Fallback original: primeiro token é a marca
+    # 4) Fallback: primeiro token é a marca — mas só quando ele não é uma
+    # palavra comum de português (adjetivo/conectivo/substantivo de venda)
+    # que nunca é nome de marca. Sem essa guarda, "Veículo Ótimo Estado De
+    # Conservação" virava marca="OTIMO" (usuária pediu 2026-07-15, 3ª
+    # rodada: todo anúncio sem marca explícita no título deve cair em
+    # MARCA_NAO_IDENTIFICADA — sinalizado pra revisão manual — em vez de
+    # aceitar qualquer primeiro token como se fosse marca real).
+    if tokens_sem_ano[0] in _PALAVRAS_NAO_MARCA:
+        return (MARCA_NAO_IDENTIFICADA, " ".join(tokens_sem_ano), ano)
+
     marca = tokens_sem_ano[0]
     modelo = " ".join(tokens_sem_ano[1:]) if len(tokens_sem_ano) > 1 else ""
 

@@ -50,11 +50,24 @@ _EXCLUIR: set[tuple[str, str]] = {
     # com marca no meio/fim do título ou exigindo conhecimento externo
     # (typo de modelo, sub-marca) que o algoritmo não alcança.
     ("WILLYS", "AERO"),          # #643   "Aero Willys 2600" — Aero-Willys é a linha, marca é Willys
-    ("FORD", "DE"),              # #18447 "Carro de Coleção! Escort..." — "DE" não é prefixo (colide com "De Soto"/"De Tomaso")
+    ("FORD", "NAO IDENTIFICADA"),  # #18447 "Carro de Coleção! Escort..." — "DE" não é prefixo (colide com "De Soto"/"De Tomaso") e agora está na stoplist de _PALAVRAS_NAO_MARCA
     ("FORD", "29"),              # #34736 "Hot Rod 29 V8 Ford Tudor..." — "29" é o ano abreviado (Ford 1929), não marca
     ("VOLKSWAGEN", "PASSAR"),    # #34906 "Passar Ts 1978" — typo de "Passat" (TS é versão real do Passat)
     ("CHEVROLET", "C1404"),      # #35040 "Picape C1404 - D10 Diesel..." — D10 confirma Chevrolet, C1404 não é marca
     ("CHEVROLET", "PERFEITO"),   # #36076 "Perfeito Barn Find Rat Look - Bel Air 55..." — Bel Air é modelo Chevrolet
+    # Candidatos ambíguos demais pra aceitar como marca (nome próprio ou
+    # código não identificável com confiança) — marcados manualmente como
+    # NAO IDENTIFICADA; sem esta entrada, reprocessar por título reverteria
+    # pro valor-lixo original (a palavra em si não está na stoplist de
+    # _PALAVRAS_NAO_MARCA por não ser uma palavra comum de português).
+    ("NAO IDENTIFICADA", "BAJA"),    # #35652 fabricante do buggy "Bajanete" desconhecido
+    ("NAO IDENTIFICADA", "DAYMER"),  # #36369 possível typo de "Daimler", confiança baixa demais
+    ("NAO IDENTIFICADA", "GSI"),     # #35649 "GSi" é sufixo de versão comum a várias marcas, não marca
+    ("NAO IDENTIFICADA", "MON"),     # #16330 "Mon Protótipo" — carro único sem marca de fábrica
+    ("NAO IDENTIFICADA", "S2"),      # #34780 sem marca real (referência a "Porsche Edition" é estilo, não fabricante)
+    ("NAO IDENTIFICADA", "T."),      # #35054 "Hot Rods T. Buket" — resíduo do fallback após pular Hot Rod
+    ("NAO IDENTIFICADA", "THREE"),   # #35007 "Three Window Coupe" é estilo de carroceria, não marca
+    ("NAO IDENTIFICADA", "V8"),      # #34779/#35418 "V8" é motor, não marca
 }
 
 

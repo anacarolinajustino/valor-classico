@@ -7,6 +7,7 @@ from src.pipeline.normalizer import (
     normalizar_texto,
     remover_acentos,
     inferir_marca_modelo_ano,
+    MARCA_NAO_IDENTIFICADA,
 )
 
 
@@ -277,7 +278,9 @@ class TestInferirMarcaModeloAno:
         assert inferir_marca_modelo_ano("Trator Zetor")[0] == "ZETOR"
         assert inferir_marca_modelo_ano("Onibus Chevrolet 6100 Boca de Sapo 1952")[0] == "CHEVROLET"
         assert inferir_marca_modelo_ano("Caminhao Chevrolet Coe 46")[0] == "CHEVROLET"
-        assert inferir_marca_modelo_ano("Caminhoneta Aberta Cabine Dupla")[0] == "ABERTA"
+        # Sem marca real depois de "Caminhoneta" — "Aberta" é adjetivo, não
+        # nome de marca (ver test_marca_nao_identificada_quando_so_sobra_palavra_comum)
+        assert inferir_marca_modelo_ano("Caminhoneta Aberta Cabine Dupla")[0] == MARCA_NAO_IDENTIFICADA
 
     def test_marca_fora_do_catalogo_de_carros_via_fallback(self):
         # Moto/trator/marca rara: não estão no CSV de carros, mas o
@@ -350,6 +353,29 @@ class TestInferirMarcaModeloAno:
     def test_de_soto_de_tomaso_nao_perdem_o_de(self):
         assert inferir_marca_modelo_ano("De Soto Firedome Coupe 1951")[0] == "DE SOTO"
         assert inferir_marca_modelo_ano("De Tomaso Pantera 5.8 Coupe")[0] == "DE TOMASO"
+
+    def test_marca_nao_identificada_quando_so_sobra_palavra_comum(self):
+        # Título não cita marca nenhuma — em vez de aceitar a 1ª palavra
+        # como se fosse marca real, sinaliza pra revisão manual (usuária
+        # pediu 2026-07-15, 3ª rodada, como critério geral)
+        casos = [
+            "Veiculo Otimo Estado De Conservacao",
+            "Veiculo Muito Bem Conservado Com Manutencoes Em Ordem",
+            "Placa Preta",
+            "Cautelar Aprovado Esta Com 75.000km Os Pneus Novos.",
+            "Todo Original, Pertenceu 30 Anos Numa Familia.",
+            "Para Reforma",
+            "Com Direcao Hidraulica",
+        ]
+        for titulo in casos:
+            marca, _, _ = inferir_marca_modelo_ano(titulo)
+            assert marca == MARCA_NAO_IDENTIFICADA, titulo
+
+    def test_marca_real_nao_vira_nao_identificada(self):
+        # Guarda contra falso positivo: a stoplist só pega quando é o
+        # ÚNICO candidato, marca real continua reconhecida normalmente
+        assert inferir_marca_modelo_ano("Yamaha Tenere 600 1991")[0] == "YAMAHA"
+        assert inferir_marca_modelo_ano("Austin Imp A40 1982")[0] == "AUSTIN"
 
     def test_cilindros_solto_no_inicio_nao_vira_marca(self):
         # "6" sobraria como marca se não fosse pulado como o ano já é
