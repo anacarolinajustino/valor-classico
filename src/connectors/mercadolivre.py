@@ -54,7 +54,12 @@ from bs4 import BeautifulSoup
 
 from src.catalog.loader import carregar_catalogo
 from src.connectors._browser import criar_contexto_aquecido
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_texto, remover_acentos
+from src.pipeline.normalizer import (
+    inferir_marca_modelo_ano,
+    normalizar_texto,
+    remover_acentos,
+    sanear_marca_modelo,
+)
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
 
@@ -651,6 +656,12 @@ def _enriquecer_com_ficha_tecnica(anuncio: Anuncio) -> Optional[Anuncio]:
     começa por outra coisa que não a marca (ex.: "AP 2000..." é o código
     do motor, não a marca; a marca real só está na ficha técnica).
 
+    O campo "Marca" da ficha é preenchido à mão pelo anunciante e frequentemente
+    traz marca+modelo junto ("Chevrolet Opala") ou grafia errada ("Alfa Romeu",
+    "Volkswagem") — por isso passa por `sanear_marca_modelo`, que usa o catálogo
+    pra separar marca de modelo e canonizar a grafia, em vez de gravar cru
+    (auditoria 2026-07-17: ~180 anúncios do ML com marca-lixo vinham daqui).
+
     Retorna o anúncio original (do título) se a ficha técnica não estiver
     disponível ou não tiver marca/modelo. Retorna None (descarta o anúncio)
     se a ficha técnica revelar um ano fora do corte de clássico — mesma
@@ -668,10 +679,11 @@ def _enriquecer_com_ficha_tecnica(anuncio: Anuncio) -> Optional[Anuncio]:
         if ano_novo > ANO_CORTE_CLASSICO:
             return None
 
+    marca, modelo = sanear_marca_modelo(ficha["MARCA"], ficha["MODELO"])
     return replace(
         anuncio,
-        marca=ficha["MARCA"].upper(),
-        modelo=ficha["MODELO"].upper(),
+        marca=marca,
+        modelo=modelo,
         ano=ano_novo,
         versao=ficha.get("VERSAO") or anuncio.versao,
     )

@@ -158,10 +158,38 @@ _ALIASES_MARCA: dict[str, str] = {
     "AM GENERAL": "AM GENERAL",
     "DIAMOND T": "DIAMOND T",
     "PIERCE ARROW": "PIERCE-ARROW",
-    # MP Lafer é o mesmo fabricante brasileiro de kit car que "Lafer"
-    # sozinho (ver LAFER no fallback) — "MP" é a sigla da fábrica.
-    "MP LAFFER": "LAFER",
-    "MP LAFER-": "LAFER",  # hífen do título original ("Lafer- 1978/78...")
+    # "MP LAFER" é a grafia do catálogo (e a predominante no banco) do mesmo
+    # fabricante brasileiro de kit car — "MP" é a sigla da fábrica. Todas as
+    # variações ("Lafer" sozinho, typo "Laffer", hífen do título) unificam
+    # nela pra não fragmentar o grupo.
+    "MP LAFFER": "MP LAFER",
+    "MP LAFER-": "MP LAFER",  # hífen do título original ("Lafer- 1978/78...")
+    # Auditoria 2026-07-17 (4ª rodada): marca vinha CRUA da ficha técnica do
+    # Mercado Livre — o vendedor digita a grafia que quer no campo "Marca"
+    # (typos, "Marca Modelo" junto, apelidos). Estes são os typos de marca
+    # simples que apareceram no banco; os casos "Marca Modelo" colada são
+    # resolvidos por sanear_marca_modelo() (usa o catálogo pra separar).
+    "VOLKWAGEN": "VOLKSWAGEN",
+    "VOKSWAGEM": "VOLKSWAGEN",
+    "VOLKSVAGEN": "VOLKSWAGEN",
+    "WOLKSVAGEM": "VOLKSWAGEN",
+    "WOLKSVAGEN": "VOLKSWAGEN",
+    "WOLKVAGEN": "VOLKSWAGEN",
+    "PORSCH": "PORSCHE",
+    "CRYSLER": "CHRYSLER",
+    "METCURY": "MERCURY",
+    "PUMW": "PUMA",
+    "CHEVRO": "CHEVROLET",
+    "CADILAC": "CADILLAC",
+    # Catálogo grafa "DE SOTO"/"DE TOMASO" com espaço; anúncios colam tudo.
+    "DESOTO": "DE SOTO",
+    "DETOMASO": "DE TOMASO",
+    # "Lafer" sozinho é o mesmo fabricante que "MP LAFER" do catálogo.
+    "LAFER": "MP LAFER",
+    "WYLLIS": "WILLYS",
+    "WILYS": "WILLYS",
+    # Trator Heinrich Lanz — comumente citado só como "Lanz".
+    "HEINRICH LANZ": "LANZ",
 }
 
 # Modelos cujo nome sozinho é ambíguo no catálogo geral (ex.: "147" é Fiat
@@ -234,6 +262,11 @@ _PREFIXOS_NAO_MARCA: frozenset = frozenset({
 # de aceitar a primeira palavra qualquer como se fosse marca real. Facilita
 # achar esses casos pra revisão manual: `WHERE marca = 'NAO IDENTIFICADA'`.
 MARCA_NAO_IDENTIFICADA = "NAO IDENTIFICADA"
+
+# Marcas que `sanear_marca_modelo` nunca reinterpreta: a sentinela acima e
+# "BUGGY" (kit car sem fabricante único no título — a usuária decidiu manter
+# como grupo próprio em vez de adivinhar, auditoria 2026-07-15, 2ª rodada).
+_MARCAS_PRESERVADAS: frozenset = frozenset({MARCA_NAO_IDENTIFICADA, "BUGGY"})
 
 # Palavras comuns de português (adjetivo, conectivo, substantivo de venda)
 # que nunca são nome de marca — quando são o único candidato restante no
@@ -378,46 +411,12 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
         if not tokens_sem_ano:
             break
 
-    # 1) Prefixo mais longo que seja marca conhecida do catálogo. Prefixos
-    # rebaixados por _MARCA_CANONICA são pulados aqui (não só renomeados no
-    # retorno) pra não engolir de "modelo" um token que já vira a forma
-    # canônica mais curta ("Willys Overland" não pode consumir "Overland"
-    # inteiro só pra depois virar marca="WILLYS" e modelo="").
-    for n in (3, 2, 1):
-        if len(tokens_sem_ano) >= n:
-            prefixo = " ".join(tokens_sem_ano[:n])
-            if prefixo in marcas_catalogo and prefixo not in _MARCA_CANONICA:
-                return (prefixo, " ".join(tokens_sem_ano[n:]), ano)
-
-    # 2) Alias de marca (2 tokens antes de 1: "MERCEDES BENZ" > "MERCEDES")
-    alias_alvo: Optional[str] = None
-    consumidos = 0
-    if len(tokens_sem_ano) >= 2:
-        duo = f"{tokens_sem_ano[0]} {tokens_sem_ano[1]}"
-        if duo in _ALIASES_MARCA:
-            alias_alvo, consumidos = _ALIASES_MARCA[duo], 2
-    if alias_alvo is None and tokens_sem_ano[0] in _ALIASES_MARCA:
-        alias_alvo, consumidos = _ALIASES_MARCA[tokens_sem_ano[0]], 1
-    if alias_alvo is not None:
-        resto = tokens_sem_ano[consumidos:]
-        # O alias pode ser só um selo na frente da marca real ("GM
-        # Oldsmobile Tornado") — se o que vem depois já é marca do
-        # catálogo, ela prevalece sobre o alias.
-        for n in (2, 1):
-            if len(resto) >= n and " ".join(resto[:n]) in marcas_catalogo:
-                return (" ".join(resto[:n]), " ".join(resto[n:]), ano)
-        return (alias_alvo, " ".join(resto), ano)
-
-    # 3) Título começa pelo modelo ("Fusca 1600") e o modelo identifica
-    #    uma única marca no catálogo — o modelo mantém todos os tokens
-    if tokens_sem_ano[0] in modelo_marca:
-        return (modelo_marca[tokens_sem_ano[0]], " ".join(tokens_sem_ano), ano)
-
-    # 3.5) Modelo ambíguo no catálogo geral mas com marca dominante neste
-    # recorte de clássico brasileiro ("147 1.3L", "Caravan Comodoro") — ver
-    # dict acima.
-    if tokens_sem_ano[0] in _MODELO_AMBIGUO_MARCA:
-        return (_MODELO_AMBIGUO_MARCA[tokens_sem_ano[0]], " ".join(tokens_sem_ano), ano)
+    # Passos 1-3.5: identificar a marca no prefixo dos tokens (catálogo,
+    # alias, modelo-exclusivo, modelo-ambíguo). Extraído pra _separar_marca
+    # porque a mesma lógica sanea marca/modelo vindos crus de ficha técnica.
+    marca, resto = _separar_marca(tokens_sem_ano)
+    if marca is not None:
+        return (marca, " ".join(resto), ano)
 
     # 4) Fallback: primeiro token é a marca — mas só quando ele não é uma
     # palavra comum de português (adjetivo/conectivo/substantivo de venda)
@@ -433,3 +432,114 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     modelo = " ".join(tokens_sem_ano[1:]) if len(tokens_sem_ano) > 1 else ""
 
     return (marca, modelo, ano)
+
+
+def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
+    """
+    Identifica a marca canônica no prefixo de `tokens` (já normalizados, sem
+    ano) e retorna (marca, tokens_restantes). Retorna (None, tokens) quando
+    nenhuma marca é reconhecida — o chamador decide o fallback.
+
+    Ordem de precedência (a mesma que `inferir_marca_modelo_ano` sempre usou):
+      1. Prefixo mais longo que seja marca do catálogo (cobre compostas como
+         "LAND ROVER", "MP LAFER"; prefixos rebaixados por _MARCA_CANONICA são
+         pulados aqui pra não engolir tokens de modelo).
+      2. Alias de marca (2 tokens antes de 1: "MERCEDES BENZ" > "MERCEDES");
+         o alias pode ser só um selo na frente da marca real ("GM Oldsmobile"),
+         nesse caso a marca de catálogo que vem depois prevalece.
+      3. Primeiro token é um modelo que identifica uma única marca ("FUSCA").
+      3.5. Modelo ambíguo com marca dominante no clássico BR ("147", "CARAVAN").
+
+    Nos casos 3/3.5 o token que identificou a marca É parte do modelo, então
+    ele permanece em tokens_restantes (a marca é implícita, não estava escrita).
+    """
+    if not tokens:
+        return (None, [])
+    marcas_catalogo, modelo_marca = _catalogo_vocab()
+
+    # 1) Prefixo de catálogo (3, 2, 1 tokens)
+    for n in (3, 2, 1):
+        if len(tokens) >= n:
+            prefixo = " ".join(tokens[:n])
+            if prefixo in marcas_catalogo and prefixo not in _MARCA_CANONICA:
+                return (prefixo, tokens[n:])
+
+    # 2) Alias de marca
+    alias_alvo: Optional[str] = None
+    consumidos = 0
+    if len(tokens) >= 2 and f"{tokens[0]} {tokens[1]}" in _ALIASES_MARCA:
+        alias_alvo, consumidos = _ALIASES_MARCA[f"{tokens[0]} {tokens[1]}"], 2
+    elif tokens[0] in _ALIASES_MARCA:
+        alias_alvo, consumidos = _ALIASES_MARCA[tokens[0]], 1
+    if alias_alvo is not None:
+        resto = tokens[consumidos:]
+        for n in (2, 1):
+            if len(resto) >= n and " ".join(resto[:n]) in marcas_catalogo:
+                return (" ".join(resto[:n]), resto[n:])
+        return (alias_alvo, resto)
+
+    # 3) Modelo exclusivo de uma marca ("Fusca 1600")
+    if tokens[0] in modelo_marca:
+        return (modelo_marca[tokens[0]], tokens)
+
+    # 3.5) Modelo ambíguo com marca dominante no clássico BR
+    if tokens[0] in _MODELO_AMBIGUO_MARCA:
+        return (_MODELO_AMBIGUO_MARCA[tokens[0]], tokens)
+
+    return (None, tokens)
+
+
+def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
+    """
+    Sanea marca/modelo vindos CRUS de uma ficha técnica estruturada (hoje só o
+    Mercado Livre), onde o campo "Marca" é preenchido à mão pelo anunciante e
+    costuma trazer marca+modelo junto ("Chevrolet Opala"), grafia errada
+    ("Alfa Romeu", "Volkswagem") ou até lixo ("."). Usa o catálogo como fonte
+    de verdade pra separar o que é marca do que é modelo — o mesmo vocabulário
+    e aliases de `inferir_marca_modelo_ano`, via `_separar_marca`.
+
+    Retorna (marca, modelo) já normalizados (maiúsculo, sem acento). Regras:
+      - MARCA_NAO_IDENTIFICADA e BUGGY são preservadas (sentinela / decisão
+        deliberada de não adivinhar) — nunca reinterpretadas.
+      - Se a marca não é reconhecida no campo "Marca", tenta identificá-la no
+        campo "Modelo" (ex.: marca="." mas modelo="Lincoln Zephyr").
+      - Se nada é reconhecido, mantém o 1º token como marca (marca legítima
+        fora do catálogo, ex.: KAWASAKI), ou MARCA_NAO_IDENTIFICADA se for
+        palavra comum de português.
+
+    Exemplos:
+        ('Chevrolet Opala', 'De Luxe 4 Portas') -> ('CHEVROLET', 'OPALA DE LUXE 4 PORTAS')
+        ('Ford Mustang', 'GT500')               -> ('FORD', 'MUSTANG GT500')
+        ('Alfa Romeu', 'Spider')                -> ('ALFA ROMEO', 'SPIDER')
+        ('Volkswagem', 'Fusca')                 -> ('VOLKSWAGEN', 'FUSCA')
+        ('.', 'Lincoln Zephyr')                 -> ('LINCOLN', 'ZEPHYR')
+    """
+    marca_norm = normalizar_texto(marca_bruta)
+    modelo_toks = normalizar_texto(modelo_bruto).split()
+
+    # Sentinela / decisão preservada: não reinterpretar.
+    if marca_norm in _MARCAS_PRESERVADAS:
+        return (marca_norm, " ".join(modelo_toks))
+
+    marca_toks = marca_norm.split()
+    marca, sobra = _separar_marca(marca_toks)
+
+    if marca is None:
+        # Campo "Marca" não reconhecido — a marca real pode estar no "Modelo".
+        marca2, sobra2 = _separar_marca(modelo_toks)
+        if marca2 is not None:
+            return (marca2, " ".join(sobra2))
+        # Nada reconhecido: 1º token vira marca (legítima fora do catálogo),
+        # ou sentinela se for palavra comum / campo vazio.
+        if not marca_toks or marca_toks[0] in _PALAVRAS_NAO_MARCA:
+            return (MARCA_NAO_IDENTIFICADA, " ".join(marca_toks + modelo_toks))
+        return (marca_toks[0], " ".join(marca_toks[1:] + modelo_toks))
+
+    # Marca reconhecida. Modelo = o que sobrou do campo "Marca" + campo
+    # "Modelo", sem repetir a marca canônica nem duplicar a sobra (o campo
+    # "Modelo" do ML costuma repetir a marca e/ou o modelo).
+    marca_set = set(marca.split())
+    modelo_limpo = [t for t in modelo_toks if t not in marca_set]
+    modelo_limpo_set = set(modelo_limpo)
+    sobra_filtrada = [t for t in sobra if t not in marca_set and t not in modelo_limpo_set]
+    return (marca, " ".join(sobra_filtrada + modelo_limpo))

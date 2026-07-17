@@ -7,6 +7,7 @@ from src.pipeline.normalizer import (
     normalizar_texto,
     remover_acentos,
     inferir_marca_modelo_ano,
+    sanear_marca_modelo,
     MARCA_NAO_IDENTIFICADA,
 )
 
@@ -405,3 +406,67 @@ class TestInferirMarcaModeloAno:
         assert marca == "CHEVROLET"
         assert "BISCAYNE" in modelo
         assert ano == 1963
+
+
+# ── sanear_marca_modelo (ficha técnica crua do Mercado Livre) ────────────────
+
+class TestSanearMarcaModelo:
+    def test_marca_modelo_colados_no_campo_marca(self):
+        # O anunciante põe "Marca Modelo" junto no campo "Marca" do ML — o
+        # catálogo separa: CHEVROLET é a marca, OPALA vai pro modelo.
+        assert sanear_marca_modelo("Chevrolet Opala", "De Luxe 4 Portas") == (
+            "CHEVROLET", "OPALA DE LUXE 4 PORTAS",
+        )
+        assert sanear_marca_modelo("Ford Mustang", "GT500") == ("FORD", "MUSTANG GT500")
+        assert sanear_marca_modelo("Dodge Dakota", "Cabine estendida") == (
+            "DODGE", "DAKOTA CABINE ESTENDIDA",
+        )
+
+    def test_modelo_repete_a_marca_sem_duplicar(self):
+        # Campo "Modelo" do ML costuma repetir marca+modelo inteiros
+        # ("Fiat tipo 1.6 ie") — não pode duplicar no resultado.
+        assert sanear_marca_modelo("Fiat tipo", "Fiat tipo 1.6 ie") == ("FIAT", "TIPO 1.6 IE")
+        assert sanear_marca_modelo("Ford Mustang", "Mustang 3.0 V6") == (
+            "FORD", "MUSTANG 3.0 V6",
+        )
+
+    def test_typo_de_marca_canonizado(self):
+        assert sanear_marca_modelo("Alfa Romeu", "Spider")[0] == "ALFA ROMEO"
+        assert sanear_marca_modelo("Volkswagem", "Fusca")[0] == "VOLKSWAGEN"
+        assert sanear_marca_modelo("Volkwagen", "Parati")[0] == "VOLKSWAGEN"
+        assert sanear_marca_modelo("Porsch", "944 S2")[0] == "PORSCHE"
+        assert sanear_marca_modelo("Crysler", "Chambord")[0] == "CHRYSLER"
+        assert sanear_marca_modelo("Cadilac Gm", "Fleetwood")[0] == "CADILLAC"
+
+    def test_marca_lixo_recuperada_pelo_modelo(self):
+        # Campo "Marca" inútil ("."), mas o "Modelo" tem a marca real.
+        assert sanear_marca_modelo(".", "Lincoln Zephyr") == ("LINCOLN", "ZEPHYR")
+        assert sanear_marca_modelo("GTW3D80", "Uno ELX 2p")[0] == "FIAT"
+
+    def test_alias_como_selo_marca_real_prevalece(self):
+        # "VW Puma" — VW é só o selo do motor; PUMA é a marca real.
+        assert sanear_marca_modelo("VW Puma", "GTI")[0] == "PUMA"
+        assert sanear_marca_modelo("VW", "Fusca 1300") == ("VOLKSWAGEN", "FUSCA 1300")
+
+    def test_sentinela_e_buggy_preservadas(self):
+        # Nunca reinterpretar a sentinela nem a decisão deliberada de BUGGY.
+        assert sanear_marca_modelo("NAO IDENTIFICADA", "Gsi Gs 2.0") == (
+            "NAO IDENTIFICADA", "GSI GS 2.0",
+        )
+        assert sanear_marca_modelo("Buggy", "BRM M8") == ("BUGGY", "BRM M8")
+
+    def test_marca_composta_legitima_preservada(self):
+        # Marcas reais de 2 palavras não são quebradas.
+        assert sanear_marca_modelo("Am General", "Humvee")[0] == "AM GENERAL"
+        assert sanear_marca_modelo("Diamond T", "Model 969-A")[0] == "DIAMOND T"
+
+    def test_marca_ja_limpa_inalterada(self):
+        # O saneamento é idempotente pra quem já está correto.
+        assert sanear_marca_modelo("Volkswagen", "Fusca") == ("VOLKSWAGEN", "FUSCA")
+        assert sanear_marca_modelo("Fiat", "147") == ("FIAT", "147")
+
+    def test_marca_fora_do_catalogo_preservada(self):
+        # Marca legítima que não está no CSV de carros (moto/trator/rara)
+        # não pode virar lixo nem sentinela.
+        assert sanear_marca_modelo("Kawasaki", "Z1000")[0] == "KAWASAKI"
+        assert sanear_marca_modelo("Zetor", "5211")[0] == "ZETOR"
