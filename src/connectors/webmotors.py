@@ -22,7 +22,7 @@ from typing import Optional
 
 import requests
 
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import normalizar_preco, normalizar_texto, sanear_marca_modelo
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -180,6 +180,10 @@ def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
             marca = (item.get("make") or item.get("marca") or "").upper()
         if not modelo:
             modelo = (item.get("model") or item.get("modelo") or "").upper()
+
+        # Campo estruturado da API passa pelo catálogo antes de gravar, como
+        # toda fonte de marca/modelo estruturada (ver sanear_marca_modelo).
+        marca, modelo = sanear_marca_modelo(marca, modelo)
 
         versao = None
         ver_obj = spec.get("Version") or {}

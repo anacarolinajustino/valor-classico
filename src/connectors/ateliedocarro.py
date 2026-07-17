@@ -31,7 +31,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import normalizar_preco, normalizar_texto, sanear_marca_modelo
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -370,14 +370,18 @@ def parsear_detalhe_html(
     if not modelo:
         return None
 
+    # Marca/modelo vêm da tabela estruturada (ou fallback do título) — passa
+    # pelo catálogo antes de gravar, como toda fonte estruturada (ver sanear_marca_modelo).
+    marca, modelo = sanear_marca_modelo(marca, modelo)
+
     if not titulo:
         titulo = f"{marca} {modelo} {ano or ''}".strip()
 
     return Anuncio(
         titulo=titulo,
         preco=preco,
-        marca=marca.upper(),
-        modelo=modelo.upper(),
+        marca=marca,
+        modelo=modelo,
         ano=ano,
         versao=None,
         url=url,

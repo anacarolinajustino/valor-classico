@@ -42,7 +42,7 @@ from datetime import date
 from typing import Any, Optional
 
 from src.connectors._browser import criar_contexto
-from src.pipeline.normalizer import normalizar_texto
+from src.pipeline.normalizer import normalizar_texto, sanear_marca_modelo
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -207,6 +207,9 @@ def _parsear_item(item: dict, data_coleta: str) -> Optional[Anuncio]:
     vid = item.get("id")
     marca = ((item.get("brand") or {}).get("name") or "").upper()
     modelo = ((item.get("model") or {}).get("name") or "").upper()
+    # Campo estruturado do JSON passa pelo catálogo antes de gravar (ver
+    # sanear_marca_modelo) — regra geral pra toda fonte de marca/modelo estruturada.
+    marca, modelo = sanear_marca_modelo(marca, modelo)
     versao = (item.get("version") or {}).get("name")
     preco = (item.get("priceInfo") or {}).get("price")
     ano = item.get("modelYear") or item.get("manufactureYear")

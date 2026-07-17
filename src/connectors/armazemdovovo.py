@@ -24,7 +24,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import normalizar_preco, normalizar_texto, sanear_marca_modelo
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -105,6 +105,10 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
         modelo = modelo_tag.get_text(strip=True).upper() if modelo_tag else ""
         if not modelo:
             continue
+
+        # Marca/modelo vêm de tags HTML dedicadas (estruturado) — passa pelo
+        # catálogo antes de gravar, como toda fonte estruturada (ver sanear_marca_modelo).
+        marca, modelo = sanear_marca_modelo(marca, modelo)
 
         valor_txt = _spec_valor(card, "Valor")
         preco = normalizar_preco(valor_txt) if valor_txt else None
