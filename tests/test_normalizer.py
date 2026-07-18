@@ -8,6 +8,7 @@ from src.pipeline.normalizer import (
     remover_acentos,
     inferir_marca_modelo_ano,
     sanear_marca_modelo,
+    sanear_modelo,
     MARCA_NAO_IDENTIFICADA,
 )
 
@@ -119,7 +120,8 @@ class TestInferirMarcaModeloAno:
     def test_titulo_comeca_pelo_modelo(self):
         marca, modelo, ano = inferir_marca_modelo_ano("Fusca 1600 1985")
         assert marca == "VOLKSWAGEN"
-        assert modelo == "FUSCA 1600"
+        # "1600" é cilindrada, sai do modelo no saneamento (2026-07-17)
+        assert modelo == "FUSCA"
         assert ano == 1985
 
     def test_modelo_ambiguo_usa_marca_dominante_no_brasil(self):
@@ -137,9 +139,11 @@ class TestInferirMarcaModeloAno:
         assert ano == 1996
 
     def test_ano_grudado_em_numero(self):
+        # "16001995" separa em cilindrada 1600 + ano 1995; a cilindrada depois
+        # sai do modelo no saneamento, sobrando só o nome (2026-07-17).
         marca, modelo, ano = inferir_marca_modelo_ano("VW Fusca 16001995 / Bege Urano")
         assert marca == "VOLKSWAGEN"
-        assert "1600" in modelo
+        assert modelo == "FUSCA"
         assert ano == 1995
 
     def test_ano_duplicado_colapsado(self):
@@ -414,8 +418,9 @@ class TestSanearMarcaModelo:
     def test_marca_modelo_colados_no_campo_marca(self):
         # O anunciante põe "Marca Modelo" junto no campo "Marca" do ML — o
         # catálogo separa: CHEVROLET é a marca, OPALA vai pro modelo.
+        # "4 Portas" é contagem de portas — sai no saneamento do modelo.
         assert sanear_marca_modelo("Chevrolet Opala", "De Luxe 4 Portas") == (
-            "CHEVROLET", "OPALA DE LUXE 4 PORTAS",
+            "CHEVROLET", "OPALA DE LUXE",
         )
         assert sanear_marca_modelo("Ford Mustang", "GT500") == ("FORD", "MUSTANG GT500")
         assert sanear_marca_modelo("Dodge Dakota", "Cabine estendida") == (
@@ -424,11 +429,9 @@ class TestSanearMarcaModelo:
 
     def test_modelo_repete_a_marca_sem_duplicar(self):
         # Campo "Modelo" do ML costuma repetir marca+modelo inteiros
-        # ("Fiat tipo 1.6 ie") — não pode duplicar no resultado.
-        assert sanear_marca_modelo("Fiat tipo", "Fiat tipo 1.6 ie") == ("FIAT", "TIPO 1.6 IE")
-        assert sanear_marca_modelo("Ford Mustang", "Mustang 3.0 V6") == (
-            "FORD", "MUSTANG 3.0 V6",
-        )
+        # ("Fiat tipo 1.6 ie") — não pode duplicar, e cilindrada/injeção saem.
+        assert sanear_marca_modelo("Fiat tipo", "Fiat tipo 1.6 ie") == ("FIAT", "TIPO")
+        assert sanear_marca_modelo("Ford Mustang", "Mustang 3.0 V6") == ("FORD", "MUSTANG")
 
     def test_typo_de_marca_canonizado(self):
         assert sanear_marca_modelo("Alfa Romeu", "Spider")[0] == "ALFA ROMEO"
@@ -446,12 +449,14 @@ class TestSanearMarcaModelo:
     def test_alias_como_selo_marca_real_prevalece(self):
         # "VW Puma" — VW é só o selo do motor; PUMA é a marca real.
         assert sanear_marca_modelo("VW Puma", "GTI")[0] == "PUMA"
-        assert sanear_marca_modelo("VW", "Fusca 1300") == ("VOLKSWAGEN", "FUSCA 1300")
+        # "1300" é cilindrada — sai do modelo no saneamento (2026-07-17).
+        assert sanear_marca_modelo("VW", "Fusca 1300") == ("VOLKSWAGEN", "FUSCA")
 
     def test_sentinela_e_buggy_preservadas(self):
         # Nunca reinterpretar a sentinela nem a decisão deliberada de BUGGY.
+        # Marca preservada, mas o modelo ainda é limpo (2.0 = cilindrada).
         assert sanear_marca_modelo("NAO IDENTIFICADA", "Gsi Gs 2.0") == (
-            "NAO IDENTIFICADA", "GSI GS 2.0",
+            "NAO IDENTIFICADA", "GSI GS",
         )
         assert sanear_marca_modelo("Buggy", "BRM M8") == ("BUGGY", "BRM M8")
 
@@ -470,3 +475,70 @@ class TestSanearMarcaModelo:
         # não pode virar lixo nem sentinela.
         assert sanear_marca_modelo("Kawasaki", "Z1000")[0] == "KAWASAKI"
         assert sanear_marca_modelo("Zetor", "5211")[0] == "ZETOR"
+
+
+# ── sanear_modelo (tirar cauda de spec, manter nome + trim) ──────────────────
+
+class TestSanearModelo:
+    def test_corta_cilindrada_valvula_combustivel(self):
+        assert sanear_modelo("VOLKSWAGEN", "Gol Geracao III 1.6 Mi 8V Gasolina Mec. 4P") == (
+            "GOL GERACAO III"
+        )
+        assert sanear_modelo("CHEVROLET", "Vectra Gsi 2.0 16V (modelo antigo)") == "VECTRA GSI"
+        assert sanear_modelo("FORD", "Escort Xr3 1.8 / 1.6 Conversivel") == "ESCORT XR3"
+
+    def test_fusca_fragmentado_colapsa(self):
+        # O caso que motivou a regra: o mesmo Fusca vinha em 5 "modelos".
+        assert sanear_modelo("VOLKSWAGEN", "Fusca 1300") == "FUSCA"
+        assert sanear_modelo("VOLKSWAGEN", "Fusca 1600") == "FUSCA"
+        assert sanear_modelo("VOLKSWAGEN", "Fusca Alcool") == "FUSCA"
+        assert sanear_modelo("VOLKSWAGEN", "Fusca Fusca Gasolina") == "FUSCA"
+        assert sanear_modelo("VOLKSWAGEN", "Fusca") == "FUSCA"
+
+    def test_portas_por_extenso(self):
+        # "4 Portas"/"2 Portas" saem inteiros (número + palavra).
+        assert sanear_modelo("CHEVROLET", "Opala De Luxe 4 Portas") == "OPALA DE LUXE"
+        assert sanear_modelo("VOLKSWAGEN", "Kombi 2 Portas") == "KOMBI"
+
+    def test_mantem_trim_relevante_pro_preco(self):
+        # A usuária decidiu manter trim/versão (pesa no preço de clássico).
+        assert sanear_modelo("CHEVROLET", "Vectra Cd") == "VECTRA CD"
+        assert sanear_modelo("FORD", "Verona Glx") == "VERONA GLX"
+        assert sanear_modelo("VOLKSWAGEN", "Kombi Standard Luxo Serie Prata") == (
+            "KOMBI STANDARD LUXO SERIE PRATA"
+        )
+
+    def test_numero_que_e_parte_do_nome_e_protegido(self):
+        # Número de 2-3 dígitos que é variante do modelo não pode ser cortado
+        # como se fosse cilindrada (protegido pelo catálogo ou por ser 1º token).
+        assert sanear_modelo("LAND ROVER", "Defender 110") == "DEFENDER 110"
+        assert sanear_modelo("MERCEDES-BENZ", "280 SL") == "280 SL"
+        assert sanear_modelo("FIAT", "147 1.3") == "147"
+        assert sanear_modelo("ZETOR", "5211") == "5211"  # 4 díg. mas é o 1º token
+
+    def test_idempotente(self):
+        # Modelo já limpo volta igual.
+        assert sanear_modelo("VOLKSWAGEN", "FUSCA") == "FUSCA"
+        assert sanear_modelo("FORD", "ESCORT XR3") == "ESCORT XR3"
+        assert sanear_modelo("VOLKSWAGEN", "KOMBI STANDARD LUXO SERIE PRATA") == (
+            "KOMBI STANDARD LUXO SERIE PRATA"
+        )
+
+    def test_cilindrada_colada_ao_nome(self):
+        # Cilindrada grudada sem espaço (fonte perdeu o separador) — o ponto
+        # decimal denuncia e o corte a remove junto com o resto da cauda.
+        assert sanear_modelo("VOLKSWAGEN", "Santana2.0 Gli 8V Gasolina 2P") == "SANTANA"
+        assert sanear_modelo("VOLKSWAGEN", "Kombi1.6 Std 8V") == "KOMBI"
+        assert sanear_modelo("AUDI", "A62.7 Quattro Avant V6") == "A6"
+        assert sanear_modelo("VOLVO", "Xc602.0 T5 Dynamic") == "XC60"
+
+    def test_nome_duplicado_colado(self):
+        # Nome do modelo repetido sem espaço num token só.
+        assert sanear_modelo("DODGE", "Dartdart") == "DART"
+        assert sanear_modelo("FORD", "Belinabelina 1.4 8V") == "BELINA"
+        # Trim curto de 2 letras não é colapsado (SS, GT continuam inteiros).
+        assert sanear_modelo("CHEVROLET", "Camaro SS") == "CAMARO SS"
+
+    def test_modelo_vazio(self):
+        assert sanear_modelo("FORD", "") == ""
+        assert sanear_modelo("", "") == ""

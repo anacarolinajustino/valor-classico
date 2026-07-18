@@ -282,9 +282,106 @@ _PALAVRAS_NAO_MARCA: frozenset = frozenset({
     "ORIGINAL", "DE", "DA", "DO", "EM", "SEM", "RARA", "RARO", "LINDO",
 })
 
+# ────────────────────────────────────────────────
+# Saneamento do MODELO — tirar poluição de spec (auditoria 2026-07-17)
+# ────────────────────────────────────────────────
+#
+# O campo "modelo" costuma vir com o nome do modelo + versão/trim seguidos de
+# uma cauda de especificações que o anunciante despeja no título/ficha:
+# cilindrada ("1.6", "2.0", "1300"), válvulas ("8V", "16V"), combustível
+# ("Gasolina", "Álcool"), injeção ("MI", "MPFI", "EFI"), câmbio ("Mec.",
+# "Manual"), portas ("2P", "4 Portas") e potência ("50cv"). Nada disso
+# identifica o modelo — só fragmenta as estatísticas (o mesmo Fusca virava
+# "FUSCA", "FUSCA 1300", "FUSCA 1600", "FUSCA ALCOOL"...). A usuária decidiu
+# (2026-07-17) MANTER a versão/trim (XR3, GSI, GLX — pesa no preço de clássico)
+# e cortar só as specs. Ver sanear_modelo() e feedback correspondente.
+#
+# Estratégia: mantém o nome do modelo + trim que vêm ANTES da primeira spec e
+# corta dali pra frente (o anunciante escreve "Modelo Trim specs...", nessa
+# ordem). O catálogo ancora o nome real do modelo pra proteger número que É
+# parte do nome (Defender 110, C 1504, RD 350) de ser confundido com
+# cilindrada. Número de 4 dígitos solto (1300/1600/2000) é cilindrada/ano;
+# 2-3 dígitos podem ser variante de modelo (110, 88, 308) e por isso só saem
+# quando não fazem parte de um modelo ancorado no catálogo.
+
+# Palavras que marcam onde começa a cauda de spec (corte daqui pra frente).
+_SPEC_COMBUSTIVEL: frozenset = frozenset({
+    "GASOLINA", "ALCOOL", "ETANOL", "DIESEL", "FLEX", "GNV", "GAS",
+    "BICOMBUSTIVEL", "ELETRICO", "HIBRIDO",
+})
+_SPEC_CAMBIO: frozenset = frozenset({
+    "MEC", "MEC.", "AUT", "AUT.", "AUTOMATICO", "AUTOMATICA", "MECANICO",
+    "MECANICA", "MANUAL", "CAMBIO", "MT", "AT",
+})
+_SPEC_INJECAO: frozenset = frozenset({
+    "MI", "MPI", "MPFI", "EFI", "IE", "I.E.", "TBI", "TB", "SFI", "MFI",
+    "EGI", "INJECAO", "INJETADO", "CARBURADO", "CARBURADA", "CARB",
+})
+# "(modelo antigo)" e conectivo solto de enumeração de spec ("2p E 4p").
+_SPEC_OBSERVACAO: frozenset = frozenset({"MODELO", "ANTIGO", "NOVO", "E"})
+_SPEC_PORTAS: frozenset = frozenset({"PORTAS", "PORTA"})
+_SPEC_PALAVRAS: frozenset = (
+    _SPEC_COMBUSTIVEL | _SPEC_CAMBIO | _SPEC_INJECAO | _SPEC_OBSERVACAO
+)
+
+# Cilindrada em litros (prefixo "1.6", "2.0", "4.1"; pega até grafia colada
+# "1.82.0"). Prefixo, não fullmatch, de propósito.
+_SPEC_DECIMAL = re.compile(r"^\d[.,]\d")
+# Specs reconhecidas pela forma do token (não por dicionário).
+_SPEC_REGEX = re.compile(
+    r"""^(
+        \d{1,2}V |            # válvulas: 8V, 16V, 20V
+        V\d{1,2} |            # config. de motor: V6, V8, V12
+        \d{1,2}P(\d{1,2}P)? | # portas: 2P, 4P, 2P4P
+        \d{1,4}(CV|HP) |      # potência: 50CV, 100HP
+        \d{4}                 # cilindrada/ano solto: 1300, 1600, 2000
+    )$""",
+    re.VERBOSE,
+)
+
+
+# Cilindrada colada ao nome/versão sem espaço ("Santana2.0", "A62.7",
+# "Xc602.0", "Expres.2.2"). O ponto decimal denuncia a cilindrada — nenhum nome
+# de modelo tem "X.Y" —, então separá-la (por espaço) é seguro. Basta estar
+# grudada a qualquer não-espaço; "1.6" no início/após espaço não é tocada.
+_CILINDRADA_COLADA = re.compile(r"(?<=\S)(\d[.,]\d)")
+# Nome de modelo duplicado colado num token só ("DARTDART", "RURALRURAL",
+# "BELINABELINA"). Exige unidade de 3+ chars pra não colapsar trim curto ("SS").
+_TOKEN_DUPLICADO = re.compile(r"^(.{3,})\1$")
+
+
+def _e_token_spec(tok: str) -> bool:
+    """True se o token é spec (cilindrada, válvula, combustível, câmbio,
+    injeção, potência, porta ou observação) — o corte para o modelo."""
+    return bool(
+        tok in _SPEC_PALAVRAS
+        or _SPEC_DECIMAL.match(tok)
+        or _SPEC_REGEX.match(tok)
+    )
+
+
+def _indice_corte_spec(tokens: list[str], inicio: int) -> int:
+    """
+    Primeiro índice (>= inicio) onde começa a cauda de spec — o modelo é
+    tokens[:esse_índice]. Trata "4 Portas"/"2 Portas" por extenso cortando já
+    no número (senão o número sobraria órfão no fim do modelo).
+    """
+    n = len(tokens)
+    for i in range(inicio, n):
+        tok = tokens[i]
+        prox = tokens[i + 1] if i + 1 < n else ""
+        if tok in _SPEC_PORTAS or (tok.isdigit() and prox in _SPEC_PORTAS):
+            return i
+        if _e_token_spec(tok):
+            return i
+    return n
+
+
 # Cache do vocabulário derivado do catálogo canônico:
 # (marcas conhecidas, primeiro-token-de-modelo -> marca exclusiva)
 _vocab_catalogo: Optional[tuple[set, dict]] = None
+# marca_norm -> set de modelos canônicos (pra ancorar o nome do modelo)
+_modelos_catalogo_cache: Optional[dict] = None
 
 
 def _catalogo_vocab() -> tuple[set, dict]:
@@ -317,6 +414,44 @@ def _catalogo_vocab() -> tuple[set, dict]:
 
     _vocab_catalogo = (marcas, modelo_marca)
     return _vocab_catalogo
+
+
+def _modelos_catalogo() -> dict:
+    """
+    marca_norm -> set de modelos canônicos, do catálogo. Usado por
+    `sanear_modelo` pra ancorar o nome do modelo (proteger número que é parte
+    do nome). Degrada pra dict vazio se o catálogo não carregar.
+    """
+    global _modelos_catalogo_cache
+    if _modelos_catalogo_cache is not None:
+        return _modelos_catalogo_cache
+
+    modelos: dict[str, set] = {}
+    try:
+        from src.catalog.loader import carregar_catalogo
+
+        for marca, modelo in carregar_catalogo().keys():
+            modelos.setdefault(marca, set()).add(modelo)
+    except Exception:  # pragma: no cover - catálogo indisponível
+        pass
+
+    _modelos_catalogo_cache = modelos
+    return _modelos_catalogo_cache
+
+
+def _maior_prefixo_modelo(marca_norm: str, tokens: list[str]) -> int:
+    """
+    Tamanho (em tokens) do maior prefixo de `tokens` que é um modelo do
+    catálogo pra `marca_norm` — cobre nomes de modelo com número ("C 1504",
+    "RD 350", "300 ZX"). 0 se nada bate.
+    """
+    modelos = _modelos_catalogo().get(marca_norm, set())
+    if not modelos:
+        return 0
+    for n in range(min(len(tokens), 4), 0, -1):
+        if " ".join(tokens[:n]) in modelos:
+            return n
+    return 0
 
 
 def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
@@ -416,8 +551,7 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     # porque a mesma lógica sanea marca/modelo vindos crus de ficha técnica.
     marca, resto = _separar_marca(tokens_sem_ano)
     if marca is not None:
-        return (marca, " ".join(resto), ano)
-
+        modelo = " ".join(resto)
     # 4) Fallback: primeiro token é a marca — mas só quando ele não é uma
     # palavra comum de português (adjetivo/conectivo/substantivo de venda)
     # que nunca é nome de marca. Sem essa guarda, "Veículo Ótimo Estado De
@@ -425,13 +559,15 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     # rodada: todo anúncio sem marca explícita no título deve cair em
     # MARCA_NAO_IDENTIFICADA — sinalizado pra revisão manual — em vez de
     # aceitar qualquer primeiro token como se fosse marca real).
-    if tokens_sem_ano[0] in _PALAVRAS_NAO_MARCA:
-        return (MARCA_NAO_IDENTIFICADA, " ".join(tokens_sem_ano), ano)
+    elif tokens_sem_ano[0] in _PALAVRAS_NAO_MARCA:
+        marca = MARCA_NAO_IDENTIFICADA
+        modelo = " ".join(tokens_sem_ano)
+    else:
+        marca = tokens_sem_ano[0]
+        modelo = " ".join(tokens_sem_ano[1:]) if len(tokens_sem_ano) > 1 else ""
 
-    marca = tokens_sem_ano[0]
-    modelo = " ".join(tokens_sem_ano[1:]) if len(tokens_sem_ano) > 1 else ""
-
-    return (marca, modelo, ano)
+    # Limpa a cauda de spec do modelo, preservando nome + trim (2026-07-17).
+    return (marca, sanear_modelo(marca, modelo), ano)
 
 
 def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
@@ -507,8 +643,12 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
         fora do catálogo, ex.: KAWASAKI), ou MARCA_NAO_IDENTIFICADA se for
         palavra comum de português.
 
+    O modelo resultante passa por `sanear_modelo` (tira a cauda de spec,
+    mantém nome + trim), então a marca+modelo colados no campo "Modelo" já
+    saem limpos de cilindrada/válvula/combustível etc.
+
     Exemplos:
-        ('Chevrolet Opala', 'De Luxe 4 Portas') -> ('CHEVROLET', 'OPALA DE LUXE 4 PORTAS')
+        ('Chevrolet Opala', 'De Luxe 4 Portas') -> ('CHEVROLET', 'OPALA DE LUXE')
         ('Ford Mustang', 'GT500')               -> ('FORD', 'MUSTANG GT500')
         ('Alfa Romeu', 'Spider')                -> ('ALFA ROMEO', 'SPIDER')
         ('Volkswagem', 'Fusca')                 -> ('VOLKSWAGEN', 'FUSCA')
@@ -517,9 +657,10 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
     marca_norm = normalizar_texto(marca_bruta)
     modelo_toks = normalizar_texto(modelo_bruto).split()
 
-    # Sentinela / decisão preservada: não reinterpretar.
+    # Sentinela / decisão preservada: não reinterpretar a MARCA (o modelo
+    # ainda é limpo — a poluição de spec independe de conhecer a marca).
     if marca_norm in _MARCAS_PRESERVADAS:
-        return (marca_norm, " ".join(modelo_toks))
+        return (marca_norm, sanear_modelo(marca_norm, " ".join(modelo_toks)))
 
     marca_toks = marca_norm.split()
     marca, sobra = _separar_marca(marca_toks)
@@ -528,12 +669,18 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
         # Campo "Marca" não reconhecido — a marca real pode estar no "Modelo".
         marca2, sobra2 = _separar_marca(modelo_toks)
         if marca2 is not None:
-            return (marca2, " ".join(sobra2))
+            return (marca2, sanear_modelo(marca2, " ".join(sobra2)))
         # Nada reconhecido: 1º token vira marca (legítima fora do catálogo),
         # ou sentinela se for palavra comum / campo vazio.
         if not marca_toks or marca_toks[0] in _PALAVRAS_NAO_MARCA:
-            return (MARCA_NAO_IDENTIFICADA, " ".join(marca_toks + modelo_toks))
-        return (marca_toks[0], " ".join(marca_toks[1:] + modelo_toks))
+            return (
+                MARCA_NAO_IDENTIFICADA,
+                sanear_modelo(MARCA_NAO_IDENTIFICADA, " ".join(marca_toks + modelo_toks)),
+            )
+        return (
+            marca_toks[0],
+            sanear_modelo(marca_toks[0], " ".join(marca_toks[1:] + modelo_toks)),
+        )
 
     # Marca reconhecida. Modelo = o que sobrou do campo "Marca" + campo
     # "Modelo", sem repetir a marca canônica nem duplicar a sobra (o campo
@@ -542,4 +689,57 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
     modelo_limpo = [t for t in modelo_toks if t not in marca_set]
     modelo_limpo_set = set(modelo_limpo)
     sobra_filtrada = [t for t in sobra if t not in marca_set and t not in modelo_limpo_set]
-    return (marca, " ".join(sobra_filtrada + modelo_limpo))
+    return (marca, sanear_modelo(marca, " ".join(sobra_filtrada + modelo_limpo)))
+
+
+def sanear_modelo(marca: str, modelo: str) -> str:
+    """
+    Remove a cauda de especificação do modelo (cilindrada, válvulas,
+    combustível, injeção, câmbio, portas, potência e observações do
+    anunciante), preservando o nome do modelo + versão/trim. Ver o bloco de
+    comentário "Saneamento do MODELO" acima pra estratégia.
+
+    `marca` serve só pra ancorar o nome do modelo no catálogo (proteger número
+    que é parte do nome, tipo "Defender 110" ou "C 1504"). Idempotente: modelo
+    já limpo volta igual.
+
+    Exemplos (marca, modelo bruto -> modelo limpo):
+        ('VOLKSWAGEN', 'FUSCA 1300')                 -> 'FUSCA'
+        ('VOLKSWAGEN', 'FUSCA FUSCA GASOLINA')       -> 'FUSCA'
+        ('VOLKSWAGEN', 'GOL GERACAO III 1.6 MI 8V')  -> 'GOL GERACAO III'
+        ('CHEVROLET',  'VECTRA GSI 2.0 16V MODELO ANTIGO') -> 'VECTRA GSI'
+        ('CHEVROLET',  'OPALA DE LUXE 4 PORTAS')     -> 'OPALA DE LUXE'
+        ('FORD',       'ESCORT XR3 1.8 CONVERSIVEL') -> 'ESCORT XR3'
+        ('LAND ROVER', 'DEFENDER 110')               -> 'DEFENDER 110'
+        ('FIAT',       '147')                         -> '147'
+    """
+    marca_norm = normalizar_texto(marca)
+    modelo_norm = _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+    tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in modelo_norm.split()]
+    if not tokens:
+        return ""
+
+    # Tira tokens da marca que vazaram pro modelo ("Fiat" repetido no modelo
+    # do ML, "Motors" de "Kia Motors"), sem nunca esvaziar o modelo.
+    marca_set = set(marca_norm.split())
+    sem_marca = [t for t in tokens if t not in marca_set]
+    if sem_marca:
+        tokens = sem_marca
+
+    # Ancora o nome do modelo no catálogo (protege número que é parte do
+    # nome); na falta, mantém ao menos o 1º token como nome do modelo.
+    anchor = _maior_prefixo_modelo(marca_norm, tokens)
+    inicio = max(anchor, 1)
+
+    corte = _indice_corte_spec(tokens, inicio)
+
+    # Apara pontuação solta nas pontas ("Expres." -> "Expres", "-" -> ""),
+    # descarta vazios e faz dedup preservando a ordem ("Fusca Fusca" -> "Fusca").
+    vistos: set = set()
+    final: list[str] = []
+    for t in tokens[:corte]:
+        t = t.strip(".-")
+        if t and t not in vistos:
+            vistos.add(t)
+            final.append(t)
+    return " ".join(final)
