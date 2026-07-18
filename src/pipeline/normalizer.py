@@ -310,8 +310,8 @@ _SPEC_COMBUSTIVEL: frozenset = frozenset({
     "BICOMBUSTIVEL", "ELETRICO", "HIBRIDO",
 })
 _SPEC_CAMBIO: frozenset = frozenset({
-    "MEC", "MEC.", "AUT", "AUT.", "AUTOMATICO", "AUTOMATICA", "MECANICO",
-    "MECANICA", "MANUAL", "CAMBIO", "MT", "AT",
+    "MEC", "MEC.", "AUT", "AUT.", "AUTOMATICO", "AUTOMATICA", "AUTOMATIC",
+    "MECANICO", "MECANICA", "MANUAL", "CAMBIO", "MT", "AT", "SEMI-AUT",
 })
 _SPEC_INJECAO: frozenset = frozenset({
     "MI", "MPI", "MPFI", "EFI", "IE", "I.E.", "TBI", "TB", "SFI", "MFI",
@@ -320,8 +320,53 @@ _SPEC_INJECAO: frozenset = frozenset({
 # "(modelo antigo)" e conectivo solto de enumeração de spec ("2p E 4p").
 _SPEC_OBSERVACAO: frozenset = frozenset({"MODELO", "ANTIGO", "NOVO", "E"})
 _SPEC_PORTAS: frozenset = frozenset({"PORTAS", "PORTA"})
+
+# Observações de texto livre que o anunciante despeja no título/ficha e que NÃO
+# são o modelo nem trim: venda, preço, estado/conservação, documentação, tipo de
+# cabine e afins. Contaminam o campo e impedem agrupar por modelo pra tirar média
+# (usuária pediu 2026-07-18: "no modelo, só informação de modelo e nada mais").
+# Cuidado ao ampliar: nada que seja trim/edição real (SPECIAL, SPORT, ATLANTA,
+# "ROLLING STONES", COPA...) nem parte de nome de modelo do catálogo. "NOVA" fica
+# de fora de propósito (colide com Chevrolet Nova); "CAB"/"CABINE" é protegido pra
+# "King Cab" pela âncora do catálogo.
+_MODELO_OBSERVACAO: frozenset = frozenset({
+    # venda / negociação
+    "VENDE-SE", "VENDESE", "VENDE", "VENDO", "VENDA", "VENDAS", "TROCA",
+    "TROCO", "TROCAR", "TROCAS", "PARCELO", "PARCELA", "PARCELAMOS",
+    "PARCELAMENTO", "FINANCIO", "FINANCIA", "FINANCIAMENTO", "FINANCIADO",
+    "ACEITO", "ACEITA", "ACEITAMOS", "OFERTA", "OFERTAS", "ENTRADA",
+    "CARTAO", "CREDITO", "CONSORCIO", "REPASSE",
+    # preço
+    "PRECO", "PROMOCIONAL", "PROMOCAO", "ABAIXO", "TABELA", "FIPE",
+    "BARBADA", "OPORTUNIDADE", "IMPERDIVEL", "NEGOCIO", "DESCONTO",
+    "VALOR", "BARATO",
+    # estado / conservação / elogio
+    "RARIDADE", "RARIDADES", "RARISSIMO", "RARISSIMA", "RARO", "RARA",
+    "IMPECAVEL", "IMPECAVEIS", "CONSERVADO", "CONSERVADA", "CONSERVADISSIMO",
+    "CONSERVADISSIMA", "CONSERVACAO", "RELIQUIA", "RELIGUIA", "ZERADO",
+    "ZERADA", "ZERO", "LINDO", "LINDA", "LINDAO", "LINDISSIMO", "LINDISSIMA",
+    "COMPLETO", "COMPLETA", "EQUIPADO", "EQUIPADA", "EQUIPADISSIMA",
+    "EQUIPADISSIMO", "REVISADO", "REVISADA", "EXCELENTE", "EXCEPCIONAL",
+    "PERFEITO", "PERFEITA", "ESTADO", "ORIGINAL", "ORIGINAIS", "INTEIRO",
+    "INTEIRA", "LATARIA", "PROCEDENCIA", "COLECIONADOR", "COLECAO",
+    "ESPETACULAR", "MARAVILHOSO", "MARAVILHOSA", "BELISSIMO", "BELISSIMA",
+    "BONITO", "BONITA", "OTIMO", "OTIMA",
+    # documentação / legal
+    "PLACA", "DOC", "DOCUMENTO", "DOCUMENTACAO", "DOCUMENTOS", "LICENCIADO",
+    "IPVA", "QUITADO", "CAUTELAR", "OK",
+    # tipo de cabine / carroceria / chassi (usuária citou "cabine estendida")
+    "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS", "CURTO", "LONGO",
+    # motor por extenso (não é o modelo): "6 cilindros", "6cc"
+    "CILINDROS", "CILINDRADA", "CC", "CUSTOMIZADO", "CUSTOMIZADA",
+    # estado geral / conforto / conectivos de descrição
+    "KM", "EPOCA", "TODO", "TODA", "TODOS", "TODAS", "MUITO", "MUITA", "AR",
+    "CONDICIONADO", "DIRECAO", "HIDRAULICA", "COM", "SEM", "PARA", "PRA",
+    "POSSUI", "ANO", "ATELIE", "LOJA", "CARRO", "UM", "UMA",
+})
+
 _SPEC_PALAVRAS: frozenset = (
     _SPEC_COMBUSTIVEL | _SPEC_CAMBIO | _SPEC_INJECAO | _SPEC_OBSERVACAO
+    | _MODELO_OBSERVACAO
 )
 
 # Cilindrada em litros (prefixo "1.6", "2.0", "4.1"; pega até grafia colada
@@ -334,6 +379,8 @@ _SPEC_REGEX = re.compile(
         V\d{1,2} |            # config. de motor: V6, V8, V12
         \d{1,2}P(\d{1,2}P)? | # portas: 2P, 4P, 2P4P
         \d{1,4}(CV|HP) |      # potência: 50CV, 100HP
+        \d{2,7}KM |           # quilometragem colada: 700KM, 50000KM
+        \d{1,2}CC |           # cilindros colado: 6CC, 4CC
         \d{4}                 # cilindrada/ano solto: 1300, 1600, 2000
     )$""",
     re.VERBOSE,
@@ -370,7 +417,11 @@ def _indice_corte_spec(tokens: list[str], inicio: int) -> int:
     for i in range(inicio, n):
         tok = tokens[i]
         prox = tokens[i + 1] if i + 1 < n else ""
-        if tok in _SPEC_PORTAS or (tok.isdigit() and prox in _SPEC_PORTAS):
+        # "4 Portas"/"555 Km"/"6 Cilindros" por extenso: corta já no número
+        # (senão sobraria órfão no fim do modelo).
+        if tok.isdigit() and (prox in _SPEC_PORTAS or prox in ("KM", "CILINDROS")):
+            return i
+        if tok in _SPEC_PORTAS:
             return i
         if _e_token_spec(tok):
             return i

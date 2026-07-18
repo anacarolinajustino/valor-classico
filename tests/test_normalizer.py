@@ -423,9 +423,8 @@ class TestSanearMarcaModelo:
             "CHEVROLET", "OPALA DE LUXE",
         )
         assert sanear_marca_modelo("Ford Mustang", "GT500") == ("FORD", "MUSTANG GT500")
-        assert sanear_marca_modelo("Dodge Dakota", "Cabine estendida") == (
-            "DODGE", "DAKOTA CABINE ESTENDIDA",
-        )
+        # "Cabine estendida" é tipo de cabine, não o modelo — sai no saneamento.
+        assert sanear_marca_modelo("Dodge Dakota", "Cabine estendida") == ("DODGE", "DAKOTA")
 
     def test_modelo_repete_a_marca_sem_duplicar(self):
         # Campo "Modelo" do ML costuma repetir marca+modelo inteiros
@@ -538,6 +537,29 @@ class TestSanearModelo:
         assert sanear_modelo("FORD", "Belinabelina 1.4 8V") == "BELINA"
         # Trim curto de 2 letras não é colapsado (SS, GT continuam inteiros).
         assert sanear_modelo("CHEVROLET", "Camaro SS") == "CAMARO SS"
+
+    def test_corta_observacao_de_venda_preco_estado(self):
+        # Texto livre do anunciante (venda/preço/estado/doc) não é o modelo.
+        assert sanear_modelo("CHEVROLET", "Van Preco Promocional") == "VAN"
+        assert sanear_modelo("CHEVROLET", "Veraneio Impecavel Carro Reformado") == "VERANEIO"
+        assert sanear_modelo("CHEVROLET", "Blazer Dlx 96 Placa Preta") == "BLAZER DLX 96"
+        assert sanear_modelo(
+            "CHEVROLET", "Opala De Luxo Automatic Original Vende-se Do Atelie Carro"
+        ) == "OPALA DE LUXO"
+        assert sanear_modelo("BMW", "540i Uma Raridade") == "540I"
+
+    def test_corta_cabine_cilindros_km(self):
+        # "cabine estendida" (citada pela usuária), cilindros e km por extenso.
+        assert sanear_modelo("CHEVROLET", "S10 Americana Cabine Estendida") == "S10 AMERICANA"
+        assert sanear_modelo("CHEVROLET", "D-10 Cabine Dupla") == "D-10"
+        assert sanear_modelo("CHEVROLET", "Opala De Luxo 6 Cilindros Com Ar") == "OPALA DE LUXO"
+        assert sanear_modelo("CHEVROLET", "Opala 6cc Automatic") == "OPALA"
+        assert sanear_modelo("FORD", "Escort Xr3 555 Km") == "ESCORT XR3"
+
+    def test_observacao_nao_destroi_trim_com_de(self):
+        # "DE" não é palavra de corte: trims "De Luxo"/"De Luxe" ficam inteiros.
+        assert sanear_modelo("CHEVROLET", "Bel Air De Luxe Hardtop") == "BEL AIR DE LUXE HARDTOP"
+        assert sanear_modelo("NISSAN", "King Cab") == "KING CAB"  # âncora protege "Cab"
 
     def test_modelo_vazio(self):
         assert sanear_modelo("FORD", "") == ""
