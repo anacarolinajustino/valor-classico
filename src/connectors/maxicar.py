@@ -20,7 +20,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -315,7 +315,7 @@ def _parsear_produto_detalhe(html: str, url_produto: str, data_coleta: str) -> O
     if preco is None or preco <= 0:
         return None
 
-    marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+    marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
     if not modelo:
         return None
 
@@ -325,7 +325,7 @@ def _parsear_produto_detalhe(html: str, url_produto: str, data_coleta: str) -> O
         marca=marca,
         modelo=modelo,
         ano=ano,
-        versao=None,
+        versao=versao, obs=obs,
         url=url_produto,
         fonte=FONTE,
         data_coleta=data_coleta,
@@ -363,7 +363,7 @@ def _parsear_listagem(html: str, data_coleta: str) -> list[Anuncio]:
         url_anuncio = link_tag["href"] if link_tag and link_tag.get("href") else ""
 
         # Inferência de marca/modelo/ano a partir do título
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
 
         # Descartar se sem preço ou sem modelo
         if preco is None or preco <= 0 or not modelo:
@@ -375,7 +375,7 @@ def _parsear_listagem(html: str, data_coleta: str) -> list[Anuncio]:
             marca=marca,
             modelo=modelo,
             ano=ano,
-            versao=None,  # disponível apenas na página de detalhe
+            versao=versao, obs=obs,
             url=url_anuncio,
             fonte=FONTE,
             data_coleta=data_coleta,

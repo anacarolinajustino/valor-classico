@@ -55,10 +55,10 @@ from bs4 import BeautifulSoup
 from src.catalog.loader import carregar_catalogo
 from src.connectors._browser import criar_contexto_aquecido
 from src.pipeline.normalizer import (
-    inferir_marca_modelo_ano,
+    inferir_marca_modelo_versao_obs_ano,
     normalizar_texto,
     remover_acentos,
-    sanear_marca_modelo,
+    separar_marca_modelo_versao_obs,
 )
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
@@ -543,7 +543,7 @@ def _parsear_card(card, data_coleta: str) -> Optional[Anuncio]:
         return None
 
     ano_cartao = _extrair_ano_cartao(card)
-    marca, modelo, ano_inferido = inferir_marca_modelo_ano(titulo)
+    marca, modelo, versao, obs, ano_inferido = inferir_marca_modelo_versao_obs_ano(titulo)
     ano = ano_cartao or ano_inferido
     if ano is None or not (1900 <= ano <= ANO_CORTE_CLASSICO):
         return None
@@ -556,7 +556,8 @@ def _parsear_card(card, data_coleta: str) -> Optional[Anuncio]:
         marca=marca,
         modelo=modelo,
         ano=ano,
-        versao=None,
+        versao=versao,
+        obs=obs,
         url=url,
         fonte=FONTE,
         data_coleta=data_coleta,
@@ -658,7 +659,7 @@ def _enriquecer_com_ficha_tecnica(anuncio: Anuncio) -> Optional[Anuncio]:
 
     O campo "Marca" da ficha é preenchido à mão pelo anunciante e frequentemente
     traz marca+modelo junto ("Chevrolet Opala") ou grafia errada ("Alfa Romeu",
-    "Volkswagem") — por isso passa por `sanear_marca_modelo`, que usa o catálogo
+    "Volkswagem") — por isso passa por `separar_marca_modelo_versao_obs`, que usa o catálogo
     pra separar marca de modelo e canonizar a grafia, em vez de gravar cru
     (auditoria 2026-07-17: ~180 anúncios do ML com marca-lixo vinham daqui).
 
@@ -679,11 +680,17 @@ def _enriquecer_com_ficha_tecnica(anuncio: Anuncio) -> Optional[Anuncio]:
         if ano_novo > ANO_CORTE_CLASSICO:
             return None
 
-    marca, modelo = sanear_marca_modelo(ficha["MARCA"], ficha["MODELO"])
+    marca, modelo, versao_modelo, obs = separar_marca_modelo_versao_obs(
+        ficha["MARCA"], ficha["MODELO"]
+    )
     return replace(
         anuncio,
         marca=marca,
         modelo=modelo,
         ano=ano_novo,
-        versao=ficha.get("VERSAO") or anuncio.versao,
+        # "Versão" é campo próprio da ficha (o vendedor preenche à parte do
+        # "Modelo") — prevalece sobre o que sobrar ao separar o campo
+        # "Modelo" (ex.: "Opala De Luxe" sem Versão preenchida à parte).
+        versao=ficha.get("VERSAO") or versao_modelo or anuncio.versao,
+        obs=obs or anuncio.obs,
     )

@@ -20,7 +20,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -144,13 +144,13 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
             continue
 
         seen.add(url)
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
         if not modelo:
             continue
 
         anuncios.append(Anuncio(
             titulo=titulo, preco=preco, marca=marca, modelo=modelo,
-            ano=ano, versao=None, url=url, fonte=FONTE, data_coleta=data_coleta,
+            ano=ano, versao=versao, obs=obs, url=url, fonte=FONTE, data_coleta=data_coleta,
         ))
 
     return anuncios

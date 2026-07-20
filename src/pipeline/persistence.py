@@ -87,6 +87,13 @@ _DDL_STATEMENTS = [
     CREATE INDEX IF NOT EXISTS idx_anuncios_lookup
         ON anuncios (marca, modelo, ano)
     """,
+    # Versão/trim (GLX, SS, "Geração I CL"...) separada do modelo, e obs
+    # residual (carroceria/tração: "Cabine Estendida", "Pick-Up") que não é
+    # trim mas também não pode ser descartada (usuária pediu 2026-07-20).
+    # ALTER ADD COLUMN IF NOT EXISTS é aditivo/idempotente — não afeta as
+    # colunas existentes nem os 28 mil anúncios já gravados.
+    "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS versao TEXT",
+    "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS obs TEXT",
 ]
 
 # ── Conexão ───────────────────────────────────────────────────────────────────
@@ -181,8 +188,8 @@ def upsert_anuncios(
     sql_select = "SELECT 1 FROM anuncios WHERE fonte = %s AND url = %s"
     sql_upsert = """
         INSERT INTO anuncios
-            (fonte, url, titulo, marca, modelo, ano, preco, primeira_vista, ultima_vista)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (fonte, url, titulo, marca, modelo, ano, preco, primeira_vista, ultima_vista, versao, obs)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (fonte, url)
         DO UPDATE SET
             titulo       = EXCLUDED.titulo,
@@ -190,7 +197,9 @@ def upsert_anuncios(
             modelo       = EXCLUDED.modelo,
             ano          = EXCLUDED.ano,
             preco        = EXCLUDED.preco,
-            ultima_vista = EXCLUDED.ultima_vista
+            ultima_vista = EXCLUDED.ultima_vista,
+            versao       = EXCLUDED.versao,
+            obs          = EXCLUDED.obs
     """
     novos = 0
     atualizados = 0
@@ -208,6 +217,8 @@ def upsert_anuncios(
                     (a.marca or "").upper() or None,
                     (a.modelo or "").upper() or None,
                     a.ano, a.preco, data, data,
+                    (a.versao or "").upper() or None,
+                    (a.obs or "").upper() or None,
                 ))
                 if existe:
                     atualizados += 1
@@ -300,7 +311,7 @@ def buscar_anuncios(
     modelo_upper = modelo.strip().upper()
 
     sql = """
-        SELECT fonte, url, titulo, marca, modelo, ano, preco, ultima_vista
+        SELECT fonte, url, titulo, marca, modelo, ano, preco, ultima_vista, versao, obs
         FROM anuncios
         WHERE UPPER(marca) = %s
           AND (
@@ -334,7 +345,8 @@ def buscar_anuncios(
             marca=r["marca"] or "",
             modelo=r["modelo"] or "",
             ano=r["ano"],
-            versao=None,
+            versao=r["versao"],
+            obs=r["obs"],
             url=r["url"] or "",
             fonte=r["fonte"] or "",
             data_coleta=r["ultima_vista"] or date.today().isoformat(),
@@ -593,7 +605,7 @@ def listar_anuncios(
 
     sql_count = f"SELECT COUNT(*) AS total FROM anuncios WHERE {where}"
     sql_rows  = f"""
-        SELECT id, fonte, url, titulo, marca, modelo, ano, preco, ultima_vista
+        SELECT id, fonte, url, titulo, marca, modelo, ano, preco, ultima_vista, versao, obs
         FROM anuncios
         WHERE {where}
         ORDER BY {order_by} {direction} NULLS LAST

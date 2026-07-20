@@ -22,7 +22,7 @@ from typing import Optional
 
 import requests
 
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto, sanear_marca_modelo
+from src.pipeline.normalizer import normalizar_preco, normalizar_texto, separar_marca_modelo_versao_obs
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -182,15 +182,18 @@ def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
             modelo = (item.get("model") or item.get("modelo") or "").upper()
 
         # Campo estruturado da API passa pelo catálogo antes de gravar, como
-        # toda fonte de marca/modelo estruturada (ver sanear_marca_modelo).
-        marca, modelo = sanear_marca_modelo(marca, modelo)
+        # toda fonte de marca/modelo estruturada (ver separar_marca_modelo_versao_obs).
+        marca, modelo, versao_modelo, obs = separar_marca_modelo_versao_obs(marca, modelo)
 
+        # A API tem campo "Version" próprio (mais confiável que o que sobra
+        # ao separar o "Model") — só cai pro derivado do modelo na ausência.
         versao = None
         ver_obj = spec.get("Version") or {}
         if isinstance(ver_obj, dict):
             versao = ver_obj.get("Value") or None
         elif isinstance(ver_obj, str):
             versao = ver_obj or None
+        versao = versao or versao_modelo
 
         # Ano
         ano = (
@@ -249,6 +252,7 @@ def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
             modelo=modelo,
             ano=ano,
             versao=versao,
+            obs=obs,
             url=url_anuncio,
             fonte=FONTE,
             data_coleta=data_coleta,

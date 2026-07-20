@@ -15,7 +15,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -131,13 +131,13 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
         link = item.find("a", href=True)
         url_anuncio = link["href"] if link else ""
 
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
         if not modelo:
             continue
 
         anuncios.append(Anuncio(
             titulo=titulo, preco=preco, marca=marca, modelo=modelo,
-            ano=ano, versao=None, url=url_anuncio, fonte=FONTE,
+            ano=ano, versao=versao, obs=obs, url=url_anuncio, fonte=FONTE,
             data_coleta=data_coleta,
         ))
     return anuncios

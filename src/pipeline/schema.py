@@ -32,6 +32,7 @@ class Anuncio:
     data_coleta: str          # ISO 8601 (YYYY-MM-DD)
     match_confidence: str = "unmatched"   # high / medium / low / unmatched
     match_strategy: str = "none"          # exact / normalized_exact / fuzzy / manual_review / none
+    obs: Optional[str] = None             # residual: carroceria/tração (ex.: "CABINE ESTENDIDA", "PICK-UP")
 
     def __post_init__(self) -> None:
         if self.match_confidence not in MATCH_CONFIDENCE_VALUES:

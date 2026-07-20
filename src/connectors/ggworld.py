@@ -18,7 +18,7 @@ import logging
 from datetime import date
 
 from src.connectors._browser import criar_contexto
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -85,14 +85,14 @@ def _montar_anuncio(titulo: str, preco_txt: str, data_coleta: str):
     if not preco or preco <= 0:
         return None
 
-    marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+    marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
     if not modelo:
         return None
 
     slug = normalizar_texto(titulo).replace(" ", "-")
     return Anuncio(
         titulo=titulo, preco=preco, marca=marca, modelo=modelo,
-        ano=ano, versao=None, url=f"{BASE_URL}/#{slug}", fonte=FONTE,
+        ano=ano, versao=versao, obs=obs, url=f"{BASE_URL}/#{slug}", fonte=FONTE,
         data_coleta=data_coleta,
     )
 

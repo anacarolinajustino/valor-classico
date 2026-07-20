@@ -24,7 +24,7 @@ from typing import Optional
 import requests
 from bs4 import BeautifulSoup
 
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -146,13 +146,13 @@ def _parsear_detalhe(html: str, url: str, data_coleta: str) -> tuple[Optional[An
     if not preco or preco <= 0:
         return None, False
 
-    marca, modelo, ano = inferir_marca_modelo_ano(titulo_bruto)
+    marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo_bruto)
     if not modelo:
         return None, False
 
     return Anuncio(
         titulo=titulo_bruto, preco=preco, marca=marca, modelo=modelo,
-        ano=ano, versao=None, url=url, fonte=FONTE, data_coleta=data_coleta,
+        ano=ano, versao=versao, obs=obs, url=url, fonte=FONTE, data_coleta=data_coleta,
     ), False
 
 

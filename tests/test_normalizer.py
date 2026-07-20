@@ -9,6 +9,7 @@ from src.pipeline.normalizer import (
     inferir_marca_modelo_ano,
     sanear_marca_modelo,
     sanear_modelo,
+    separar_modelo_versao_obs,
     MARCA_NAO_IDENTIFICADA,
 )
 
@@ -564,3 +565,83 @@ class TestSanearModelo:
     def test_modelo_vazio(self):
         assert sanear_modelo("FORD", "") == ""
         assert sanear_modelo("", "") == ""
+
+
+class TestSepararModeloVersaoObs:
+    def test_trim_limpo_vira_versao(self):
+        assert separar_modelo_versao_obs("CHEVROLET", "Vectra Cd") == ("VECTRA", "CD", None)
+        assert separar_modelo_versao_obs("FORD", "Verona Glx") == ("VERONA", "GLX", None)
+        assert separar_modelo_versao_obs("CHEVROLET", "Opala De Luxe 4 Portas") == (
+            "OPALA", "DE LUXE", None
+        )
+
+    def test_sem_trim_versao_e_none(self):
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca") == ("FUSCA", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca 1300") == ("FUSCA", None, None)
+
+    def test_geracao_vira_versao_junto_com_trim(self):
+        # Usuária decidiu (2026-07-20): geração não é um campo à parte, some
+        # dentro da versão.
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Gol Geracao I Cl") == (
+            "GOL", "GERACAO I CL", None
+        )
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Gol Geracao II") == (
+            "GOL", "GERACAO II", None
+        )
+
+    def test_carroceria_tracao_vira_obs_nao_descarta(self):
+        # Usuária pediu (2026-07-20): carroceria/tração não pode ficar na
+        # versão (polui o dropdown) nem ser descartada (perde informação).
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Kombi Pick-Up") == (
+            "KOMBI", None, "PICK-UP"
+        )
+        assert separar_modelo_versao_obs("CHEVROLET", "D-10 Cabine Dupla") == (
+            "D-10", None, "CABINE DUPLA"
+        )
+        assert separar_modelo_versao_obs("CHEVROLET", "S10 Americana Cabine Estendida") == (
+            "S10", "AMERICANA", "CABINE ESTENDIDA"
+        )
+
+    def test_obs_no_meio_nao_interrompe_captura_da_versao(self):
+        # "Sedan" (obs) vem ANTES de "Lx" (versão) — precisa continuar
+        # escaneando depois do obs pra não perder o trim.
+        assert separar_modelo_versao_obs("HONDA", "Civic Sedan Lx") == ("CIVIC", "LX", "SEDAN")
+
+    def test_cilindrada_grudada_a_letra_de_trim(self):
+        # "1300L"/"1600S" (Fusca/Kombi): cilindrada sai, letra de trim fica.
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca 1300L") == ("FUSCA", "L", None)
+
+    def test_spec_pura_e_descartada_nao_vira_obs_nem_versao(self):
+        # Cilindrada/válvula/câmbio/combustível continuam sem valor nenhum —
+        # obs é só pra carroceria/tração, não vira lixeira geral.
+        assert separar_modelo_versao_obs("CHEVROLET", "Vectra Gsi 2.0 16V (modelo antigo)") == (
+            "VECTRA", "GSI", None
+        )
+        assert separar_modelo_versao_obs("FORD", "Escort Xr3 1.8 Conversivel") == (
+            "ESCORT", "XR3", None
+        )
+
+    def test_bate_com_sanear_modelo_quando_nao_ha_obs(self):
+        casos = [
+            ("CHEVROLET", "Vectra Cd"),
+            ("VOLKSWAGEN", "Fusca 1300"),
+            ("CHEVROLET", "Vectra Gsi 2.0 16V (modelo antigo)"),
+        ]
+        for marca, bruto in casos:
+            modelo, versao, obs = separar_modelo_versao_obs(marca, bruto)
+            assert obs is None
+            combinado = f"{modelo} {versao}".strip() if versao else modelo
+            assert combinado == sanear_modelo(marca, bruto)
+
+    def test_digito_solto_como_versao_inteira_e_descartado(self):
+        # "Passat 2"/"ES-300 3" vêm assim do próprio título do vendedor
+        # (confirmado pela URL do OLX) — um dígito sozinho não é trim de
+        # verdade, é ambíguo demais (cilindrada truncada? geração?) pra
+        # virar informação de versão.
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Passat 2") == ("PASSAT", None, None)
+        assert separar_modelo_versao_obs("MITSUBISHI", "Galant 2") == ("GALANT", None, None)
+        # Mas número de 2+ dígitos continua valendo (Galaxie 500, Porsche 964).
+        assert separar_modelo_versao_obs("FORD", "Fairlane 500") == ("FAIRLANE", "500", None)
+
+    def test_modelo_vazio(self):
+        assert separar_modelo_versao_obs("FORD", "") == ("", None, None)

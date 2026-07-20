@@ -31,7 +31,7 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from src.connectors._browser import criar_contexto
-from src.pipeline.normalizer import normalizar_preco, normalizar_texto, sanear_marca_modelo
+from src.pipeline.normalizer import normalizar_preco, normalizar_texto, separar_marca_modelo_versao_obs
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -245,8 +245,8 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
             continue
 
         # Marca/modelo vêm do slug da URL (estruturado) — passa pelo catálogo
-        # antes de gravar, como toda fonte estruturada (ver sanear_marca_modelo).
-        marca, modelo_raw = sanear_marca_modelo(marca, modelo_raw)
+        # antes de gravar, como toda fonte estruturada (ver separar_marca_modelo_versao_obs).
+        marca, modelo_raw, versao, obs = separar_marca_modelo_versao_obs(marca, modelo_raw)
 
         anuncios.append(
             Anuncio(
@@ -255,7 +255,8 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
                 marca=marca,
                 modelo=modelo_raw,
                 ano=ano,
-                versao=None,
+                versao=versao,
+                obs=obs,
                 url=BASE_URL + href,
                 fonte=FONTE,
                 data_coleta=data_coleta,

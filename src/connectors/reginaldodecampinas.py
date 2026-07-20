@@ -27,7 +27,7 @@ Página de detalhe (tema customizado):
   <h2>R$ 98.000,00</h2>
 
 Os títulos incluem km e texto extra após o ano — são limpos por _limpar_titulo()
-antes de passar para inferir_marca_modelo_ano. Marcas populares brasileiras
+antes de passar para inferir_marca_modelo_versao_obs_ano. Marcas populares brasileiras
 (FUSCA, KOMBI, etc.) são normalizadas para os nomes oficiais via _MARCA_ALIAS.
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.connectors._browser import requests_proxies
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.schema import Anuncio
 
 logger = logging.getLogger(__name__)
@@ -152,13 +152,13 @@ def coletar_completo(max_paginas: int = 50) -> tuple[list[Anuncio], dict]:
         titulo_limpo = _limpar_titulo(titulo)
         if not titulo_limpo:
             continue
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo_limpo)
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo_limpo)
         if not modelo:
             continue
 
         anuncios.append(Anuncio(
             titulo=titulo_limpo, preco=preco, marca=marca, modelo=modelo,
-            ano=ano, versao=None, url=prod_url, fonte=FONTE,
+            ano=ano, versao=versao, obs=obs, url=prod_url, fonte=FONTE,
             data_coleta=data_coleta,
         ))
 
@@ -209,12 +209,12 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
         if not preco or preco <= 0:
             continue
 
-        m_inf, mo_inf, ano = inferir_marca_modelo_ano(titulo_limpo)
+        m_inf, mo_inf, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo_limpo)
         if not mo_inf:
             continue
         anuncios.append(Anuncio(
             titulo=titulo_limpo, preco=preco, marca=m_inf, modelo=mo_inf,
-            ano=ano, versao=None, url=prod_url, fonte=FONTE,
+            ano=ano, versao=versao, obs=obs, url=prod_url, fonte=FONTE,
             data_coleta=data_coleta,
         ))
 
@@ -229,12 +229,12 @@ def parsear_listagem_html(html: str, data_coleta: str = "2000-01-01") -> list[An
         titulo_limpo = _limpar_titulo(titulo)
         if not titulo_limpo:
             continue
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo_limpo)
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo_limpo)
         if not modelo:
             continue
         anuncios.append(Anuncio(
             titulo=titulo_limpo, preco=None, marca=marca, modelo=modelo,
-            ano=ano, versao=None, url=url, fonte=FONTE, data_coleta=data_coleta,
+            ano=ano, versao=versao, obs=obs, url=url, fonte=FONTE, data_coleta=data_coleta,
         ))
     return anuncios
 

@@ -75,6 +75,41 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("FORD",      "F75"):       set(range(1973, 1980)),
     ("FORD",      "XR3"):       set(range(1984, 1993)),
     ("MERCEDES-BENZ", "C280"):  set(range(1993, 2001)),
+    # Modelos cujo número É o nome da linha, não um trim (auditoria
+    # 2026-07-20: sem a forma composta cadastrada, a nova separação de
+    # versão — ver `separar_modelo_versao_obs` — arrancava o número do nome
+    # e o modelo virava só "DEFENDER"/"SERIE"/"LS", perdendo qual carro é.
+    # Diferente de "Galaxie 500"/"Charger 500" (esses SÃO trim de época,
+    # ficam certos como versão) — aqui o número distingue carros diferentes
+    # (chassi/geração/linha), não uma edição do mesmo carro.
+    ("LAND ROVER", "DEFENDER 90"):   set(range(1983, 2017)),
+    ("LAND ROVER", "DEFENDER 110"):  set(range(1983, 2017)),
+    ("LAND ROVER", "DISCOVERY 1"):   set(range(1989, 1999)),
+    ("LAND ROVER", "SERIE 1"):       set(range(1948, 1959)),  # "Land Rover Series I"
+    ("MERCEDES-BENZ", "SPRINTER 310"): set(range(1995, 2007)),
+    ("MERCEDES-BENZ", "SPRINTER 312"): set(range(1995, 2007)),
+    ("LEXUS", "LS 400"):    set(range(1989, 2001)),
+    ("BMW", "SERIE 3"):     set(range(1975, 2025)),
+    ("BMW", "SERIE 5"):     set(range(1972, 2025)),
+    # Picapes GM linha C/D com grafia espaçada ("C 10", diferente de "C10"/
+    # "C1500" já cobertos por _MODELO_AMBIGUO_MARCA) — o número é a
+    # capacidade de carga (meia/3-quartos de tonelada), não um trim.
+    ("CHEVROLET", "C 10"):  set(range(1960, 1988)),
+    ("CHEVROLET", "C 20"):  set(range(1960, 1988)),
+    ("CHEVROLET", "D 20"):  set(range(1975, 1998)),
+    # "Galaxie 500"/"Charger 500" nasceram como trim, mas nos 21+1 anúncios
+    # do banco NUNCA aparecem sem o "500" nem com outro trim alternativo —
+    # na prática funcionam como o nome pelo qual o carro é conhecido, igual
+    # "Fusca" (auditoria 2026-07-20, amostra completa revisada).
+    ("FORD",  "GALAXIE 500"): set(range(1959, 1975)),
+    ("DODGE", "CHARGER 500"): set(range(1969, 1971)),
+    ("AUSTIN", "A 40"):       set(range(1947, 1958)),
+    # Motos: cilindrada faz parte do nome comercial (CB400, CG125...), não é
+    # trim — mesmo raciocínio dos carros acima.
+    ("HONDA", "CB 400"):    set(range(1978, 1985)),
+    ("HONDA", "CG 125"):    set(range(1976, 2005)),
+    ("HONDA", "ML 125"):    set(range(1982, 1988)),
+    ("HONDA", "SHADOW 750"): set(range(1997, 2010)),
 }
 
 # (marca_norm, modelo_norm) -> set de anos disponíveis

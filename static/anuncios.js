@@ -121,14 +121,14 @@ function aplicarFiltrosPendentes() {
 async function buscar(page) {
   currentPage = page;
   const tbody = document.getElementById('an-tbody');
-  tbody.innerHTML = '<tr><td colspan="7" class="an-empty">Carregando…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9" class="an-empty">Carregando…</td></tr>';
 
   try {
     const res  = await fetch(`/admin/api/anuncios?${params(page)}`);
     const data = await res.json();
 
     if (data.erro) {
-      tbody.innerHTML = `<tr><td colspan="7" class="an-empty an-empty--erro">${data.erro}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="an-empty an-empty--erro">${data.erro}</td></tr>`;
       return;
     }
 
@@ -190,7 +190,7 @@ async function buscar(page) {
 
     // Tabela
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="7" class="an-empty">Nenhum resultado para os filtros aplicados.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" class="an-empty">Nenhum resultado para os filtros aplicados.</td></tr>';
     } else {
       tbody.innerHTML = rows.map(r => {
         const linkTitulo = r.url
@@ -201,6 +201,8 @@ async function buscar(page) {
           <td class="an-td an-td--titulo">${linkTitulo}</td>
           <td class="an-td">${escapeHtml(r.marca || '—')}</td>
           <td class="an-td">${escapeHtml(r.modelo || '—')}</td>
+          <td class="an-td">${escapeHtml(r.versao || '—')}</td>
+          <td class="an-td">${escapeHtml(r.obs || '—')}</td>
           <td class="an-td an-td--num">${r.ano || '—'}</td>
           <td class="an-td an-td--num">${fmtPreco(r.preco)}</td>
           <td class="an-td an-td--data">${fmtData(r.ultima_vista)}</td>
@@ -211,7 +213,7 @@ async function buscar(page) {
     renderPaginacao(page, pages);
 
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="7" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 

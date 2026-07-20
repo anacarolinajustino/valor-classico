@@ -35,7 +35,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from src.connectors._browser import criar_contexto
-from src.pipeline.normalizer import inferir_marca_modelo_ano, normalizar_preco, normalizar_texto
+from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
 
@@ -576,7 +576,7 @@ def _parsear_ads_dom(
     frontend (verificado 2026-07-09, site migrado para Next.js App Router sem
     embutir os dados da busca em JSON). O ano agora só existe no título
     ("Volkswagen Fusca Fusca (gasolina) 1970"), extraído via
-    `inferir_marca_modelo_ano`.
+    `inferir_marca_modelo_versao_obs_ano`.
 
     Returns:
         (anuncios, descartados_sem_preco_ou_modelo, descartados_ano_fora_corte, total_cards)
@@ -609,7 +609,7 @@ def _parsear_ads_dom(
             descartados_sem_preco += 1
             continue
 
-        marca, modelo, ano = inferir_marca_modelo_ano(titulo)
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
         if not modelo:
             descartados_sem_preco += 1
             continue
@@ -626,7 +626,7 @@ def _parsear_ads_dom(
                 marca=marca,
                 modelo=modelo,
                 ano=ano,
-                versao=None,
+                versao=versao, obs=obs,
                 url=url,
                 fonte=FONTE,
                 data_coleta=data_coleta,

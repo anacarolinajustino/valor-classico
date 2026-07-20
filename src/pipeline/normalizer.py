@@ -397,21 +397,27 @@ _CILINDRADA_COLADA = re.compile(r"(?<=\S)(\d[.,]\d)")
 _TOKEN_DUPLICADO = re.compile(r"^(.{3,})\1$")
 
 
-def _e_token_spec(tok: str) -> bool:
+def _e_token_spec(tok: str, spec_palavras: frozenset = _SPEC_PALAVRAS) -> bool:
     """True se o token é spec (cilindrada, válvula, combustível, câmbio,
     injeção, potência, porta ou observação) — o corte para o modelo."""
     return bool(
-        tok in _SPEC_PALAVRAS
+        tok in spec_palavras
         or _SPEC_DECIMAL.match(tok)
         or _SPEC_REGEX.match(tok)
     )
 
 
-def _indice_corte_spec(tokens: list[str], inicio: int) -> int:
+def _indice_corte_spec(
+    tokens: list[str], inicio: int, spec_palavras: frozenset = _SPEC_PALAVRAS
+) -> int:
     """
     Primeiro índice (>= inicio) onde começa a cauda de spec — o modelo é
     tokens[:esse_índice]. Trata "4 Portas"/"2 Portas" por extenso cortando já
     no número (senão o número sobraria órfão no fim do modelo).
+
+    `spec_palavras` é parametrizável pra `separar_modelo_versao_obs` reusar
+    este corte com um vocabulário menor (sem carroceria/tração — ver
+    `_CARROCERIA_TRACAO`), sem afetar o corte de `sanear_modelo`.
     """
     n = len(tokens)
     for i in range(inicio, n):
@@ -423,7 +429,7 @@ def _indice_corte_spec(tokens: list[str], inicio: int) -> int:
             return i
         if tok in _SPEC_PORTAS:
             return i
-        if _e_token_spec(tok):
+        if _e_token_spec(tok, spec_palavras):
             return i
     return n
 
@@ -524,6 +530,43 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
         'Fusca 1600 1985'               -> ('VOLKSWAGEN', 'FUSCA 1600', 1985)
         'Chevrolet Biscayne Sedan 1963' -> ('CHEVROLET', 'BISCAYNE SEDAN', 1963)
     """
+    marca, modelo_bruto, ano = _inferir_marca_modelo_bruto_ano(titulo)
+    if not marca and not modelo_bruto:
+        return ("", "", ano)
+    # Limpa a cauda de spec do modelo, preservando nome + trim (2026-07-17).
+    return (marca, sanear_modelo(marca, modelo_bruto), ano)
+
+
+def inferir_marca_modelo_versao_obs_ano(
+    titulo: str,
+) -> tuple[str, str, Optional[str], Optional[str], Optional[int]]:
+    """
+    Variante de `inferir_marca_modelo_ano` que devolve modelo, versão e obs
+    já separados (ver `separar_modelo_versao_obs`), em vez do modelo com
+    nome+trim fundidos num string só. Mesma inferência de marca/modelo/ano a
+    partir do título — só troca o saneamento final (auditoria 2026-07-20,
+    pra conectores que só têm título livre, sem ficha técnica estruturada).
+
+    Exemplos:
+        'Chevrolet S10 Americana Cabine Estendida 1998'
+            -> ('CHEVROLET', 'S10', 'AMERICANA', 'CABINE ESTENDIDA', 1998)
+        'Volkswagen Fusca 1975' -> ('VOLKSWAGEN', 'FUSCA', None, None, 1975)
+    """
+    marca, modelo_bruto, ano = _inferir_marca_modelo_bruto_ano(titulo)
+    if not marca and not modelo_bruto:
+        return ("", "", None, None, ano)
+    modelo, versao, obs = separar_modelo_versao_obs(marca, modelo_bruto)
+    return (marca, modelo, versao, obs, ano)
+
+
+def _inferir_marca_modelo_bruto_ano(titulo: str) -> tuple[str, str, Optional[int]]:
+    """
+    Núcleo compartilhado de `inferir_marca_modelo_ano` e
+    `inferir_marca_modelo_versao_obs_ano`: acha marca, ano e o modelo AINDA
+    CRU (com a cauda de spec, sem separar versão/obs) — cada função pública
+    aplica o saneamento final que precisa (`sanear_modelo` ou
+    `separar_modelo_versao_obs`) por cima deste resultado.
+    """
     titulo_norm = normalizar_texto(titulo)
     tokens = titulo_norm.split()
 
@@ -617,8 +660,7 @@ def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
         marca = tokens_sem_ano[0]
         modelo = " ".join(tokens_sem_ano[1:]) if len(tokens_sem_ano) > 1 else ""
 
-    # Limpa a cauda de spec do modelo, preservando nome + trim (2026-07-17).
-    return (marca, sanear_modelo(marca, modelo), ano)
+    return (marca, modelo, ano)
 
 
 def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
@@ -705,13 +747,46 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
         ('Volkswagem', 'Fusca')                 -> ('VOLKSWAGEN', 'FUSCA')
         ('.', 'Lincoln Zephyr')                 -> ('LINCOLN', 'ZEPHYR')
     """
+    marca, modelo_bruto_final = _sanear_marca_modelo_bruto(marca_bruta, modelo_bruto)
+    return (marca, sanear_modelo(marca, modelo_bruto_final))
+
+
+def separar_marca_modelo_versao_obs(
+    marca_bruta: str, modelo_bruto: str
+) -> tuple[str, str, Optional[str], Optional[str]]:
+    """
+    Variante de `sanear_marca_modelo` que devolve modelo, versão e obs já
+    separados (ver `separar_modelo_versao_obs`), em vez do modelo com
+    nome+trim fundidos num string só. Mesma identificação de marca a partir
+    de ficha técnica estruturada — só troca o saneamento final (auditoria
+    2026-07-20, pra conectores com marca/modelo em campos próprios: ML,
+    Webmotors, Superantigo, Ateliê do Carro, Armazém do Vovô, Socarrão).
+
+    Exemplos:
+        ('Chevrolet Opala', 'De Luxe 4 Portas')
+            -> ('CHEVROLET', 'OPALA', 'DE LUXE', None)
+        ('Volkswagem', 'Kombi Pick-Up')
+            -> ('VOLKSWAGEN', 'KOMBI', None, 'PICK-UP')
+    """
+    marca, modelo_bruto_final = _sanear_marca_modelo_bruto(marca_bruta, modelo_bruto)
+    modelo, versao, obs = separar_modelo_versao_obs(marca, modelo_bruto_final)
+    return (marca, modelo, versao, obs)
+
+
+def _sanear_marca_modelo_bruto(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
+    """
+    Núcleo compartilhado de `sanear_marca_modelo` e
+    `separar_marca_modelo_versao_obs`: identifica a marca e monta o modelo
+    AINDA CRU (com a cauda de spec, sem separar versão/obs) — cada função
+    pública aplica o saneamento final que precisa por cima deste resultado.
+    """
     marca_norm = normalizar_texto(marca_bruta)
     modelo_toks = normalizar_texto(modelo_bruto).split()
 
     # Sentinela / decisão preservada: não reinterpretar a MARCA (o modelo
     # ainda é limpo — a poluição de spec independe de conhecer a marca).
     if marca_norm in _MARCAS_PRESERVADAS:
-        return (marca_norm, sanear_modelo(marca_norm, " ".join(modelo_toks)))
+        return (marca_norm, " ".join(modelo_toks))
 
     marca_toks = marca_norm.split()
     marca, sobra = _separar_marca(marca_toks)
@@ -720,17 +795,17 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
         # Campo "Marca" não reconhecido — a marca real pode estar no "Modelo".
         marca2, sobra2 = _separar_marca(modelo_toks)
         if marca2 is not None:
-            return (marca2, sanear_modelo(marca2, " ".join(sobra2)))
+            return (marca2, " ".join(sobra2))
         # Nada reconhecido: 1º token vira marca (legítima fora do catálogo),
         # ou sentinela se for palavra comum / campo vazio.
         if not marca_toks or marca_toks[0] in _PALAVRAS_NAO_MARCA:
             return (
                 MARCA_NAO_IDENTIFICADA,
-                sanear_modelo(MARCA_NAO_IDENTIFICADA, " ".join(marca_toks + modelo_toks)),
+                " ".join(marca_toks + modelo_toks),
             )
         return (
             marca_toks[0],
-            sanear_modelo(marca_toks[0], " ".join(marca_toks[1:] + modelo_toks)),
+            " ".join(marca_toks[1:] + modelo_toks),
         )
 
     # Marca reconhecida. Modelo = o que sobrou do campo "Marca" + campo
@@ -740,7 +815,7 @@ def sanear_marca_modelo(marca_bruta: str, modelo_bruto: str) -> tuple[str, str]:
     modelo_limpo = [t for t in modelo_toks if t not in marca_set]
     modelo_limpo_set = set(modelo_limpo)
     sobra_filtrada = [t for t in sobra if t not in marca_set and t not in modelo_limpo_set]
-    return (marca, sanear_modelo(marca, " ".join(sobra_filtrada + modelo_limpo)))
+    return (marca, " ".join(sobra_filtrada + modelo_limpo))
 
 
 def sanear_modelo(marca: str, modelo: str) -> str:
@@ -783,14 +858,147 @@ def sanear_modelo(marca: str, modelo: str) -> str:
     inicio = max(anchor, 1)
 
     corte = _indice_corte_spec(tokens, inicio)
+    return " ".join(_limpar_tokens(tokens[:corte]))
 
-    # Apara pontuação solta nas pontas ("Expres." -> "Expres", "-" -> ""),
-    # descarta vazios e faz dedup preservando a ordem ("Fusca Fusca" -> "Fusca").
+
+def _limpar_tokens(tokens: list[str]) -> list[str]:
+    """
+    Apara pontuação solta nas pontas de cada token ("Expres." -> "Expres",
+    "-" -> ""), descarta vazios e faz dedup preservando a ordem ("Fusca
+    Fusca" -> "Fusca"). Compartilhado por `sanear_modelo` e
+    `separar_modelo_versao_obs`.
+    """
     vistos: set = set()
     final: list[str] = []
-    for t in tokens[:corte]:
+    for t in tokens:
         t = t.strip(".-")
         if t and t not in vistos:
             vistos.add(t)
             final.append(t)
-    return " ".join(final)
+    return final
+
+
+# ────────────────────────────────────────────────
+# Separação VERSÃO / OBS dentro do que `sanear_modelo` mantém como modelo
+# (auditoria 2026-07-20)
+# ────────────────────────────────────────────────
+#
+# `sanear_modelo` mantém nome+trim juntos num string só (decisão de
+# 2026-07-17). Agora a usuária quer o trim/versão (GLX, SS, "Geração I CL")
+# em campo próprio — e pediu também que o residual que não é trim nem spec
+# (carroceria/tração: "Cabine Estendida", "Pick-Up", "4x4", "Sedan") não seja
+# descartado como as demais observações de venda/estado, e sim preservado
+# num campo "obs" à parte, pra não poluir o dropdown de versão.
+#
+# Reaproveita a mesma âncora de catálogo (`_maior_prefixo_modelo`) e o mesmo
+# corte de spec (`_indice_corte_spec`) de `sanear_modelo` — a diferença é que
+# aqui o corte usa um vocabulário de spec SEM as palavras de carroceria (elas
+# não devem interromper a busca por specs de verdade: em "Civic Sedan Lx" o
+# "Lx" vem DEPOIS de "Sedan" e precisa continuar sendo capturado). O que
+# sobra entre a âncora e o corte é então repartido token a token: carroceria/
+# tração vai pra obs, o resto vira versão.
+
+# Carroceria/tração/chassi — atributo real do carro, mas não é trim que pesa
+# no preço como GLX/SS/COMODORO. Cobre o mesmo campo semântico que uma parte
+# de `_MODELO_OBSERVACAO` já cortava (CABINE, CARROCERIA, CURTO, LONGO) mais
+# o vocabulário achado na auditoria de carroceria (PICK-UP, SEDAN, FURGAO,
+# 4X4...). Deliberadamente não reaproveita `_MODELO_OBSERVACAO` porque
+# `sanear_modelo` continua descartando essas palavras (não muda de
+# comportamento) — aqui elas só mudam de destino (obs em vez de lixo).
+_CARROCERIA_TRACAO: frozenset = frozenset({
+    "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS",
+    "CURTO", "LONGO", "ESTENDIDA", "DUPLA", "SIMPLES",
+    "PICK-UP", "PICKUP", "SEDAN", "FURGAO", "FURGONETE", "PERUA",
+    "COUPE", "CUPE", "WEEKEND", "CABRIO", "CABRIOLET", "CONVERSIVEL",
+    "4X4", "4X2", "TRACAO",
+})
+
+# Cilindrada grudada numa letra de trim sem espaço ("1300L", "1600S" — Fusca/
+# Kombi clássicos). \d{4} solto já é cilindrada pura (ver _SPEC_REGEX) e sai
+# inteiro; aqui, quando vem com letra grudada, separa: cilindrada descartada,
+# letra vira versão (é o mesmo "L"/"S" que apareceria solto noutra fonte).
+# Não confundir com nomenclatura tipo Mercedes/BMW ("160", "230CE") — essas
+# não batem aqui por serem 2-3 dígitos, não 4 (ver docstring da função).
+_CILINDRADA_TRIM_GLUED = re.compile(r"^(\d{4})([A-Z]{1,3})$")
+
+
+def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[str], Optional[str]]:
+    """
+    Variante granular de `sanear_modelo`: separa nome do modelo, versão/trim
+    (GLX, SS, "Geração I CL"...) e observação residual de carroceria/tração
+    ("Cabine Estendida", "Pick-Up", "Sedan", "4x4") em três campos, em vez de
+    devolver tudo junto num string só. Reaproveita a mesma âncora de
+    catálogo e o mesmo corte de spec de `sanear_modelo` — só reparte o que
+    sobra entre "versao" e "obs" ao invés de manter junto.
+
+    Números de motor colados a uma letra de trim (Fusca/Kombi "1300L",
+    "1600S") são divididos: a cilindrada é descartada, a letra vira versão.
+    Números de 2-3 dígitos que são nome comercial (Mercedes "Classe A 160",
+    BMW "328i") não batem nesse padrão e ficam intactos na versão — não há
+    tabela por marca pra isso porque a ambiguidade real só aparece na forma
+    grudada de 4 dígitos, e essa é sempre cilindrada nos clássicos BR do
+    banco (nenhuma marca do catálogo usa código comercial de 4 dígitos+letra
+    grudados). Se aparecer um caso assim, tratar em rodada futura.
+
+    Retorna (modelo, versao, obs); versao/obs são None quando não há nada
+    nessa categoria. Quando não há obs, `f"{modelo} {versao}".strip()` bate
+    com `sanear_modelo(marca, modelo_bruto)` (a diferença entre as duas
+    funções é só o que cada uma faz com a carroceria/tração: uma descarta,
+    a outra preserva à parte).
+
+    Exemplos:
+        ('VOLKSWAGEN', 'Gol Geracao I Cl')              -> ('GOL', 'GERACAO I CL', None)
+        ('CHEVROLET', 'S10 Americana Cabine Estendida') -> ('S10', 'AMERICANA', 'CABINE ESTENDIDA')
+        ('VOLKSWAGEN', 'Fusca 1300L')                   -> ('FUSCA', 'L', None)
+        ('VOLKSWAGEN', 'Kombi Pick-Up')                 -> ('KOMBI', None, 'PICK-UP')
+        ('HONDA', 'Civic Sedan Lx')                     -> ('CIVIC', 'LX', 'SEDAN')
+    """
+    marca_norm = normalizar_texto(marca)
+    modelo_norm = _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+    tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in modelo_norm.split()]
+    if not tokens:
+        return ("", None, None)
+
+    # Tira tokens da marca que vazaram pro modelo, igual sanear_modelo.
+    marca_set = set(marca_norm.split())
+    sem_marca = [t for t in tokens if t not in marca_set]
+    if sem_marca:
+        tokens = sem_marca
+
+    anchor = _maior_prefixo_modelo(marca_norm, tokens)
+    inicio = max(anchor, 1)
+
+    # Corte de spec sem carroceria/tração — essas palavras não devem
+    # interromper a varredura (senão trim que vem depois delas, tipo "Sedan
+    # Lx", ficaria fora do alcance do corte e seria perdido).
+    corte = _indice_corte_spec(tokens, inicio, _SPEC_PALAVRAS - _CARROCERIA_TRACAO)
+
+    modelo_final = " ".join(_limpar_tokens(tokens[:inicio]))
+
+    versao_tokens: list[str] = []
+    obs_tokens: list[str] = []
+    for t in tokens[inicio:corte]:
+        glued = _CILINDRADA_TRIM_GLUED.match(t)
+        if glued:
+            versao_tokens.append(glued.group(2))
+        elif t in _CARROCERIA_TRACAO:
+            obs_tokens.append(t)
+        else:
+            versao_tokens.append(t)
+
+    versao_limpa = _limpar_tokens(versao_tokens)
+    # Dígito solto sozinho como versão inteira ("Passat 2", "ES-300 3",
+    # "300-E 3") não é trim de verdade — ninguém nomeia uma versão só de
+    # "3". É ambiguidade da própria fonte (poderia ser "2.0"/"3.0" truncado
+    # no anúncio original, geração abreviada, etc.) sem contexto suficiente
+    # pra resolver; melhor descartar do que preservar como se fosse
+    # informação (auditoria 2026-07-20, achado ao revisar os casos "número
+    # virou versão" — confirmado batendo a URL original do OLX: o "2"/"3"
+    # já vem assim no título digitado pelo vendedor, não é truncamento
+    # nosso).
+    if len(versao_limpa) == 1 and re.fullmatch(r"\d", versao_limpa[0]):
+        versao_limpa = []
+
+    versao = " ".join(versao_limpa)
+    obs = " ".join(_limpar_tokens(obs_tokens))
+    return (modelo_final, versao or None, obs or None)
