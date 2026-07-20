@@ -221,6 +221,18 @@ _MODELO_AMBIGUO_MARCA: dict[str, str] = {
     "RURAL": "WILLYS",
 }
 
+# Grafia abreviada de modelo que fragmenta o grupo se não for canonizada
+# pra forma cheia do catálogo (auditoria 2026-07-20: "Toyota Bandeirante" —
+# clássico off-road brasileiro — vinha como "Band"/"Band."/"Bandeirantes"
+# em ~240 anúncios, cada grafia virando um modelo distinto). Aplicada por
+# token logo após a tokenização, antes da âncora de catálogo — assim
+# "BAND." vira "BANDEIRANTE" e a âncora reconhece normalmente.
+_MODELO_ABREVIACAO: dict[tuple[str, str], str] = {
+    ("TOYOTA", "BAND"): "BANDEIRANTE",
+    ("TOYOTA", "BAND."): "BANDEIRANTE",
+    ("TOYOTA", "BANDEIRANTES"): "BANDEIRANTE",
+}
+
 # O catálogo geral grafa a mesma marca de mais de um jeito ("WILLYS" e
 # "WILLYS OVERLAND" são o mesmo fabricante) — a regra "prefixo mais longo
 # primeiro" do passo 1 preferiria a forma composta, fragmentando o grupo já
@@ -356,7 +368,7 @@ _MODELO_OBSERVACAO: frozenset = frozenset({
     "PLACA", "DOC", "DOCUMENTO", "DOCUMENTACAO", "DOCUMENTOS", "LICENCIADO",
     "IPVA", "QUITADO", "CAUTELAR", "OK",
     # tipo de cabine / carroceria / chassi (usuária citou "cabine estendida")
-    "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS", "CURTO", "LONGO",
+    "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS", "CHAS.", "CURTO", "LONGO",
     # motor por extenso (não é o modelo): "6 cilindros", "6cc"; "Motor"/
     # "Motors" solto é sufixo corporativo vazado ("Kia Motors Besta") ou
     # menção de motor no título ("motor 1.6 AP") — nem um nem outro é
@@ -421,6 +433,33 @@ _CILINDRADA_COLADA = re.compile(r"(?<=\S)(\d[.,]\d)")
 # original). Exige 4+ letras pra não colapsar sigla curta de trim ("1300L",
 # "505SRI") — essas ficam pro _CILINDRADA_TRIM_GLUED ou seguem intactas.
 _NUMERO_PALAVRA_COLADA = re.compile(r"(?<=\d)([A-Z]{4,})\b")
+# Abreviação com ponto colada direto na palavra seguinte, sem espaço
+# ("Band.Picape", "Cap.de Aço", "Sed.Wind" — auditoria 2026-07-20, achado
+# investigando o Toyota Bandeirante fragmentado). Separar é sempre seguro:
+# o pior caso é dois tokens tão opacos quanto o blob original; o melhor caso
+# destrava um token reconhecível (trim, carroceria) que ficaria perdido.
+_ABREVIACAO_COLADA = re.compile(r"(?<=[A-Z])\.(?=[A-Z])")
+
+
+def _tokenizar_modelo(marca_norm: str, modelo: str) -> list[str]:
+    """
+    Normaliza e tokeniza `modelo` pra `sanear_modelo`/`separar_modelo_
+    versao_obs`: descola cilindrada/número/abreviação colados, colapsa
+    token duplicado ("DARTDART"->"DART") e canoniza abreviação de modelo
+    conhecida por marca ("BAND."->"BANDEIRANTE" — ver _MODELO_ABREVIACAO).
+    """
+    modelo_norm = _ABREVIACAO_COLADA.sub(
+        ". ",
+        _NUMERO_PALAVRA_COLADA.sub(
+            r" \1", _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+        ),
+    )
+    tokens = []
+    for t in modelo_norm.split():
+        t = _TOKEN_DUPLICADO.sub(r"\1", t)
+        t = _MODELO_ABREVIACAO.get((marca_norm, t), t)
+        tokens.append(t)
+    return tokens
 # Nome de modelo duplicado colado num token só ("DARTDART", "RURALRURAL",
 # "BELINABELINA"). Exige unidade de 3+ chars pra não colapsar trim curto ("SS").
 _TOKEN_DUPLICADO = re.compile(r"^(.{3,})\1$")
@@ -890,10 +929,7 @@ def sanear_modelo(marca: str, modelo: str) -> str:
         ('FIAT',       '147')                         -> '147'
     """
     marca_norm = normalizar_texto(marca)
-    modelo_norm = _NUMERO_PALAVRA_COLADA.sub(
-        r" \1", _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
-    )
-    tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in modelo_norm.split()]
+    tokens = _tokenizar_modelo(marca_norm, modelo)
     if not tokens:
         return ""
 
@@ -958,11 +994,15 @@ def _limpar_tokens(tokens: list[str]) -> list[str]:
 # `sanear_modelo` continua descartando essas palavras (não muda de
 # comportamento) — aqui elas só mudam de destino (obs em vez de lixo).
 _CARROCERIA_TRACAO: frozenset = frozenset({
-    "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS",
+    "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS", "CHAS.",
     "CURTO", "LONGO", "ESTENDIDA", "DUPLA", "SIMPLES",
-    "PICK-UP", "PICKUP", "SEDAN", "FURGAO", "FURGONETE", "PERUA",
+    "PICK-UP", "PICKUP", "SEDAN", "SED.", "FURGAO", "FURGONETE", "PERUA",
     "COUPE", "CUPE", "WEEKEND", "CABRIO", "CABRIOLET", "CONVERSIVEL",
     "4X4", "4X2", "TRACAO",
+    # Português (auditoria 2026-07-20, achado investigando Toyota
+    # Bandeirante: "Band.Jipe Cap.de Aço", "Band.Picape") — mesmo campo
+    # semântico das entradas em inglês acima.
+    "JIPE", "PICAPE", "CAP.", "CAPOTA", "LONA", "ACO",
 })
 
 # Cilindrada grudada numa letra de trim sem espaço ("1300L", "1600S" — Fusca/
@@ -1006,10 +1046,7 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
         ('HONDA', 'Civic Sedan Lx')                     -> ('CIVIC', 'LX', 'SEDAN')
     """
     marca_norm = normalizar_texto(marca)
-    modelo_norm = _NUMERO_PALAVRA_COLADA.sub(
-        r" \1", _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
-    )
-    tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in modelo_norm.split()]
+    tokens = _tokenizar_modelo(marca_norm, modelo)
     if not tokens:
         return ("", None, None)
 

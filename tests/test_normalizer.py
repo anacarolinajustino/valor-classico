@@ -7,6 +7,7 @@ from src.pipeline.normalizer import (
     normalizar_texto,
     remover_acentos,
     inferir_marca_modelo_ano,
+    inferir_marca_modelo_versao_obs_ano,
     sanear_marca_modelo,
     sanear_modelo,
     separar_modelo_versao_obs,
@@ -715,3 +716,36 @@ class TestSepararMarcaAsiaKiaMotors:
         # ruído a descartar, não vira parte da marca.
         assert inferir_marca_modelo_ano("Kia Motors Besta Gs") == ("KIA", "BESTA GS", None)
         assert inferir_marca_modelo_ano("Kia Besta Gs") == ("KIA", "BESTA GS", None)
+
+
+class TestToyotaBandeirante:
+    def test_grafias_abreviadas_convergem_pro_mesmo_modelo(self):
+        # Auditoria 2026-07-20: "Band"/"Band."/"Bandeirantes" fragmentavam
+        # o clássico off-road brasileiro em ~240 anúncios de modelos
+        # distintos — todas devem convergir pra "BANDEIRANTE".
+        casos = [
+            "Toyota Band. Jipe 4X4 Sport 3.7 Diesel 1988",
+            "Toyota Bandeirantes 4x4 Diesel",
+            "Toyota Bandeirante 1991",
+        ]
+        for titulo in casos:
+            marca, modelo, _versao, _obs, _ano = inferir_marca_modelo_versao_obs_ano(titulo)
+            assert (marca, modelo) == ("TOYOTA", "BANDEIRANTE")
+
+    def test_abreviacao_colada_com_ponto_e_separada(self):
+        # "Band.Picape"/"Band.Jipe" (ponto colado direto na palavra
+        # seguinte, sem espaço) — separado antes de canonizar.
+        assert separar_modelo_versao_obs("TOYOTA", "Band.Picape Chassi Longo") == (
+            "BANDEIRANTE", None, "PICAPE CHASSI LONGO"
+        )
+
+    def test_xingu_e_edicao_real_fica_versao(self):
+        # "Bandeirante Xingu" foi uma edição real do modelo — não é ruído.
+        assert separar_modelo_versao_obs("TOYOTA", "Bandeirante Xingu") == (
+            "BANDEIRANTE", "XINGU", None
+        )
+
+    def test_abreviacao_e_marca_scoped_nao_vaza_pra_outra_marca(self):
+        # "Band" só é abreviação de Bandeirante pra Toyota — outra marca
+        # com um token "Band" (hipotético) não deve ser reescrita.
+        assert separar_modelo_versao_obs("FORD", "Band Custom") == ("BAND", "CUSTOM", None)
