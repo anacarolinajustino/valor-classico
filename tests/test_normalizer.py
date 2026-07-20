@@ -643,5 +643,75 @@ class TestSepararModeloVersaoObs:
         # Mas número de 2+ dígitos continua valendo (Galaxie 500, Porsche 964).
         assert separar_modelo_versao_obs("FORD", "Fairlane 500") == ("FAIRLANE", "500", None)
 
+    def test_mercedes_classe_com_letra_fica_no_modelo(self):
+        # Auditoria 2026-07-20: só "Classe A" estava no catálogo; as demais
+        # letras caíam em modelo="CLASSE" sozinho (e "E" especificamente
+        # sumia de vez, colidindo com "E" como conectivo de enumeração).
+        assert separar_modelo_versao_obs("MERCEDES-BENZ", "Classe E 3.2 Avantgarde") == (
+            "CLASSE E", None, None
+        )
+        assert separar_modelo_versao_obs("MERCEDES-BENZ", "Classe C Classic") == (
+            "CLASSE C", "CLASSIC", None
+        )
+
+    def test_numero_colado_a_palavra_e_separado(self):
+        # "156Elegant" (espaço perdido no título original) — Elegant é
+        # versão, não faz parte do nome "156".
+        assert separar_modelo_versao_obs("ALFA ROMEO", "156Elegant") == (
+            "156", "ELEGANT", None
+        )
+
+    def test_cores_sao_descartadas_nao_viram_versao(self):
+        # Usuária pediu (2026-07-20): "cores não são versão, cores não são
+        # uma informação aproveitável" — descartada por completo, nem obs.
+        assert separar_modelo_versao_obs("CHEVROLET", "Caravan Comodoro Prata") == (
+            "CARAVAN", "COMODORO", None
+        )
+        assert separar_modelo_versao_obs("FIAT", "Tempra Ouro") == ("TEMPRA", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca Verde") == ("FUSCA", None, None)
+
+    def test_serie_prata_ouro_sao_edicao_protegida(self):
+        # "Série Prata"/"Série Ouro" são edições reais da VW (Fusca/Kombi),
+        # não a cor da pintura — só protegidas logo depois de "Série".
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca Serie Ouro") == (
+            "FUSCA", "SERIE OURO", None
+        )
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Kombi Serie Ouro Verde Nice") == (
+            "KOMBI", "SERIE OURO NICE", None
+        )
+
+    def test_varredura_geral_palavras_inuteis(self):
+        # Motor (spec/sufixo corporativo), aluguel/casamento (frota de
+        # eventos, não descreve 1 carro), dono (histórico de venda).
+        assert separar_modelo_versao_obs("FORD", "Pampa 93 Motor") == ("PAMPA", "93", None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca Itamar 2Dono") == (
+            "FUSCA", "ITAMAR 2", None
+        )
+
+    def test_titulo_repetido_nao_duplica_modelo_na_versao(self):
+        # Título com o modelo mencionado 2x ("Classe Slk ... Classe Slk
+        # 230 Kompressor") não pode vazar a repetição pra versão.
+        assert separar_modelo_versao_obs(
+            "MERCEDES-BENZ", "Classe Slk Mercedes-benz Classe Slk 230 Kompressor"
+        ) == ("CLASSE SLK", "230 KOMPRESSOR", None)
+
     def test_modelo_vazio(self):
         assert separar_modelo_versao_obs("FORD", "") == ("", None, None)
+
+
+class TestSepararMarcaAsiaKiaMotors:
+    def test_asia_motors_absorve_sufixo_na_marca_sempre(self):
+        # Usuária pediu (2026-07-20): "no Asia, o nome da marca é Asia
+        # Motors" — vale mesmo quando o título não citou "Motors".
+        assert inferir_marca_modelo_ano("Asia Motors Hi-Topic Full Diesel") == (
+            "ASIA MOTORS", "HI-TOPIC FULL", None
+        )
+        assert inferir_marca_modelo_ano("Asia Topic 2.7 Luxo") == (
+            "ASIA MOTORS", "TOPIC", None
+        )
+
+    def test_kia_motors_descarta_sufixo_mantem_marca(self):
+        # Mesmo bug do Asia, mas "Kia" já é o nome usual — "Motors" é só
+        # ruído a descartar, não vira parte da marca.
+        assert inferir_marca_modelo_ano("Kia Motors Besta Gs") == ("KIA", "BESTA GS", None)
+        assert inferir_marca_modelo_ano("Kia Besta Gs") == ("KIA", "BESTA GS", None)

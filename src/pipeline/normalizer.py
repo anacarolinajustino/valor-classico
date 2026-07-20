@@ -350,18 +350,42 @@ _MODELO_OBSERVACAO: frozenset = frozenset({
     "PERFEITO", "PERFEITA", "ESTADO", "ORIGINAL", "ORIGINAIS", "INTEIRO",
     "INTEIRA", "LATARIA", "PROCEDENCIA", "COLECIONADOR", "COLECAO",
     "ESPETACULAR", "MARAVILHOSO", "MARAVILHOSA", "BELISSIMO", "BELISSIMA",
-    "BONITO", "BONITA", "OTIMO", "OTIMA",
+    "BONITO", "BONITA", "OTIMO", "OTIMA", "RESTAURADO", "RESTAURADA",
+    "MODIFICADO", "MODIFICADA", "DONO", "DONOS", "HOTROD", "HOT-ROD",
     # documentação / legal
     "PLACA", "DOC", "DOCUMENTO", "DOCUMENTACAO", "DOCUMENTOS", "LICENCIADO",
     "IPVA", "QUITADO", "CAUTELAR", "OK",
     # tipo de cabine / carroceria / chassi (usuária citou "cabine estendida")
     "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS", "CURTO", "LONGO",
-    # motor por extenso (não é o modelo): "6 cilindros", "6cc"
+    # motor por extenso (não é o modelo): "6 cilindros", "6cc"; "Motor"/
+    # "Motors" solto é sufixo corporativo vazado ("Kia Motors Besta") ou
+    # menção de motor no título ("motor 1.6 AP") — nem um nem outro é
+    # trim (auditoria 2026-07-20). "Asia Motors" é exceção: a usuária pediu
+    # marca "ASIA MOTORS" inteira — ver _MARCA_SUFIXO_ABSORVE em _separar_marca.
     "CILINDROS", "CILINDRADA", "CC", "CUSTOMIZADO", "CUSTOMIZADA",
+    "MOTOR", "MOTORS",
+    # aluguel/eventos: anúncio de frota pra casamento/evento, não descreve
+    # UM carro específico (usuária pediu 2026-07-20, varredura geral)
+    "ALUGUEL", "ALUGA-SE", "CASAMENTO", "CASAMENTOS", "EVENTO", "EVENTOS",
     # estado geral / conforto / conectivos de descrição
     "KM", "EPOCA", "TODO", "TODA", "TODOS", "TODAS", "MUITO", "MUITA", "AR",
     "CONDICIONADO", "DIRECAO", "HIDRAULICA", "COM", "SEM", "PARA", "PRA",
     "POSSUI", "ANO", "ATELIE", "LOJA", "CARRO", "UM", "UMA",
+})
+
+# Cores: nunca é informação aproveitável de versão — nem paint job, nem
+# acabamento (usuária pediu 2026-07-20: "cores não são versão, na verdade
+# cores não são uma informação aproveitável"). Descartada por completo (não
+# vira obs — carroceria/tração é atributo do carro, cor não pesa em nada).
+# Exceção: "Série Prata"/"Série Ouro" são edições reais da VW (Fusca/Kombi
+# "Série Ouro/Prata"), não a cor da pintura — protegidas quando precedidas
+# de SERIE (ver o loop de classificação em separar_modelo_versao_obs).
+_CORES: frozenset = frozenset({
+    "BRANCO", "BRANCA", "PRETO", "PRETA", "PRATA", "CINZA", "VERMELHO",
+    "VERMELHA", "AZUL", "VERDE", "AMARELO", "AMARELA", "BEGE", "DOURADO",
+    "DOURADA", "OURO", "MARROM", "LARANJA", "ROXO", "ROSA", "GRAFITE",
+    "VINHO", "BORDO", "CHAMPAGNE", "PEROLA", "FOSCO", "FOSCA", "METALICO",
+    "METALICA", "METAL",
 })
 
 _SPEC_PALAVRAS: frozenset = (
@@ -392,6 +416,11 @@ _SPEC_REGEX = re.compile(
 # de modelo tem "X.Y" —, então separá-la (por espaço) é seguro. Basta estar
 # grudada a qualquer não-espaço; "1.6" no início/após espaço não é tocada.
 _CILINDRADA_COLADA = re.compile(r"(?<=\S)(\d[.,]\d)")
+# Número colado numa palavra por extenso sem espaço ("156Elegant",
+# "1500Motor", "6cilindros", "D-20Manual" — perda de espaço no título
+# original). Exige 4+ letras pra não colapsar sigla curta de trim ("1300L",
+# "505SRI") — essas ficam pro _CILINDRADA_TRIM_GLUED ou seguem intactas.
+_NUMERO_PALAVRA_COLADA = re.compile(r"(?<=\d)([A-Z]{4,})\b")
 # Nome de modelo duplicado colado num token só ("DARTDART", "RURALRURAL",
 # "BELINABELINA"). Exige unidade de 3+ chars pra não colapsar trim curto ("SS").
 _TOKEN_DUPLICADO = re.compile(r"^(.{3,})\1$")
@@ -423,9 +452,9 @@ def _indice_corte_spec(
     for i in range(inicio, n):
         tok = tokens[i]
         prox = tokens[i + 1] if i + 1 < n else ""
-        # "4 Portas"/"555 Km"/"6 Cilindros" por extenso: corta já no número
-        # (senão sobraria órfão no fim do modelo).
-        if tok.isdigit() and (prox in _SPEC_PORTAS or prox in ("KM", "CILINDROS")):
+        # "4 Portas"/"555 Km"/"6 Cilindros"/"4 Lugares" por extenso: corta já
+        # no número (senão sobraria órfão no fim do modelo).
+        if tok.isdigit() and (prox in _SPEC_PORTAS or prox in ("KM", "CILINDROS", "LUGARES", "LUGAR")):
             return i
         if tok in _SPEC_PORTAS:
             return i
@@ -663,24 +692,45 @@ def _inferir_marca_modelo_bruto_ano(titulo: str) -> tuple[str, str, Optional[int
     return (marca, modelo, ano)
 
 
+# Sufixo corporativo que vaza pro modelo quando a marca é 1 token só
+# ("Kia Motors Besta", "Asia Motors Topic"). Regra geral: descartado (ver
+# "MOTOR"/"MOTORS" em _MODELO_OBSERVACAO). Exceção: marcas onde o sufixo É
+# parte do nome usual (usuária pediu 2026-07-20: "no Asia, o nome da marca
+# é Asia Motors") — aqui ele é absorvido na marca em vez de descartado.
+_MARCA_SUFIXO_ABSORVE: dict[str, str] = {
+    "ASIA": "ASIA MOTORS",
+}
+_SUFIXO_CORPORATIVO: frozenset = frozenset({"MOTORS", "MOTOR"})
+
+
 def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
     """
     Identifica a marca canônica no prefixo de `tokens` (já normalizados, sem
     ano) e retorna (marca, tokens_restantes). Retorna (None, tokens) quando
     nenhuma marca é reconhecida — o chamador decide o fallback.
 
-    Ordem de precedência (a mesma que `inferir_marca_modelo_ano` sempre usou):
-      1. Prefixo mais longo que seja marca do catálogo (cobre compostas como
-         "LAND ROVER", "MP LAFER"; prefixos rebaixados por _MARCA_CANONICA são
-         pulados aqui pra não engolir tokens de modelo).
-      2. Alias de marca (2 tokens antes de 1: "MERCEDES BENZ" > "MERCEDES");
-         o alias pode ser só um selo na frente da marca real ("GM Oldsmobile"),
-         nesse caso a marca de catálogo que vem depois prevalece.
-      3. Primeiro token é um modelo que identifica uma única marca ("FUSCA").
-      3.5. Modelo ambíguo com marca dominante no clássico BR ("147", "CARAVAN").
+    Absorve ou descarta sufixo corporativo solto logo após a marca ("Kia
+    Motors", "Asia Motors") — ver `_MARCA_SUFIXO_ABSORVE` — antes de aplicar
+    a precedência normal (catálogo/alias/modelo-exclusivo).
+    """
+    marca, resto = _separar_marca_core(tokens)
+    if marca is not None:
+        # Tira o sufixo do modelo se ele apareceu (independente de a marca
+        # estar no dict de absorção — cobre "Kia Motors" também).
+        if resto and resto[0] in _SUFIXO_CORPORATIVO:
+            resto = resto[1:]
+        # Renomeação incondicional: mesmo quando o título não citou o
+        # sufixo ("Asia Topic", sem "Motors"), a usuária pediu a marca
+        # canônica "Asia Motors" sempre — não só quando o sufixo apareceu.
+        if marca in _MARCA_SUFIXO_ABSORVE:
+            marca = _MARCA_SUFIXO_ABSORVE[marca]
+    return (marca, resto)
 
-    Nos casos 3/3.5 o token que identificou a marca É parte do modelo, então
-    ele permanece em tokens_restantes (a marca é implícita, não estava escrita).
+
+def _separar_marca_core(tokens: list[str]) -> tuple[Optional[str], list[str]]:
+    """
+    Núcleo de `_separar_marca` (ver docstring lá pra ordem de precedência
+    completa: prefixo de catálogo, alias, modelo exclusivo, modelo ambíguo).
     """
     if not tokens:
         return (None, [])
@@ -840,7 +890,9 @@ def sanear_modelo(marca: str, modelo: str) -> str:
         ('FIAT',       '147')                         -> '147'
     """
     marca_norm = normalizar_texto(marca)
-    modelo_norm = _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+    modelo_norm = _NUMERO_PALAVRA_COLADA.sub(
+        r" \1", _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+    )
     tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in modelo_norm.split()]
     if not tokens:
         return ""
@@ -954,7 +1006,9 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
         ('HONDA', 'Civic Sedan Lx')                     -> ('CIVIC', 'LX', 'SEDAN')
     """
     marca_norm = normalizar_texto(marca)
-    modelo_norm = _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+    modelo_norm = _NUMERO_PALAVRA_COLADA.sub(
+        r" \1", _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(modelo))
+    )
     tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in modelo_norm.split()]
     if not tokens:
         return ("", None, None)
@@ -975,14 +1029,29 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
 
     modelo_final = " ".join(_limpar_tokens(tokens[:inicio]))
 
+    # Título repetido colado ("Mercedes-Benz Classe Slk ... Mercedes-Benz
+    # Classe Slk 230 Kompressor") faz o nome do modelo vazar de novo na
+    # cauda — filtrado aqui como o "Fiat"/"Motors" que vaza da marca.
+    modelo_tokens_set = set(tokens[:inicio])
+
     versao_tokens: list[str] = []
     obs_tokens: list[str] = []
-    for t in tokens[inicio:corte]:
+    for i in range(inicio, corte):
+        t = tokens[i]
+        if t in modelo_tokens_set:
+            continue
         glued = _CILINDRADA_TRIM_GLUED.match(t)
         if glued:
             versao_tokens.append(glued.group(2))
         elif t in _CARROCERIA_TRACAO:
             obs_tokens.append(t)
+        elif t in _CORES:
+            # Cor nunca é informação de versão (usuária pediu 2026-07-20) —
+            # descartada, nem versão nem obs. Exceção: "Série Prata"/"Série
+            # Ouro" são edições reais da VW, não a cor da pintura; só
+            # protegida quando vem logo depois de "Série".
+            if i > 0 and tokens[i - 1] == "SERIE":
+                versao_tokens.append(t)
         else:
             versao_tokens.append(t)
 

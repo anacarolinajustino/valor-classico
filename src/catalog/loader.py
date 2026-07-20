@@ -91,6 +91,17 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("LEXUS", "LS 400"):    set(range(1989, 2001)),
     ("BMW", "SERIE 3"):     set(range(1975, 2025)),
     ("BMW", "SERIE 5"):     set(range(1972, 2025)),
+    # "Classe X" da Mercedes: só "CLASSE A" estava no CSV base — as demais
+    # letras caíam no fallback "CLASSE" sozinho (usuária pediu 2026-07-20).
+    # Bônus: protege "Classe E" de perder o E pro corte de spec (ver "E" em
+    # _SPEC_OBSERVACAO — cauda começa a ser varrida só depois do que a
+    # âncora consome, então uma âncora de 2 tokens tira "E" do alcance do
+    # corte em vez de precisar mexer no set global de spec).
+    ("MERCEDES-BENZ", "CLASSE C"):   set(range(1993, 2001)),
+    ("MERCEDES-BENZ", "CLASSE E"):   set(range(1993, 2001)),
+    ("MERCEDES-BENZ", "CLASSE S"):   set(range(1991, 2001)),
+    ("MERCEDES-BENZ", "CLASSE CLK"): set(range(1997, 2001)),
+    ("MERCEDES-BENZ", "CLASSE SLK"): set(range(1996, 2001)),
     # Picapes GM linha C/D com grafia espaçada ("C 10", diferente de "C10"/
     # "C1500" já cobertos por _MODELO_AMBIGUO_MARCA) — o número é a
     # capacidade de carga (meia/3-quartos de tonelada), não um trim.
