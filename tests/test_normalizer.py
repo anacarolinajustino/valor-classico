@@ -736,6 +736,63 @@ class TestModeloPuroLixoOuMotorizacao:
         assert separar_modelo_versao_obs("SANTA MATILDE", "4.1") == ("4.1", None, None)
 
 
+class TestVolkswagenRevisaoGeral:
+    """Usuária pediu (2026-07-20): revisar todos os modelos Volkswagen."""
+
+    def test_carroceria_na_frente_nao_vira_modelo(self):
+        # "Perua Kombi" — a busca de âncora pulava só spec/cilindrada solto
+        # na frente, não carroceria; "PERUA" virava modelo em vez de achar
+        # "KOMBI" depois.
+        # Nota: a carroceria pulada na frente da âncora é descartada, não
+        # vira obs (obs só captura o que sobra DEPOIS do nome do modelo) —
+        # comportamento aceito dado o volume baixo desse padrão invertido.
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Perua Kombi") == (
+            "KOMBI", None, None
+        )
+
+    def test_cilindrada_colada_a_trim_na_frente_nao_vira_modelo(self):
+        # "Fuscão 1600s" — "1600S" (cilindrada + letra de trim colados) não
+        # batia em nenhum padrão de spec por palavra, então quebrava a
+        # busca de âncora antes de achar "Fusca" mais à frente no título.
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "1600S Fusca") == (
+            "FUSCA", None, None
+        )
+
+    def test_apelidos_e_typos_convergem_pro_modelo_do_catalogo(self):
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fuscão") == ("FUSCA", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusquinha") == ("FUSCA", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Apolo Gl") == ("APOLLO", "GL", None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Braslia") == ("BRASILIA", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Voyagem") == ("VOYAGE", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Karmann-guia") == (
+            "KARMANN-GHIA", None, None
+        )
+
+    def test_duas_grafias_catalogadas_do_mesmo_modelo_convergem(self):
+        # "Karmann Ghia" (espaço) e "Karmann-Ghia" (hífen) são as duas
+        # formas cadastradas no catálogo — sem canonizar, fragmentavam o
+        # mesmo modelo em dois grupos.
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Karmann Ghia Coupe") == (
+            "KARMANN-GHIA", None, "COUPE"
+        )
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Karmann-Ghia TC") == (
+            "KARMANN-GHIA", "TC", None
+        )
+
+    def test_voiage_sem_prefixo_de_marca_ainda_vira_modelo_voyage(self):
+        # "VOIAGE" tinha alias de MARCA que consumia o token — "Voiage
+        # Argentino" perdia "Voyage" do modelo, sobrava só "Argentino".
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Voiage Argentino") == (
+            "VOYAGE", "ARGENTINO", None
+        )
+
+    def test_modelo_colado_ao_trim_sem_separador(self):
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Golcl 1.6") == ("GOL", None, None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Saveirocl 1.6") == (
+            "SAVEIRO", None, None
+        )
+
+
 class TestSepararMarcaAsiaKiaMotors:
     def test_asia_motors_absorve_sufixo_na_marca_sempre(self):
         # Usuária pediu (2026-07-20): "no Asia, o nome da marca é Asia

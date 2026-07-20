@@ -116,7 +116,11 @@ _ALIASES_MARCA: dict[str, str] = {
     "FOR": "FORD",
     "FORDINHO": "FORD",  # apelido popular do Ford Model A/T no Brasil
     "FUSCAO": "VOLKSWAGEN",  # apelido popular do Fusca "grande"/customizado
-    "VOIAGE": "VOLKSWAGEN",  # grafia errada de "Voyage" (o modelo, não a marca)
+    # NB: "VOIAGE" (typo de "Voyage") NÃO fica aqui — como alias de marca ele
+    # consumiria o token e "Voiage Argentino" perderia o "Voyage" do modelo
+    # (auditoria 2026-07-20). Movido pra _MODELO_AMBIGUO_MARCA, que identifica
+    # a marca sem consumir o token — a canonização VOIAGE->VOYAGE acontece
+    # depois, em _MODELO_ABREVIACAO, já no pipeline de modelo.
     "CHREVOLET": "CHEVROLET",
     "CHREVROLET": "CHEVROLET",
     "CHVEROLET": "CHEVROLET",
@@ -219,6 +223,10 @@ _MODELO_AMBIGUO_MARCA: dict[str, str] = {
     # depois de comprar a Willys-Overland do Brasil em 1967) — cobre tanto
     # "Rural Willys"/"Rural Wyllis" quanto "Rural 4x4"/"Rural Luxo".
     "RURAL": "WILLYS",
+    # "Voiage" (typo de "Voyage") sem "Volkswagen"/"VW" na frente — igual
+    # não consome o token, pra _MODELO_ABREVIACAO canonizar pra "VOYAGE"
+    # depois (auditoria 2026-07-20, ver comentário em _ALIASES_MARCA).
+    "VOIAGE": "VOLKSWAGEN",
 }
 
 # Grafia abreviada de modelo que fragmenta o grupo se não for canonizada
@@ -231,6 +239,34 @@ _MODELO_ABREVIACAO: dict[tuple[str, str], str] = {
     ("TOYOTA", "BAND"): "BANDEIRANTE",
     ("TOYOTA", "BAND."): "BANDEIRANTE",
     ("TOYOTA", "BANDEIRANTES"): "BANDEIRANTE",
+    # Auditoria 2026-07-20 (revisão geral dos modelos Volkswagen): apelido,
+    # typo ou plural fragmentando o mesmo modelo do catálogo.
+    ("VOLKSWAGEN", "FUSCAO"):       "FUSCA",      # apelido popular
+    ("VOLKSWAGEN", "FUSQUINHA"):    "FUSCA",      # apelido popular
+    ("VOLKSWAGEN", "APOLO"):        "APOLLO",     # grafia sem dobrar o L
+    ("VOLKSWAGEN", "BRASLIA"):      "BRASILIA",   # typo (falta o "I")
+    ("VOLKSWAGEN", "VOYAGEM"):      "VOYAGE",     # typo
+    ("VOLKSWAGEN", "VOYAGES"):      "VOYAGE",     # plural
+    ("VOLKSWAGEN", "VOIAGE"):       "VOYAGE",     # typo (mesmo caso do
+    # alias de MARCA "VOIAGE"→VOLKSWAGEN — aqui é o token de MODELO)
+    ("VOLKSWAGEN", "KARMANN-GUIA"): "KARMANN-GHIA",  # typo (Guia x Ghia)
+    # NB: sem alias solto pra "KARMANN" — duplicaria quando o título já diz
+    # "Karmann Ghia" por extenso (2 tokens): "KARMANN"->"KARMANN-GHIA" mais
+    # o "GHIA" que já vinha depois vira "KARMANN-GHIA GHIA".
+    # Modelo colado ao trim sem espaço no título original ("GolCL",
+    # "SaveiroCL", "VoyageCL") — sem separador pra descolar tipo
+    # _NUMERO_PALAVRA_COLADA (não começa com dígito), então mapeado direto;
+    # perde o trim "CL" como versão à parte, aceitável pro volume (1 cada).
+    ("VOLKSWAGEN", "GOLCL"):        "GOL",
+    ("VOLKSWAGEN", "SAVEIROCL"):    "SAVEIRO",
+    ("VOLKSWAGEN", "VOYAGECL"):     "VOYAGE",
+    # Duas formas VÁLIDAS no catálogo pro mesmo modelo (a com espaço foi
+    # suplementada 2026-07-15 só pra reconhecer, sem virar canônica) —
+    # fragmentava 13+26 anúncios em dois grupos. Chave é o modelo JÁ
+    # ancorado (2 tokens juntos), não mais um único token cru — reaplicado
+    # depois da âncora, não da tokenização (ver sanear_modelo/
+    # separar_modelo_versao_obs).
+    ("VOLKSWAGEN", "KARMANN GHIA"): "KARMANN-GHIA",
 }
 
 # O catálogo geral grafa a mesma marca de mais de um jeito ("WILLYS" e
@@ -596,9 +632,16 @@ def _achar_ancora_modelo(
 ) -> tuple[int, int]:
     """
     Acha onde o nome do modelo começa em `tokens`, tentando o catálogo não
-    só na posição 0 mas pulando spec solto na frente ("Puma 1.6 Gte" —
-    cilindrada antes do nome real "Gte", que está no catálogo). Só pula
-    token que É spec/observação; token desconhecido que não bate no
+    só na posição 0 mas pulando spec/carroceria/cilindrada-colada solto na
+    frente ("Puma 1.6 Gte" — cilindrada antes do nome real "Gte", que está
+    no catálogo; "Perua Kombi" — carroceria antes do nome real "Kombi";
+    "Fuscão 1600s, fuscão Bizorrão..." — "1600S" glued não é nome de modelo
+    mesmo não batendo em nenhum padrão de spec por palavra). Carroceria e
+    cilindrada-colada contam como puláveis aqui mesmo quando `spec_palavras`
+    não as inclui (`separar_modelo_versao_obs` trata as duas à parte do
+    corte de versão — ver ali —, mas nenhuma delas é candidata a nome de
+    modelo, então continuam puláveis na busca da âncora). Só pula token que
+    É spec/carroceria/cilindrada-colada; token desconhecido que não bate no
     catálogo interrompe a varredura — não é seguro pular por cima de um
     nome de modelo real só por ele não estar catalogado.
 
@@ -609,7 +652,13 @@ def _achar_ancora_modelo(
         tam = _maior_prefixo_modelo(marca_norm, tokens[pular:])
         if tam > 0:
             return (pular, tam)
-        if not _e_token_spec(tokens[pular], spec_palavras):
+        tok = tokens[pular]
+        pulavel = (
+            _e_token_spec(tok, spec_palavras)
+            or tok in _CARROCERIA_TRACAO
+            or _CILINDRADA_TRIM_GLUED.match(tok)
+        )
+        if not pulavel:
             break
     return (0, 0)
 
@@ -1068,7 +1117,7 @@ _CARROCERIA_TRACAO: frozenset = frozenset({
     # precisa estar aqui: _limpar_tokens tira o ponto ao gravar, então um
     # reprocessamento futuro que recombine essas colunas já vê "CAP" sem
     # ponto (achado reprocessando de novo nesta mesma rodada).
-    "JIPE", "PICAPE", "CAP", "CAP.", "CAPOTA", "LONA", "ACO",
+    "JIPE", "PICAPE", "CAP", "CAP.", "CAPOTA", "LONA", "ACO", "TETO",
 })
 
 # Cilindrada grudada numa letra de trim sem espaço ("1300L", "1600S" — Fusca/
@@ -1134,6 +1183,10 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
     corte = _indice_corte_spec(tokens, inicio, spec_sem_carroceria)
 
     modelo_final = " ".join(_limpar_tokens(tokens[pular:inicio]))
+    # Duas grafias válidas no catálogo pro mesmo modelo (ex.: "Karmann
+    # Ghia"/"Karmann-Ghia") — reaplica a canonização por cima do nome JÁ
+    # ancorado (chave é a frase inteira, não mais um token cru).
+    modelo_final = _MODELO_ABREVIACAO.get((marca_norm, modelo_final), modelo_final)
 
     # Título repetido colado ("Mercedes-Benz Classe Slk ... Mercedes-Benz
     # Classe Slk 230 Kompressor") faz o nome do modelo vazar de novo na
