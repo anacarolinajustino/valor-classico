@@ -579,6 +579,65 @@ def _maior_prefixo_modelo(marca_norm: str, tokens: list[str]) -> int:
     return 0
 
 
+def _numero_ambiguo_com_cilindrada(tok: str) -> bool:
+    """
+    True se `tok` é um número que pode ser cilindrada OU nome de modelo
+    (decimal "3.4"/"4.1", 4 dígitos soltos "5211") — protegido como modelo
+    quando não há mais nada pra ancorar (ex.: "Zetor 5211"). Marcas onde o
+    número decimal É o nome comercial de verdade (Jaguar "3.4", Citroën
+    "2CV") ficam no catálogo (ver _SUPLEMENTO) e nem chegam a precisar
+    dessa proteção — o catálogo ancora primeiro.
+    """
+    return bool(_SPEC_DECIMAL.match(tok) or re.fullmatch(r"\d{4}", tok))
+
+
+def _achar_ancora_modelo(
+    marca_norm: str, tokens: list[str], spec_palavras: frozenset
+) -> tuple[int, int]:
+    """
+    Acha onde o nome do modelo começa em `tokens`, tentando o catálogo não
+    só na posição 0 mas pulando spec solto na frente ("Puma 1.6 Gte" —
+    cilindrada antes do nome real "Gte", que está no catálogo). Só pula
+    token que É spec/observação; token desconhecido que não bate no
+    catálogo interrompe a varredura — não é seguro pular por cima de um
+    nome de modelo real só por ele não estar catalogado.
+
+    Retorna (posições_puladas, tamanho_da_âncora); tamanho 0 = nada achado
+    em posição nenhuma (chamador decide o fallback).
+    """
+    for pular in range(len(tokens)):
+        tam = _maior_prefixo_modelo(marca_norm, tokens[pular:])
+        if tam > 0:
+            return (pular, tam)
+        if not _e_token_spec(tokens[pular], spec_palavras):
+            break
+    return (0, 0)
+
+
+def _localizar_modelo(
+    marca_norm: str, tokens: list[str], spec_palavras: frozenset
+) -> tuple[int, int]:
+    """
+    Decide onde o nome do modelo está em `tokens`: (posições_puladas,
+    tamanho). Tamanho 0 quer dizer "sem nome de modelo recuperável" — só
+    lixo puro (spec/observação) na frente e nada catalogável em nenhuma
+    posição (usuária pediu 2026-07-20, revisão de "modelo em branco ou com
+    motorização": "V8"/"Modelo"/"Com" sozinho não pode virar o modelo).
+    """
+    if not tokens:
+        return (0, 0)
+    pular, tam = _achar_ancora_modelo(marca_norm, tokens, spec_palavras)
+    if tam > 0:
+        return (pular, tam)
+    # Nada no catálogo em posição nenhuma. Fallback: 1º token vira o nome
+    # do modelo — MENOS quando é lixo puro não numérico (número ambíguo
+    # com cilindrada continua protegido: "Zetor 5211").
+    primeiro = tokens[0]
+    if _e_token_spec(primeiro, spec_palavras) and not _numero_ambiguo_com_cilindrada(primeiro):
+        return (0, 0)
+    return (0, 1)
+
+
 def inferir_marca_modelo_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     """
     Infere marca, modelo e ano a partir do título do anúncio.
@@ -940,13 +999,17 @@ def sanear_modelo(marca: str, modelo: str) -> str:
     if sem_marca:
         tokens = sem_marca
 
-    # Ancora o nome do modelo no catálogo (protege número que é parte do
-    # nome); na falta, mantém ao menos o 1º token como nome do modelo.
-    anchor = _maior_prefixo_modelo(marca_norm, tokens)
-    inicio = max(anchor, 1)
+    # Ancora o nome do modelo no catálogo, pulando spec solto na frente se
+    # precisar (protege número que é parte do nome; "Puma 1.6 Gte" acha
+    # "Gte" pulando a cilindrada); na falta de qualquer âncora, mantém o
+    # 1º token — exceto se ele mesmo for lixo puro (ver _localizar_modelo).
+    pular, tam_ancora = _localizar_modelo(marca_norm, tokens, _SPEC_PALAVRAS)
+    if tam_ancora == 0:
+        return ""
+    inicio = pular + tam_ancora
 
     corte = _indice_corte_spec(tokens, inicio)
-    return " ".join(_limpar_tokens(tokens[:corte]))
+    return " ".join(_limpar_tokens(tokens[pular:corte]))
 
 
 def _limpar_tokens(tokens: list[str]) -> list[str]:
@@ -996,13 +1059,16 @@ def _limpar_tokens(tokens: list[str]) -> list[str]:
 _CARROCERIA_TRACAO: frozenset = frozenset({
     "CABINE", "CAB", "CAB.", "CARROCERIA", "CHASSI", "CHAS", "CHAS.",
     "CURTO", "LONGO", "ESTENDIDA", "DUPLA", "SIMPLES",
-    "PICK-UP", "PICKUP", "SEDAN", "SED.", "FURGAO", "FURGONETE", "PERUA",
+    "PICK-UP", "PICKUP", "SEDAN", "SED", "SED.", "FURGAO", "FURGONETE", "PERUA",
     "COUPE", "CUPE", "WEEKEND", "CABRIO", "CABRIOLET", "CONVERSIVEL",
     "4X4", "4X2", "TRACAO",
     # Português (auditoria 2026-07-20, achado investigando Toyota
     # Bandeirante: "Band.Jipe Cap.de Aço", "Band.Picape") — mesmo campo
-    # semântico das entradas em inglês acima.
-    "JIPE", "PICAPE", "CAP.", "CAPOTA", "LONA", "ACO",
+    # semântico das entradas em inglês acima. Forma sem ponto também
+    # precisa estar aqui: _limpar_tokens tira o ponto ao gravar, então um
+    # reprocessamento futuro que recombine essas colunas já vê "CAP" sem
+    # ponto (achado reprocessando de novo nesta mesma rodada).
+    "JIPE", "PICAPE", "CAP", "CAP.", "CAPOTA", "LONA", "ACO",
 })
 
 # Cilindrada grudada numa letra de trim sem espaço ("1300L", "1600S" — Fusca/
@@ -1056,20 +1122,23 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
     if sem_marca:
         tokens = sem_marca
 
-    anchor = _maior_prefixo_modelo(marca_norm, tokens)
-    inicio = max(anchor, 1)
+    spec_sem_carroceria = _SPEC_PALAVRAS - _CARROCERIA_TRACAO
+    pular, tam_ancora = _localizar_modelo(marca_norm, tokens, spec_sem_carroceria)
+    if tam_ancora == 0:
+        return ("", None, None)
+    inicio = pular + tam_ancora
 
     # Corte de spec sem carroceria/tração — essas palavras não devem
     # interromper a varredura (senão trim que vem depois delas, tipo "Sedan
     # Lx", ficaria fora do alcance do corte e seria perdido).
-    corte = _indice_corte_spec(tokens, inicio, _SPEC_PALAVRAS - _CARROCERIA_TRACAO)
+    corte = _indice_corte_spec(tokens, inicio, spec_sem_carroceria)
 
-    modelo_final = " ".join(_limpar_tokens(tokens[:inicio]))
+    modelo_final = " ".join(_limpar_tokens(tokens[pular:inicio]))
 
     # Título repetido colado ("Mercedes-Benz Classe Slk ... Mercedes-Benz
     # Classe Slk 230 Kompressor") faz o nome do modelo vazar de novo na
     # cauda — filtrado aqui como o "Fiat"/"Motors" que vaza da marca.
-    modelo_tokens_set = set(tokens[:inicio])
+    modelo_tokens_set = set(tokens[pular:inicio])
 
     versao_tokens: list[str] = []
     obs_tokens: list[str] = []

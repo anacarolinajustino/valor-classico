@@ -121,6 +121,15 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("HONDA", "CG 125"):    set(range(1976, 2005)),
     ("HONDA", "ML 125"):    set(range(1982, 1988)),
     ("HONDA", "SHADOW 750"): set(range(1997, 2010)),
+    # Nome de modelo que É um número/cilindrada por convenção histórica da
+    # marca — sem isso, o saneamento de spec (que trata "3.4"/"2CV" como
+    # cilindrada/potência) apagava o carro inteiro (auditoria 2026-07-20,
+    # revisão de "modelo em branco ou com motorização").
+    ("CITROEN", "2CV"):  set(range(1948, 1991)),
+    ("RENAULT", "4CV"):  set(range(1947, 1962)),
+    ("JAGUAR",  "3.4"):  set(range(1957, 1968)),
+    ("JAGUAR",  "3.8"):  set(range(1959, 1968)),
+    ("SANTA MATILDE", "4.1"): set(range(1975, 1985)),
 }
 
 # (marca_norm, modelo_norm) -> set de anos disponíveis

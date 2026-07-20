@@ -700,6 +700,42 @@ class TestSepararModeloVersaoObs:
         assert separar_modelo_versao_obs("FORD", "") == ("", None, None)
 
 
+class TestModeloPuroLixoOuMotorizacao:
+    """Usuária pediu (2026-07-20): revisar anúncios com modelo em branco ou
+    só motorização — "V8"/"Modelo"/"Com..." sozinho não pode virar modelo."""
+
+    def test_lixo_puro_sem_nada_mais_vira_modelo_vazio(self):
+        assert separar_modelo_versao_obs("FORD", "V8") == ("", None, None)
+        assert separar_modelo_versao_obs("MERCURY", "V8") == ("", None, None)
+        assert separar_modelo_versao_obs("FORD", "Modelo Antigo") == ("", None, None)
+        assert sanear_modelo("FORD", "V8") == ""
+
+    def test_numero_ambiguo_sem_mais_nada_continua_protegido(self):
+        # "Zetor 5211" — 4 dígitos, mas é o único token: continua sendo o
+        # nome do modelo (comportamento já testado antes desta rodada).
+        assert separar_modelo_versao_obs("ZETOR", "5211") == ("5211", None, None)
+        assert sanear_modelo("ZETOR", "5211") == "5211"
+
+    def test_pula_cilindrada_na_frente_pra_achar_nome_real_no_catalogo(self):
+        # "Puma 1.6 Gte" — a cilindrada vem ANTES do nome real (Gte, Gts,
+        # Gtb são trims cadastrados no catálogo da Puma).
+        assert separar_modelo_versao_obs("PUMA", "Puma 1976 1.6 Gte 2p") == (
+            "GTE", None, None
+        )
+        assert separar_modelo_versao_obs("PUMA", "Puma 1980 4.1 Gtb 2p") == (
+            "GTB", None, None
+        )
+
+    def test_numero_e_nome_comercial_real_fica_protegido_no_catalogo(self):
+        # 2CV/4CV/Jaguar 3.4-3.8/Santa Matilde 4.1: o número É o nome do
+        # modelo por convenção histórica da marca, não motorização.
+        assert separar_modelo_versao_obs("CITROEN", "2CV") == ("2CV", None, None)
+        assert separar_modelo_versao_obs("RENAULT", "4CV") == ("4CV", None, None)
+        assert separar_modelo_versao_obs("JAGUAR", "3.4") == ("3.4", None, None)
+        assert separar_modelo_versao_obs("JAGUAR", "3.8") == ("3.8", None, None)
+        assert separar_modelo_versao_obs("SANTA MATILDE", "4.1") == ("4.1", None, None)
+
+
 class TestSepararMarcaAsiaKiaMotors:
     def test_asia_motors_absorve_sufixo_na_marca_sempre(self):
         # Usuária pediu (2026-07-20): "no Asia, o nome da marca é Asia
