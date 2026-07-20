@@ -244,6 +244,85 @@ function renderPaginacao(page, pages) {
   }).join('');
 }
 
+// ── Marca/modelo sem cascata (revisão de qualidade de dado) ─────────────
+// Lista plana de todos os pares (marca, modelo) distintos, carregada uma
+// vez e filtrada/ordenada no navegador — ao contrário da tabela principal,
+// não precisa ir ao servidor a cada busca (são ~1 mil linhas, leve).
+let mmPares = null;
+let mmOrder = 'marca';
+let mmDir = 'asc';
+
+function toggleMarcaModelo() {
+  const secao = document.getElementById('mm-section');
+  const abrindo = secao.classList.contains('hidden');
+  secao.classList.toggle('hidden');
+  document.getElementById('btn-toggle-mm').textContent =
+    abrindo ? 'Esconder todos os modelos' : 'Ver todos os modelos encontrados';
+  if (abrindo && mmPares === null) carregarMarcaModelo();
+}
+
+async function carregarMarcaModelo() {
+  const tbody = document.getElementById('mm-tbody');
+  tbody.innerHTML = '<tr><td colspan="3" class="an-empty">Carregando…</td></tr>';
+  try {
+    const res = await fetch('/admin/api/marca-modelo');
+    const data = await res.json();
+    if (data.erro) {
+      tbody.innerHTML = `<tr><td colspan="3" class="an-empty an-empty--erro">${escapeHtml(data.erro)}</td></tr>`;
+      return;
+    }
+    mmPares = data.pares || [];
+    renderMarcaModelo();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function ordenarMarcaModelo(col) {
+  if (mmOrder === col) {
+    mmDir = mmDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    mmOrder = col;
+    mmDir = col === 'qtd' ? 'desc' : 'asc';
+  }
+  ['marca', 'modelo', 'qtd'].forEach(c => {
+    const el = document.getElementById(`mm-sort-${c}`);
+    if (el) el.textContent = c === mmOrder ? (mmDir === 'asc' ? '↑' : '↓') : '';
+  });
+  renderMarcaModelo();
+}
+
+function renderMarcaModelo() {
+  const tbody = document.getElementById('mm-tbody');
+  if (mmPares === null) return;
+
+  const termo = document.getElementById('mm-busca').value.trim().toUpperCase();
+  let linhas = termo
+    ? mmPares.filter(p => p.marca.includes(termo) || p.modelo.includes(termo))
+    : mmPares.slice();
+
+  linhas.sort((a, b) => {
+    const dir = mmDir === 'asc' ? 1 : -1;
+    if (mmOrder === 'qtd') return (a.qtd - b.qtd) * dir;
+    return a[mmOrder].localeCompare(b[mmOrder]) * dir;
+  });
+
+  document.getElementById('mm-total').textContent =
+    `${linhas.length.toLocaleString('pt-BR')} de ${mmPares.length.toLocaleString('pt-BR')} pares`;
+
+  if (!linhas.length) {
+    tbody.innerHTML = '<tr><td colspan="3" class="an-empty">Nenhum par encontrado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = linhas.map(p => `
+    <tr>
+      <td class="an-td">${escapeHtml(p.marca)}</td>
+      <td class="an-td">${escapeHtml(p.modelo)}</td>
+      <td class="an-td an-td--num">${p.qtd.toLocaleString('pt-BR')}</td>
+    </tr>
+  `).join('');
+}
+
 // ── XSS helpers ────────────────────────────────────────────────────────
 function escapeHtml(str) {
   return String(str)

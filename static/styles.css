@@ -1192,6 +1192,36 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 48px;
 }
 
+#btn-toggle-mm {
+  margin-top: 16px;
+}
+
+.mm-section {
+  background: var(--vc-surface);
+  border: 1px solid var(--vc-border);
+  border-radius: var(--radius);
+  padding: 24px;
+}
+
+.mm-section .an-filters {
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+/* ~1 mil pares não paginados — rolagem interna em vez de esticar a página. */
+.mm-section .an-table-wrap {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.mm-section .an-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--vc-surface);
+  z-index: 1;
+}
+
 .admin-section-title {
   font-family: 'Teko', sans-serif;
   font-size: 20px;

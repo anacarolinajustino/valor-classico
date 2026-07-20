@@ -30,7 +30,39 @@
     <div class="admin-page-header">
       <h1 class="admin-title">Anúncios coletados</h1>
       <p class="admin-sub">Todos os anúncios armazenados no banco, com link para a página original.</p>
+      <button class="btn btn-outline" id="btn-toggle-mm" onclick="toggleMarcaModelo()">Ver todos os modelos encontrados</button>
     </div>
+
+    <!-- Marca/modelo sem cascata: lista plana pra revisão de qualidade de dado -->
+    <section class="admin-section mm-section hidden" id="mm-section">
+      <h2 class="admin-section-title">Todas as marcas e modelos</h2>
+      <p class="admin-sub">
+        Todo par marca/modelo distinto do banco, numa lista só — sem a cascata de filtro
+        (que só mostra os modelos de uma marca por vez). Útil pra achar grafias fragmentadas
+        do mesmo modelo (ex.: "BAND" ao lado de "BANDEIRANTE").
+      </p>
+      <div class="an-filters">
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="mm-busca">Buscar</label>
+          <input type="text" id="mm-busca" class="an-filter-input" placeholder="filtrar marca ou modelo…" oninput="renderMarcaModelo()" />
+        </div>
+        <span class="an-total" id="mm-total">—</span>
+      </div>
+      <div class="an-table-wrap">
+        <table class="an-table" id="mm-table">
+          <thead>
+            <tr>
+              <th class="an-th an-th--sortable" data-col="marca" onclick="ordenarMarcaModelo('marca')">Marca <span class="an-sort-icon" id="mm-sort-marca">↑</span></th>
+              <th class="an-th an-th--sortable" data-col="modelo" onclick="ordenarMarcaModelo('modelo')">Modelo <span class="an-sort-icon" id="mm-sort-modelo"></span></th>
+              <th class="an-th an-th--sortable an-th--num" data-col="qtd" onclick="ordenarMarcaModelo('qtd')">Anúncios <span class="an-sort-icon" id="mm-sort-qtd"></span></th>
+            </tr>
+          </thead>
+          <tbody id="mm-tbody">
+            <tr><td colspan="3" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
 
     <!-- Filtros -->
     <section class="admin-section an-filters-section">

@@ -12,6 +12,7 @@ Endpoints:
   GET  /admin/dashboard                   → dashboard com recortes dos dados
   GET  /admin/api/status                  → status do banco + conectores
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
+  GET  /admin/api/marca-modelo            → todos os pares (marca, modelo) distintos, sem cascata
   GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
@@ -43,6 +44,7 @@ from src.pipeline.persistence import (
     get_db_stats,
     init_db,
     listar_anuncios,
+    listar_marca_modelo_pares,
     upsert_anuncios,
 )
 
@@ -180,6 +182,15 @@ def admin_api_anuncios():
         return jsonify(result)
     except Exception as exc:
         logger.error("admin_api_anuncios erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/marca-modelo")
+def admin_api_marca_modelo():
+    try:
+        return jsonify({"pares": listar_marca_modelo_pares()})
+    except Exception as exc:
+        logger.error("admin_api_marca_modelo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

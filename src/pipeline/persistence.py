@@ -635,6 +635,28 @@ def listar_anuncios(
     }
 
 
+def listar_marca_modelo_pares() -> list[dict[str, Any]]:
+    """
+    Retorna todos os pares (marca, modelo) distintos com contagem de
+    anúncios, SEM cascata (marca e modelo juntos numa lista plana) — usado
+    pra revisão manual de qualidade de dado no painel: acha grafias
+    fragmentadas do mesmo modelo (ex.: "BAND" ao lado de "BANDEIRANTE") que
+    a busca em cascata esconde, porque cada marca só mostra os modelos dela
+    por vez.
+    """
+    sql = """
+        SELECT marca, modelo, COUNT(*) AS qtd
+        FROM anuncios
+        WHERE marca IS NOT NULL AND modelo IS NOT NULL
+        GROUP BY marca, modelo
+        ORDER BY marca, modelo
+    """
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            return [dict(r) for r in cur.fetchall()]
+
+
 def get_marcas_db() -> list[str]:
     """Retorna lista de marcas distintas presentes na tabela anuncios."""
     sql = "SELECT DISTINCT UPPER(marca) AS marca FROM anuncios WHERE marca IS NOT NULL ORDER BY 1"
