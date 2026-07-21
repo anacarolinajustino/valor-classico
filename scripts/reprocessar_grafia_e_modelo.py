@@ -76,7 +76,6 @@ OVERRIDES: dict[int, tuple[str, str, str | None, str | None]] = {
     36102: _ov("TOYOTA", "BANDEIRANTE", None, None), # "Toyota Bandeirante Carroceria"
     # sem modelo real recuperável no título -> zera modelo (honesto)
     36453: _ov("CHEVROLET", "", None, None),         # "Gm Chevrolet 51"
-    34835: _ov("CHEVROLET", "", None, None),         # "Chevrolet Tigre" (apelido, não modelo)
     # "Motor Chevette" é o motor do hot rod, não o carro (Fordinho 29)
     34758: _ov("FORD", "", None, None),
     # "Mobylette Caloi" — a inferência inverte marca/modelo; é Caloi Mobylette
@@ -94,6 +93,28 @@ OVERRIDES: dict[int, tuple[str, str, str | None, str | None]] = {
     # de linha específico recuperável -> zera (melhor vazio que lixo).
     1471: _ov("WILLYS", "", None, None),
 }
+
+# Picapes Chevrolet da era sem nome de modelo (Advance Design / Task Force,
+# ~1942-1961): a usuária decidiu (2026-07-21) classificar como CHEVROLET /
+# PICKUP, já que não havia nome comercial de picape leve na época — era a
+# única nesse formato. Grafia PICKUP = a do catálogo Chevrolet (bate exato).
+# Fora daqui de propósito: as "Pick Up" de 1997-98 (são S10, já têm nome),
+# os caminhões (COE, 6100, 6400, C-60, D-60) e os sedans/coupés.
+_PICKUP_CHEVROLET_ANTIGA = [
+    34835,  # 1942 "Caminhonete Antiga Chevrolet Tigre"
+    34997,  # 1948 "...Chevrolet Boca De Sapo"
+    36515,  # 1950 "Chevrolet Gmc Picap Up"
+    32813, 32827, 32842,  # 1950 "Chevrolet Pick Up"
+    32875,  # 1951
+    32833,  # 1952
+    32861,  # 1954
+    32859,  # 1955
+    32855,  # 1956
+    13619,  # 1961
+    48,     # "Chevrolet Pick-Up6cc" (ano não informado)
+]
+for _id in _PICKUP_CHEVROLET_ANTIGA:
+    OVERRIDES[_id] = _ov("CHEVROLET", "PICKUP", None, None)
 
 
 def _reinferir(marca_v, modelo_v, ano, titulo):
