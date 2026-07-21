@@ -264,10 +264,91 @@ class TestInferirMarcaModeloAno:
         # Catálogo tem "WILLYS" e "WILLYS OVERLAND" como marcas separadas
         # pro mesmo fabricante — usuária pediu (2026-07-15) pra manter só
         # "WILLYS", sem fragmentar o grupo já estabelecido de 117 anúncios.
+        # "Overland" é só a 2ª metade do nome composto — não é modelo, e
+        # descartar os 2 tokens inteiros (não só "Willys") é o que corrige
+        # o bug achado na auditoria de existência 2026-07-21 (ver abaixo).
         marca, modelo, ano = inferir_marca_modelo_ano("Willys Overland 1958")
         assert marca == "WILLYS"
-        assert "OVERLAND" in modelo
+        assert "OVERLAND" not in modelo
         assert ano == 1958
+
+    def test_willys_overland_nao_engole_o_modelo_real(self):
+        # Bug encontrado na auditoria de existência 2026-07-21: "Overland"
+        # sobrava do nome composto da marca e virava o modelo sozinho,
+        # perdendo o carro real (Jeep) — 105 anúncios afetados.
+        marca, modelo, ano = inferir_marca_modelo_ano(
+            "Willys Overland Jeep 2.6 12V Gasolina 2P 1959"
+        )
+        assert marca == "WILLYS"
+        assert modelo == "JEEP"
+        assert ano == 1959
+
+    def test_dkw_vemag_nao_engole_o_modelo_real(self):
+        # Mesmo bug do Willys Overland, achado no mesmo par de marca
+        # composta: "Vemag" é o nome da joint-venture (não um modelo) e
+        # sobrava sozinho no lugar de Belcar/Vemaguet (10 anúncios).
+        marca, modelo, ano = inferir_marca_modelo_ano(
+            "DKW Vemag Vemaguet 1.0 3 Cilindros 2P Manual 1963"
+        )
+        assert marca == "DKW"
+        assert modelo == "VEMAGUET"
+        assert ano == 1963
+
+    def test_chevrolet_gm_nao_vira_modelo(self):
+        # "Chevrolet - GM <modelo>" — "GM" é eco da marca (fabricante),
+        # não modelo. Sem descartar, "GM" virava o modelo e o carro real
+        # (Blazer/Opala/Vectra/etc.) se perdia (12 anúncios, auditoria
+        # de existência 2026-07-21).
+        marca, modelo, ano = inferir_marca_modelo_ano("Chevrolet - GM Blazer 1996")
+        assert marca == "CHEVROLET"
+        assert modelo == "BLAZER"
+        assert ano == 1996
+
+    def test_mercedes_benz_eco_nao_vira_modelo(self):
+        # "Mercedes Bens C180"/"Mercedes-Benz Mercedes E430" — eco informal
+        # da marca (typo "Bens" incluído) engolindo o modelo real (8
+        # anúncios, auditoria de existência 2026-07-21).
+        marca, modelo, _ = inferir_marca_modelo_ano("Mercedes Bens C180 Classic")
+        assert marca == "MERCEDES-BENZ"
+        assert "C180" in modelo or "C 180" in modelo
+
+        marca2, modelo2, _ = inferir_marca_modelo_ano("Mercedes-Benz Mercedes E430")
+        assert marca2 == "MERCEDES-BENZ"
+        assert "E430" in modelo2 or "E 430" in modelo2
+
+    def test_ford_willys_rural_usa_ano_pra_decidir_marca(self):
+        # Ford comprou a Willys-Overland do Brasil em jan/1967 — o catálogo
+        # tem "Rural" cadastrado nas duas marcas. Sem resolver, "Willys"
+        # ficava preso no modelo (achado na auditoria de existência
+        # 2026-07-21, 52 anúncios).
+        marca_antes, modelo_antes, _ = inferir_marca_modelo_ano("Ford Willys Rural 4X4 1950")
+        assert (marca_antes, modelo_antes) == ("WILLYS", "RURAL 4X4")
+
+        marca_depois, modelo_depois, _ = inferir_marca_modelo_ano("Ford Willys Rural 4X4 1974")
+        assert (marca_depois, modelo_depois) == ("FORD", "RURAL 4X4")
+
+    def test_ford_willys_aero_willys_sempre_marca_willys(self):
+        # "Aero Willys" só existe no catálogo como WILLYS, nunca como FORD,
+        # independente do ano (30 anúncios, auditoria 2026-07-21).
+        marca, modelo, _ = inferir_marca_modelo_ano("Ford Willys Aero Willys 2.6 1965")
+        assert marca == "WILLYS"
+        assert modelo == "AERO-WILLYS"
+
+    def test_jeep_willys_overland_vira_willys_jeep(self):
+        # "Jeep Willys Overland"/"Jeep Willys" sem outra pista -> o carro
+        # real é o Willys Jeep (9 anúncios, auditoria 2026-07-21).
+        marca, modelo, _ = inferir_marca_modelo_ano("Jeep Willys Overland - 1951")
+        assert (marca, modelo) == ("WILLYS", "JEEP")
+
+        marca2, modelo2, _ = inferir_marca_modelo_ano("Jeep Willys 1970")
+        assert (marca2, modelo2) == ("WILLYS", "JEEP")
+
+    def test_jeep_willys_cj_mantem_marca_jeep(self):
+        # Quando o título já nomeia o chassi (CJ-5/CJ6), mantém JEEP e só
+        # descarta o eco "Willys".
+        marca, modelo, _ = inferir_marca_modelo_ano("Jeep Willys CJ-5 1965")
+        assert marca == "JEEP"
+        assert "CJ" in modelo
 
     def test_modelo_ford_ausente_do_catalogo(self):
         # F100/F150/F1000/F75/XR3 não estão no CSV mas não são ambíguos no Brasil

@@ -273,8 +273,18 @@ _MODELO_ABREVIACAO: dict[tuple[str, str], str] = {
 # "WILLYS OVERLAND" são o mesmo fabricante) — a regra "prefixo mais longo
 # primeiro" do passo 1 preferiria a forma composta, fragmentando o grupo já
 # estabelecido (usuária pediu 2026-07-15 pra manter só "WILLYS").
+#
+# IMPORTANTE: o passo 1 (`_separar_marca_core`) precisa CONSUMIR os tokens
+# inteiros da chave (não só reconhecer e pular pra forma de 1 token) — senão
+# a 2ª palavra da marca composta ("OVERLAND", "VEMAG") sobra e vaza pro
+# modelo (bug achado na auditoria de existência 2026-07-21: 105 anúncios
+# "Willys/Overland" e 10 "DKW/Vemag" com o modelo real perdido).
 _MARCA_CANONICA: dict[str, str] = {
     "WILLYS OVERLAND": "WILLYS",
+    # Catálogo grafa "DKW-VEMAG" (hífen) como marca separada de "DKW", mas os
+    # títulos reais escrevem "DKW Vemag" com espaço (2 tokens) — sem essa
+    # entrada, "Vemag" (nome da joint-venture, não um modelo) vira o modelo.
+    "DKW VEMAG": "DKW",
 }
 
 # Primeiros tokens que descrevem o anúncio, não o veículo ("Vendo Ford F-75",
@@ -735,6 +745,45 @@ def inferir_marca_modelo_versao_obs_ano(
     return (marca, modelo, versao, obs, ano)
 
 
+def _resolver_willys_composto(
+    marca: str, resto: list[str], ano: Optional[int]
+) -> tuple[str, list[str]]:
+    """
+    "Willys" logo depois de FORD ou JEEP já identificados é resquício da
+    história dupla do fabricante — sem resolver, ficava preso no modelo e o
+    carro real (Rural/Aero-Willys/Jeep/CJ) se perdia (achado na auditoria de
+    existência 2026-07-21: 92 anúncios "Ford Willys"/"Jeep Willys").
+
+    Ford comprou a Willys-Overland do Brasil em jan/1967 — o catálogo tem
+    RURAL cadastrado nas duas marcas (WILLYS antes da compra, FORD depois),
+    então usa o ano do anúncio pra decidir. AERO-WILLYS só existe no
+    catálogo como WILLYS, não como FORD, independente do ano.
+    """
+    if marca not in ("FORD", "JEEP") or not resto or resto[0] != "WILLYS":
+        return (marca, resto)
+
+    # Hífen solto ("Jeep Willys Overland - 1951") não é informação.
+    cauda = [t for t in resto[1:] if t != "-"]
+
+    if cauda[:1] == ["AERO"]:
+        return ("WILLYS", ["AERO-WILLYS"])
+
+    if cauda[:1] == ["RURAL"]:
+        if ano is not None and ano < 1967:
+            return ("WILLYS", cauda)
+        return ("FORD", cauda)
+
+    if any(t.startswith("CJ") for t in cauda):
+        # "Jeep Willys CJ-5/CJ6" -> mantém JEEP, só descarta o eco "Willys".
+        return (marca, cauda)
+
+    if not cauda or cauda[:1] == ["OVERLAND"]:
+        # "Jeep Willys [Overland] 1970"/"Ford Willys" sem outra pista.
+        return ("WILLYS", ["JEEP"] + cauda[1:])
+
+    return (marca, resto)
+
+
 def _inferir_marca_modelo_bruto_ano(titulo: str) -> tuple[str, str, Optional[int]]:
     """
     Núcleo compartilhado de `inferir_marca_modelo_ano` e
@@ -821,6 +870,7 @@ def _inferir_marca_modelo_bruto_ano(titulo: str) -> tuple[str, str, Optional[int
     # porque a mesma lógica sanea marca/modelo vindos crus de ficha técnica.
     marca, resto = _separar_marca(tokens_sem_ano)
     if marca is not None:
+        marca, resto = _resolver_willys_composto(marca, resto, ano)
         modelo = " ".join(resto)
     # 4) Fallback: primeiro token é a marca — mas só quando ele não é uma
     # palavra comum de português (adjetivo/conectivo/substantivo de venda)
@@ -849,6 +899,17 @@ _MARCA_SUFIXO_ABSORVE: dict[str, str] = {
 }
 _SUFIXO_CORPORATIVO: frozenset = frozenset({"MOTORS", "MOTOR"})
 
+# Eco da marca (ou de um apelido/parte dela) logo depois da marca já
+# identificada — "Chevrolet - GM Blazer", "Mercedes-Benz Mercedes E430",
+# "Mercedes Bens C180" — sem descartar, o eco vira o "modelo" e o carro real
+# (Blazer/E430/C180) se perde (achado na auditoria de existência 2026-07-21:
+# 20 anúncios agrupados errado por isso). Mesmo mecanismo de
+# `_SUFIXO_CORPORATIVO`, mas o token descartável depende de qual é a marca.
+_MODELO_ECO_MARCA: dict[str, frozenset[str]] = {
+    "CHEVROLET": frozenset({"GM"}),
+    "MERCEDES-BENZ": frozenset({"BENZ", "BENS", "MERCEDES"}),
+}
+
 
 def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
     """
@@ -858,7 +919,9 @@ def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
 
     Absorve ou descarta sufixo corporativo solto logo após a marca ("Kia
     Motors", "Asia Motors") — ver `_MARCA_SUFIXO_ABSORVE` — antes de aplicar
-    a precedência normal (catálogo/alias/modelo-exclusivo).
+    a precedência normal (catálogo/alias/modelo-exclusivo). Também descarta
+    hífen solto ("Chevrolet - GM Blazer") e eco da marca (ver
+    `_MODELO_ECO_MARCA`) que sobrariam no início do modelo.
     """
     marca, resto = _separar_marca_core(tokens)
     if marca is not None:
@@ -871,6 +934,11 @@ def _separar_marca(tokens: list[str]) -> tuple[Optional[str], list[str]]:
         # canônica "Asia Motors" sempre — não só quando o sufixo apareceu.
         if marca in _MARCA_SUFIXO_ABSORVE:
             marca = _MARCA_SUFIXO_ABSORVE[marca]
+        # Hífen solto e eco da marca logo no início do modelo (loop porque
+        # podem aparecer juntos: "Chevrolet - GM Blazer" tem os dois).
+        eco = _MODELO_ECO_MARCA.get(marca, frozenset())
+        while resto and (resto[0] == "-" or resto[0] in eco):
+            resto = resto[1:]
     return (marca, resto)
 
 
@@ -883,11 +951,17 @@ def _separar_marca_core(tokens: list[str]) -> tuple[Optional[str], list[str]]:
         return (None, [])
     marcas_catalogo, modelo_marca = _catalogo_vocab()
 
-    # 1) Prefixo de catálogo (3, 2, 1 tokens)
+    # 1) Prefixo de catálogo (3, 2, 1 tokens). Checa _MARCA_CANONICA ANTES de
+    # marcas_catalogo pra cada tamanho de prefixo: se bater, consome os N
+    # tokens inteiros e retorna a forma canônica — nunca cai pro prefixo mais
+    # curto deixando o resto da marca composta sobrar como "modelo" (bug da
+    # auditoria 2026-07-21, ver comentário de _MARCA_CANONICA acima).
     for n in (3, 2, 1):
         if len(tokens) >= n:
             prefixo = " ".join(tokens[:n])
-            if prefixo in marcas_catalogo and prefixo not in _MARCA_CANONICA:
+            if prefixo in _MARCA_CANONICA:
+                return (_MARCA_CANONICA[prefixo], tokens[n:])
+            if prefixo in marcas_catalogo:
                 return (prefixo, tokens[n:])
 
     # 2) Alias de marca
