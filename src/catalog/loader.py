@@ -130,6 +130,47 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("JAGUAR",  "3.4"):  set(range(1957, 1968)),
     ("JAGUAR",  "3.8"):  set(range(1959, 1968)),
     ("SANTA MATILDE", "4.1"): set(range(1975, 1985)),
+    # Auditoria de EXISTÊNCIA 2026-07-21: pares que já apareciam corretos
+    # (marca/modelo batem com o título original) mas o CSV base não tem —
+    # ou porque o carro é raro/regional demais pro scrape, ou porque a
+    # marca no banco é uma variante deliberada (ver _ALIAS_MARCA em
+    # normalizer.py: "ASIA" -> "ASIA MOTORS", por pedido da usuária
+    # 2026-07-15) que não bate com a grafia curta do CSV. Confirmados por
+    # título + conhecimento histórico; Simca Tufão, CBT Javali e Mercury
+    # Eight confirmados via pesquisa (fontes: autoentusiastas.com.br,
+    # pt.wikipedia.org/wiki/CBT_Javali, classiccars.fandom.com).
+    ("FIAT", "PREMIO"): set(range(1985, 1997)),  # CSV tem só "PREMIOTempra" (scrape colado)
+    ("CHEVROLET", "CORVAIR"): set(range(1960, 1970)),
+    ("JEEP", "RENEGADE"): set(range(2015, 2026)),
+    ("SIMCA", "TUFAO"): set(range(1964, 1968)),
+    ("MERCURY", "EIGHT"): set(range(1939, 1952)),
+    ("MERCURY", "MARQUIS"): set(range(1967, 1975)),
+    ("DODGE", "MONACO"): set(range(1965, 1979)),
+    ("FORD", "DELUXE"): set(range(1935, 1941)),
+    ("LEXUS", "ES300"): set(range(1991, 2002)),
+    ("PUMA", "GTE"): set(range(1973, 1981)),
+    ("PUMA", "GTC"): set(range(1980, 1986)),
+    # Motos Honda CB: cilindrada é parte do nome comercial (mesmo raciocínio
+    # do CB 400 acima).
+    ("HONDA", "CB 500"): set(range(1971, 1979)),
+    ("HONDA", "CB 450"): set(range(1965, 1975)),
+    ("HONDA", "CB 360"): set(range(1974, 1977)),
+    # Fabricantes brasileiros de buggy/jipe: catálogo tem a marca mas não
+    # o modelo genérico "Buggy"/nome comercial específico usado nos anúncios.
+    ("BUGRE", "BUGGY"): set(range(1968, 2001)),
+    ("BRM", "BUGGY"): set(range(1971, 2001)),
+    ("FYBER", "BUGGY"): set(range(1980, 1999)),
+    ("FYBER", "STAR"): set(range(1985, 1999)),
+    ("ENGESA", "4X4"): set(range(1974, 1995)),
+    ("CBT", "JAVALI"): set(range(1988, 1996)),
+    # "ASIA MOTORS" é a marca completa (usuária pediu 2026-07-15, ver
+    # _MARCA_SUFIXO_ABSORVE em normalizer.py); CSV grafa só "ASIA".
+    ("ASIA MOTORS", "TOWNER"): set(range(1990, 1999)),
+    ("ASIA MOTORS", "TOPIC"): set(range(1990, 1999)),
+    ("ASIA MOTORS", "HI-TOPIC"): set(range(1990, 1999)),
+    ("ASIA MOTORS", "ROCSTA"): set(range(1993, 1999)),
+    ("FORD", "VICTORIA"): set(range(1928, 1935)),
+    ("STUDEBAKER", "CHAMPION"): set(range(1939, 1959)),
 }
 
 # (marca_norm, modelo_norm) -> set de anos disponíveis
