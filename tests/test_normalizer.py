@@ -198,9 +198,12 @@ class TestInferirMarcaModeloAno:
         assert ano == 1969
 
     def test_karmann_ghia_sem_hifen(self):
+        # Entra sem hífen, sai na grafia canônica do catálogo ("KARMANN-GHIA")
+        # — agora sanear_modelo também canoniza a grafia, não só
+        # separar_modelo_versao_obs (auditoria 2026-07-21, 2ª passada).
         marca, modelo, ano = inferir_marca_modelo_ano("Karmann Ghia 1969")
         assert marca == "VOLKSWAGEN"
-        assert modelo == "KARMANN GHIA"
+        assert modelo == "KARMANN-GHIA"
         assert ano == 1969
 
     # ── auditoria 2026-07-15: marca=ano, marca=lixo, "VW/Fusca" grudado ──
@@ -634,7 +637,7 @@ class TestSanearModelo:
     def test_corta_cabine_cilindros_km(self):
         # "cabine estendida" (citada pela usuária), cilindros e km por extenso.
         assert sanear_modelo("CHEVROLET", "S10 Americana Cabine Estendida") == "S10 AMERICANA"
-        assert sanear_modelo("CHEVROLET", "D-10 Cabine Dupla") == "D-10"
+        assert sanear_modelo("CHEVROLET", "D-10 Cabine Dupla") == "D10"  # canonizado p/ grafia do catálogo
         assert sanear_modelo("CHEVROLET", "Opala De Luxo 6 Cilindros Com Ar") == "OPALA DE LUXO"
         assert sanear_modelo("CHEVROLET", "Opala 6cc Automatic") == "OPALA"
         assert sanear_modelo("FORD", "Escort Xr3 555 Km") == "ESCORT XR3"
@@ -677,8 +680,11 @@ class TestSepararModeloVersaoObs:
         assert separar_modelo_versao_obs("VOLKSWAGEN", "Kombi Pick-Up") == (
             "KOMBI", None, "PICK-UP"
         )
+        # "D-10" é canonizado pra grafia do catálogo ("D10") — ver
+        # canonizar_modelo em catalog/loader.py (auditoria 2026-07-21, 2ª
+        # passada: unifica hífen/espaço do mesmo modelo).
         assert separar_modelo_versao_obs("CHEVROLET", "D-10 Cabine Dupla") == (
-            "D-10", None, "CABINE DUPLA"
+            "D10", None, "CABINE DUPLA"
         )
         assert separar_modelo_versao_obs("CHEVROLET", "S10 Americana Cabine Estendida") == (
             "S10", "AMERICANA", "CABINE ESTENDIDA"
@@ -809,12 +815,73 @@ class TestModeloPuroLixoOuMotorizacao:
 
     def test_numero_e_nome_comercial_real_fica_protegido_no_catalogo(self):
         # 2CV/4CV/Jaguar 3.4-3.8/Santa Matilde 4.1: o número É o nome do
-        # modelo por convenção histórica da marca, não motorização.
-        assert separar_modelo_versao_obs("CITROEN", "2CV") == ("2CV", None, None)
+        # modelo por convenção histórica da marca, não motorização. O ponto
+        # do teste é que sobrevivem como modelo (não viram vazio); a grafia
+        # segue o catálogo — o CSV base grafa "2 CV" com espaço.
+        assert separar_modelo_versao_obs("CITROEN", "2CV") == ("2 CV", None, None)
         assert separar_modelo_versao_obs("RENAULT", "4CV") == ("4CV", None, None)
         assert separar_modelo_versao_obs("JAGUAR", "3.4") == ("3.4", None, None)
         assert separar_modelo_versao_obs("JAGUAR", "3.8") == ("3.8", None, None)
         assert separar_modelo_versao_obs("SANTA MATILDE", "4.1") == ("4.1", None, None)
+
+
+class TestCanonizacaoGrafiaModelo:
+    """
+    Auditoria 2026-07-21 (2ª passada): unificar as grafias hífen/espaço do
+    mesmo modelo na grafia do catálogo, pra não fragmentar os grupos
+    (a usuária apontou 'várias grafias de Willys', VW-FUSCA-1300 etc.).
+    """
+
+    def test_hifen_vira_grafia_do_catalogo(self):
+        # Chevrolet grafa D20/C10 juntos no catálogo; anúncios usam D-20/C-10.
+        assert sanear_modelo("CHEVROLET", "D-20") == "D20"
+        assert sanear_modelo("CHEVROLET", "C-10") == "C10"
+        assert separar_modelo_versao_obs("CHEVROLET", "D-20")[0] == "D20"
+
+    def test_junto_vira_grafia_espacada_do_catalogo(self):
+        # Mercedes grafa "C 180" com espaço; anúncios usam C-180/C180.
+        assert sanear_modelo("MERCEDES-BENZ", "C-180") == "C 180"
+        assert sanear_modelo("MERCEDES-BENZ", "C180") == "C 180"
+
+    def test_belair_deluxe_deville_pickup(self):
+        assert sanear_modelo("CHEVROLET", "Belair") == "BEL AIR"
+        assert sanear_modelo("CADILLAC", "Deville") == "DE VILLE"
+        assert sanear_modelo("FORD", "Pickup") == "PICK UP"
+
+    def test_modelo_com_trim_nao_e_tocado(self):
+        # Só o modelo inteiro é canonizado; nome+trim que não bate no
+        # catálogo volta inalterado (sem risco de estragar trim).
+        assert sanear_modelo("CHEVROLET", "Vectra Gsi") == "VECTRA GSI"
+
+
+class TestModeloConhecidoGrudado:
+    """
+    Auditoria 2026-07-21 (2ª passada): modelo do catálogo grudado ao resto
+    ('VW-FUSCA-1300', 'ESCORTXR3') — a usuária apontou o VW-FUSCA-1300.
+    """
+
+    def test_modelo_grudado_a_cilindrada(self):
+        assert inferir_marca_modelo_ano("VW Fusca1300 1975")[1] == "FUSCA"
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca1300") == ("FUSCA", None, None)
+
+    def test_modelo_grudado_a_trim(self):
+        assert separar_modelo_versao_obs("FORD", "EscortXr3") == ("ESCORT", "XR3", None)
+
+    def test_modelo_grudado_a_palavra(self):
+        assert separar_modelo_versao_obs("CHEVROLET", "ImpalaWagon")[0] == "IMPALA"
+
+    def test_nome_de_modelo_maior_nao_e_quebrado(self):
+        # "GOLF" não pode virar "GOL F" (GOL é modelo, mas GOLF também é).
+        assert inferir_marca_modelo_ano("Volkswagen Golf 2000")[1] == "GOLF"
+
+
+class TestTyposWillys:
+    """Auditoria 2026-07-21 (2ª passada): 'várias grafias de Willys'."""
+
+    def test_typo_willys_vira_willys_jeep(self):
+        assert inferir_marca_modelo_ano("Jeep Wilys Ano 1964")[:2] == ("WILLYS", "JEEP")
+        assert inferir_marca_modelo_ano("Jeep Wyllis")[:2] == ("WILLYS", "JEEP")
+        assert inferir_marca_modelo_ano("Jeep Willis gasolina 1973")[:2] == ("WILLYS", "JEEP")
 
 
 class TestVolkswagenRevisaoGeral:

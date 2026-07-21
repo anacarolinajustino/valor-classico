@@ -504,8 +504,40 @@ def _tokenizar_modelo(marca_norm: str, modelo: str) -> list[str]:
     for t in modelo_norm.split():
         t = _TOKEN_DUPLICADO.sub(r"\1", t)
         t = _MODELO_ABREVIACAO.get((marca_norm, t), t)
-        tokens.append(t)
+        # Modelo conhecido grudado ao resto ("FUSCA1300"→"FUSCA 1300",
+        # "ESCORTXR3"→"ESCORT XR3") — separa em tokens pra âncora achar o nome.
+        tokens.extend(_descolar_modelo_conhecido(marca_norm, t).split())
     return tokens
+
+
+def _descolar_modelo_conhecido(marca_norm: str, token: str) -> str:
+    """
+    Separa um nome de modelo do catálogo grudado ao resto do token
+    ('FUSCA1300'→'FUSCA 1300', 'IMPALAWAGON'→'IMPALA WAGON'). Guardas contra
+    corte errado: (1) o token inteiro não pode ser ele próprio um modelo
+    ('GOLF' não vira 'GOL F'); (2) usa o maior prefixo-modelo possível;
+    (3) o prefixo precisa ter 4+ letras (evita cortar em modelo curto tipo
+    'A'/'KA'/'GOL'). Achado na auditoria 2026-07-21 (2ª passada: 'VW-FUSCA-1300'
+    e outros modelos grudados).
+    """
+    modelos = _modelos_catalogo().get(marca_norm, set())
+    if not modelos or token in modelos:
+        return token
+    # Prefixo-modelo puramente numérico ('1600', '147') é ambíguo com
+    # cilindrada colada ('1600S') — deixado pro tratamento de spec/glued.
+    candidatos = sorted(
+        (
+            m for m in modelos
+            if " " not in m and len(m) >= 4 and not m.isdigit()
+            and len(token) > len(m) and token.startswith(m)
+        ),
+        key=len,
+        reverse=True,
+    )
+    if candidatos:
+        m = candidatos[0]
+        return f"{m} {token[len(m):]}"
+    return token
 # Nome de modelo duplicado colado num token só ("DARTDART", "RURALRURAL",
 # "BELINABELINA"). Exige unidade de 3+ chars pra não colapsar trim curto ("SS").
 _TOKEN_DUPLICADO = re.compile(r"^(.{3,})\1$")
@@ -585,6 +617,20 @@ def _catalogo_vocab() -> tuple[set, dict]:
 
     _vocab_catalogo = (marcas, modelo_marca)
     return _vocab_catalogo
+
+
+def _canonizar_grafia(marca_norm: str, modelo: str) -> str:
+    """
+    Unifica a grafia do modelo com a do catálogo (hífen/espaço): 'D-20'→'D20',
+    'C180'→'C 180'. Import tardio (loader importa este módulo). Degrada pro
+    modelo original se o catálogo não carregar.
+    """
+    try:
+        from src.catalog.loader import canonizar_modelo
+
+        return canonizar_modelo(marca_norm, modelo)
+    except Exception:  # pragma: no cover - catálogo indisponível
+        return modelo
 
 
 def _modelos_catalogo() -> dict:
@@ -745,43 +791,56 @@ def inferir_marca_modelo_versao_obs_ano(
     return (marca, modelo, versao, obs, ano)
 
 
+# Grafias de "Willys" que aparecem coladas ou como modelo — typos frequentes
+# do vendedor (auditoria 2026-07-21, 2ª passada: "Jeep Wilys", "Jeep Wyllis").
+_GRAFIAS_WILLYS: frozenset = frozenset({
+    "WILLYS", "WILYS", "WYLLIS", "WILLIS", "WILLIYS", "WILLYES", "WYLLYS", "WILYES",
+})
+
+
 def _resolver_willys_composto(
     marca: str, resto: list[str], ano: Optional[int]
 ) -> tuple[str, list[str]]:
     """
-    "Willys" logo depois de FORD ou JEEP já identificados é resquício da
-    história dupla do fabricante — sem resolver, ficava preso no modelo e o
-    carro real (Rural/Aero-Willys/Jeep/CJ) se perdia (achado na auditoria de
-    existência 2026-07-21: 92 anúncios "Ford Willys"/"Jeep Willys").
+    "Willys" (ou um typo dele — ver `_GRAFIAS_WILLYS`) logo depois de FORD ou
+    JEEP já identificados é resquício da história dupla do fabricante — sem
+    resolver, ficava preso no modelo e o carro real (Rural/Aero-Willys/Jeep/CJ)
+    se perdia (achado na auditoria de existência 2026-07-21: 92 anúncios
+    "Ford Willys"/"Jeep Willys", mais os typos "Jeep Wilys"/"Jeep Wyllis").
 
     Ford comprou a Willys-Overland do Brasil em jan/1967 — o catálogo tem
     RURAL cadastrado nas duas marcas (WILLYS antes da compra, FORD depois),
     então usa o ano do anúncio pra decidir. AERO-WILLYS só existe no
     catálogo como WILLYS, não como FORD, independente do ano.
     """
-    if marca not in ("FORD", "JEEP") or not resto or resto[0] != "WILLYS":
+    if marca not in ("FORD", "JEEP") or not resto or resto[0] not in _GRAFIAS_WILLYS:
         return (marca, resto)
 
     # Hífen solto ("Jeep Willys Overland - 1951") não é informação.
     cauda = [t for t in resto[1:] if t != "-"]
+    # Cauda sem spec/lixo ("Ano", "Gasolina", "Diesel"...) pra decidir se
+    # sobra algum modelo real — "Jeep Wilys Ano 1964" não tem modelo, é só
+    # o Willys Jeep genérico.
+    cauda_util = [t for t in cauda if not _e_token_spec(t)]
 
-    if cauda[:1] == ["AERO"]:
+    if cauda_util[:1] == ["AERO"]:
         return ("WILLYS", ["AERO-WILLYS"])
 
-    if cauda[:1] == ["RURAL"]:
+    if cauda_util[:1] == ["RURAL"]:
         if ano is not None and ano < 1967:
             return ("WILLYS", cauda)
         return ("FORD", cauda)
 
-    if any(t.startswith("CJ") for t in cauda):
+    if any(t.startswith("CJ") for t in cauda_util):
         # "Jeep Willys CJ-5/CJ6" -> mantém JEEP, só descarta o eco "Willys".
         return (marca, cauda)
 
-    if not cauda or cauda[:1] == ["OVERLAND"]:
-        # "Jeep Willys [Overland] 1970"/"Ford Willys" sem outra pista.
-        return ("WILLYS", ["JEEP"] + cauda[1:])
+    if not cauda_util or cauda_util[:1] == ["OVERLAND"]:
+        # "Jeep Willys [Overland] 1970"/"Ford Willys"/"Jeep Wilys Ano" sem
+        # outra pista -> o carro é o Willys Jeep.
+        return ("WILLYS", ["JEEP"])
 
-    return (marca, resto)
+    return (marca, cauda)
 
 
 def _inferir_marca_modelo_bruto_ano(titulo: str) -> tuple[str, str, Optional[int]]:
@@ -1132,7 +1191,8 @@ def sanear_modelo(marca: str, modelo: str) -> str:
     inicio = pular + tam_ancora
 
     corte = _indice_corte_spec(tokens, inicio)
-    return " ".join(_limpar_tokens(tokens[pular:corte]))
+    resultado = " ".join(_limpar_tokens(tokens[pular:corte]))
+    return _canonizar_grafia(marca_norm, resultado)
 
 
 def _limpar_tokens(tokens: list[str]) -> list[str]:
@@ -1261,6 +1321,8 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
     # Ghia"/"Karmann-Ghia") — reaplica a canonização por cima do nome JÁ
     # ancorado (chave é a frase inteira, não mais um token cru).
     modelo_final = _MODELO_ABREVIACAO.get((marca_norm, modelo_final), modelo_final)
+    # Unifica grafia hífen/espaço com a do catálogo ('C-180'→'C 180').
+    modelo_final = _canonizar_grafia(marca_norm, modelo_final)
 
     # Título repetido colado ("Mercedes-Benz Classe Slk ... Mercedes-Benz
     # Classe Slk 230 Kompressor") faz o nome do modelo vazar de novo na

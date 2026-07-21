@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import difflib
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -171,6 +172,8 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("ASIA MOTORS", "ROCSTA"): set(range(1993, 1999)),
     ("FORD", "VICTORIA"): set(range(1928, 1935)),
     ("STUDEBAKER", "CHAMPION"): set(range(1939, 1959)),
+    # Alfa Romeo 2300 brasileiro (FNM/Alfa) — 2ª passada 2026-07-21.
+    ("ALFA ROMEO", "2300"): set(range(1974, 1987)),
 }
 
 # (marca_norm, modelo_norm) -> set de anos disponíveis
@@ -242,12 +245,81 @@ def carregar_catalogo(caminho: Optional[Path] = None) -> dict[tuple[str, str], s
     return _catalogo
 
 
+_grafia_idx: Optional[dict[tuple[str, str], str]] = None
+
+
+def _canon_sem_separador(modelo_norm: str) -> str:
+    """Reduz o modelo a só letras+dígitos ('D-20'/'D 20'/'D20' → 'D20')."""
+    return re.sub(r"[^A-Z0-9]", "", modelo_norm)
+
+
+def _indice_grafia() -> dict[tuple[str, str], str]:
+    """
+    (marca_norm, forma-sem-separador) -> grafia canônica do modelo.
+
+    Autoridade de grafia: o CSV base (grafia mais frequente lá); onde o CSV
+    não tem o modelo, o suplemento preenche. Serve pra unificar as variações
+    de hífen/espaço que os anúncios usam ('C-180', 'C180', 'C 180') numa só
+    grafia — a do catálogo (auditoria 2026-07-21, 2ª passada).
+    """
+    global _grafia_idx
+    if _grafia_idx is not None:
+        return _grafia_idx
+
+    from collections import Counter
+
+    freq: dict[tuple[str, str], Counter] = {}
+    try:
+        with open(CSV_PADRAO, encoding="utf-8", newline="") as f:
+            for linha in csv.DictReader(f):
+                marca_raw = linha.get("nome_marca", "").strip()
+                modelo_raw = linha.get("nome_modelo", "").strip()
+                if not marca_raw or not modelo_raw:
+                    continue
+                mk = normalizar_texto(marca_raw)
+                md = normalizar_texto(modelo_raw)
+                freq.setdefault((mk, _canon_sem_separador(md)), Counter())[md] += 1
+    except FileNotFoundError:
+        pass
+
+    idx: dict[tuple[str, str], str] = {}
+    for chave, counter in freq.items():
+        # Grafia mais frequente no CSV; empate -> a mais curta (sem separador).
+        melhor = sorted(counter.items(), key=lambda kv: (-kv[1], len(kv[0])))[0][0]
+        idx[chave] = melhor
+
+    # Suplemento só preenche o que o CSV não tem (não sobrescreve a grafia CSV).
+    for (mk, md) in _SUPLEMENTO:
+        idx.setdefault((mk, _canon_sem_separador(md)), md)
+
+    _grafia_idx = idx
+    return idx
+
+
+def canonizar_modelo(marca_norm: str, modelo_norm: str) -> str:
+    """
+    Devolve a grafia canônica do modelo (a do catálogo) quando o modelo bate
+    ignorando hífen/espaço; senão, o próprio modelo inalterado. Idempotente.
+
+    Ex.: ('CHEVROLET', 'D-20') -> 'D20'; ('MERCEDES-BENZ', 'C180') -> 'C 180'.
+
+    Só canoniza o modelo por inteiro (nome já sem trim — o trim/versão sai em
+    campo próprio via `separar_modelo_versao_obs`). Um modelo com trim colado
+    que não bate inteiro no catálogo volta inalterado, sem risco.
+    """
+    if not modelo_norm:
+        return modelo_norm
+    chave = (marca_norm, _canon_sem_separador(modelo_norm))
+    return _indice_grafia().get(chave, modelo_norm)
+
+
 def resetar_cache() -> None:
     """Reseta o cache do catálogo (útil para testes)."""
-    global _catalogo, _versoes, _carregado
+    global _catalogo, _versoes, _carregado, _grafia_idx
     _catalogo = {}
     _versoes = {}
     _carregado = False
+    _grafia_idx = None
 
 
 def match_anuncio(anuncio: Anuncio, caminho: Optional[Path] = None) -> Anuncio:
