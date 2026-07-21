@@ -1,0 +1,222 @@
+# Pipeline de Marca/Modelo — Documentação Técnica
+
+Referência para quem for mexer em `src/pipeline/normalizer.py`, `src/catalog/loader.py` ou nos
+scripts de auditoria/reprocessamento de marca e modelo. Documenta o estado do sistema em
+2026-07-21, depois de ~5 rodadas de auditoria de marca (2026-07-15 a 2026-07-17) e da rodada de
+validação de existência (2026-07-21).
+
+## 1. Por que esse sistema existe
+
+Os anúncios chegam de 31 fontes diferentes (`src/connectors/`), cada uma com seu jeito de
+descrever marca/modelo: título livre não estruturado (a maioria), ficha técnica estruturada mas
+preenchida à mão pelo anunciante (Mercado Livre), ou categorias/dropdowns da própria plataforma
+(OLX). Nenhuma fonte garante que "marca" e "modelo" sejam realmente marca e modelo — o mesmo carro
+aparece como `"Vw Fusca 1300"`, `"Fusca 1.3"`, `"Volkswagem Fusca"`, `"Chevrolet Opala"` (marca e
+modelo colados num campo só) ou `"GM/Chevrolet C14"` (marca duplicada). Sem normalização, o
+dashboard de "marca/modelo mais barato" e os filtros em cascata do painel ficam inúteis —
+fragmentados em dezenas de grafias do mesmo carro.
+
+O pipeline resolve dois problemas distintos, nessa ordem:
+
+1. **Consistência interna** — duas grafias diferentes do mesmo carro devem virar o mesmo
+   marca/modelo (`normalizer.py`, rodadas 1-4 do histórico, seção 4).
+2. **Existência real** — marca/modelo consistentes ainda podem ser um carro que não existe
+   (typo não detectado, palavra genérica que virou "modelo" por engano). Validado cruzando contra
+   um catálogo real de veículos (`catalog/loader.py` + scripts de auditoria, seção 6).
+
+## 2. Fluxo de dados
+
+```
+Conector (título livre OU ficha técnica estruturada)
+        │
+        ▼
+inferir_marca_modelo_ano(titulo)          OU        sanear_marca_modelo(marca_bruta, modelo_bruto)
+   [título livre: OLX, Superantigo...]                [campo estruturado: Mercado Livre]
+        │                                                        │
+        └────────────────────────┬───────────────────────────────┘
+                                  ▼
+                     _separar_marca(tokens)   ← núcleo compartilhado
+                                  │
+                                  ▼
+                     sanear_modelo(marca, modelo_bruto)
+                        (corta cauda de spec, mantém nome+trim)
+                                  │
+                                  ▼
+                        Anuncio(marca=..., modelo=..., ano=...)
+                                  │
+                                  ▼
+                   PostgreSQL (`anuncios`, via persistence.py)
+```
+
+Os dois pontos de entrada (`inferir_marca_modelo_ano` para título livre,
+`sanear_marca_modelo`/`separar_marca_modelo_versao_obs` para campo estruturado) convergem na mesma
+função core, `_separar_marca` — qualquer correção feita lá (novo alias, nova marca composta, novo
+eco) vale para as duas fontes automaticamente.
+
+## 3. Módulos
+
+| Módulo | Responsabilidade |
+|---|---|
+| `src/pipeline/schema.py` | Contrato canônico `Anuncio` (dataclass) + `validar()` — todo anúncio persistido passa por aqui. |
+| `src/pipeline/normalizer.py` | Todo o trabalho de marca/modelo/preço/texto. ~1200 linhas, é o arquivo central deste documento. |
+| `src/catalog/loader.py` | Carrega `data/base_marcamodelo.csv` em memória (dict `(marca, modelo) -> anos`) + suplemento manual + matching fuzzy (`match_anuncio`, usado por auditorias e por testes de confiança). |
+| `src/pipeline/persistence.py` | Acesso ao PostgreSQL (`anuncios`, `historico_precos`, `search_log`). |
+| `scripts/auditar_existencia_marca_modelo.py` | Relatório (dry-run) de pares marca/modelo sem referência no catálogo. |
+| `scripts/corrigir_existencia_marca_modelo.py` | Aplica correções retroativas de existência (backup automático + `--apply`). |
+| `scripts/reprocessar_saneamento_marca.py`, `reprocessar_saneamento_modelo.py` | Reprocessamento retroativo genérico (sanear o que já está salvo, não re-inferir do título). |
+
+## 4. O catálogo de referência
+
+`data/base_marcamodelo.csv` (26.201 linhas) é um dump real de marca/modelo/ano/versão — a mesma
+fonte que qualquer tabela FIPE-like usaria. Cobre carros clássicos e raros (ENVEMO, WILLYS
+OVERLAND, DE SOTO, BUGRE) além do catálogo moderno. `carregar_catalogo()` em `loader.py` lê esse
+CSV uma vez (cache em memória, `resetar_cache()` só para teste) e monta:
+
+```python
+_catalogo: dict[tuple[str, str], set[int]]        # (MARCA, MODELO) -> {anos em que existiu}
+_versoes:  dict[tuple[str, str, int], list[str]]  # (MARCA, MODELO, ano) -> versões canônicas
+```
+
+**Suplemento manual** (`_SUPLEMENTO` no mesmo arquivo): carros reais confirmados por título +
+conhecimento histórico (ou pesquisa, quando necessário) mas ausentes do CSV — seja porque são raros
+demais para o scrape original ter capturado (Simca Tufão, CBT Javali, Jeep Renegade), seja porque
+a grafia da marca no banco é uma forma deliberadamente diferente do CSV (`"ASIA MOTORS"` no banco
+vs. `"ASIA"` no CSV — ver `_MARCA_SUFIXO_ABSORVE`, seção 5). Cada entrada é
+`(MARCA, MODELO): set(range(ano_inicio, ano_fim))`, com comentário explicando a fonte da
+confirmação. **Nunca edita o CSV base** — tudo que não vem do scrape original entra aqui.
+
+`match_anuncio()` faz o matching de um `Anuncio` contra esse catálogo: exato primeiro
+(`(marca_norm, modelo_norm) in catalogo`), senão fuzzy por `difflib.SequenceMatcher` (marca ≥0.80,
+depois modelo dentro dos modelos daquela marca ≥0.80), senão `unmatched`. Preenche
+`match_confidence`/`match_strategy` no próprio `Anuncio`.
+
+## 5. Pipeline de normalização (passo a passo)
+
+### 5.1 Achar a marca (`_separar_marca` → `_separar_marca_core`)
+
+Ordem de precedência, sobre os tokens já normalizados (maiúsculo, sem acento) do título ou do
+campo "Marca":
+
+1. **Prefixo de catálogo**, testando 3, depois 2, depois 1 token — cobre marcas compostas
+   ("LAND ROVER", "MP LAFER"). Antes de aceitar o prefixo, checa `_MARCA_CANONICA`: se o prefixo
+   inteiro bate lá, consome os tokens todos e devolve a forma canônica (não deixa a 2ª palavra
+   sobrar). Ex.: `"WILLYS OVERLAND"` → `"WILLYS"` (consome as 2 palavras); `"DKW VEMAG"` → `"DKW"`.
+2. **Alias** (`_ALIASES_MARCA`) — typos (`CHREVOLET`, `HOONDA`, `PORCHE`...) e abreviações (`VW`,
+   `GM`→ nada, ver nota) apontando pra grafia canônica.
+3. **Modelo exclusivo de uma marca** (`_MODELO_ABREVIACAO`/vocabulário do catálogo) — título começa
+   direto pelo modelo ("Fusca 1600 1975" sem dizer "Volkswagen").
+4. **Modelo ambíguo com marca dominante no clássico BR** (`_MODELO_AMBIGUO_MARCA`) — números que
+   são modelo em mais de uma marca do catálogo geral, mas só uma leitura faz sentido no universo de
+   carro clássico brasileiro (`"147"` → sempre FIAT, nunca Alfa Romeo 147 dos anos 2000).
+5. **Fallback**: 1º token vira marca — a menos que seja uma palavra comum de português
+   (`_PALAVRAS_NAO_MARCA`: adjetivo, conectivo, termo de venda), caso em que vira a sentinela
+   `MARCA_NAO_IDENTIFICADA` em vez de inventar uma marca-lixo.
+
+Depois de achar a marca, `_separar_marca` ainda:
+
+- Descarta sufixo corporativo solto (`_SUFIXO_CORPORATIVO = {"MOTORS", "MOTOR"}`) — "Kia Motors
+  Besta" → modelo não começa com "Motors". Absorve incondicionalmente pra "ASIA MOTORS" quando a
+  marca é "ASIA" (`_MARCA_SUFIXO_ABSORVE`), porque a usuária decidiu que esse é o nome comercial
+  completo, com ou sem "Motors" explícito no título.
+- Descarta **eco da marca** (`_MODELO_ECO_MARCA`) e hífen solto logo depois da marca —
+  `"Chevrolet - GM Blazer"` (GM é eco, não modelo), `"Mercedes Bens C180"` (Bens é eco/typo de
+  Benz). Adicionado 2026-07-21; tabela é por marca porque a palavra descartável depende de qual
+  marca já foi identificada.
+
+`_resolver_willys_composto` (só no caminho de título, tem acesso ao `ano`) trata o caso especial
+Ford/Willys: Ford comprou a Willys-Overland do Brasil em jan/1967, e o catálogo tem "Rural"
+cadastrado nas duas marcas — resolve por ano (`< 1967` → WILLYS, senão FORD). "Aero Willys" é
+sempre WILLYS (só existe assim no catálogo). CJ-5/CJ6 no título mantém marca JEEP.
+
+### 5.2 Limpar o modelo (`sanear_modelo`)
+
+Depois de identificar a marca, o resto dos tokens é o modelo cru — ainda com cauda de
+especificação técnica que o anunciante colou no título ("Fusca 1300 Gasolina 2P Manual").
+`sanear_modelo(marca, modelo_bruto)`:
+
+1. Remove tokens da marca que vazaram pro modelo (repetição do ML: campo "Modelo" = "Fiat Palio").
+2. Ancora o nome do modelo no catálogo (`_localizar_modelo`/`_achar_ancora_modelo`) — usa o maior
+   prefixo de modelo conhecido pra aquela marca, protegendo números que são parte do nome
+   ("Defender 110", "C 1504", "147") em vez de confundir com cilindrada solta.
+3. Corta a cauda de spec a partir daí (`_indice_corte_spec`) — vocabulário reconhecido por
+   dicionário (combustível, câmbio, injeção, portas) ou por forma de token (regex: `8V`, `V8`,
+   `2P`, `50CV`, `1600` solto = cilindrada/ano).
+4. `_limpar_tokens`: apara pontuação solta, dedup preservando ordem.
+
+Mantém **nome + trim/versão juntos** num string só (decisão de 2026-07-17: `"Vectra GSI"`, não só
+`"Vectra"` — trim pesa no preço). `separar_modelo_versao_obs` é a variante mais granular (usada
+pelos conectores sem ficha técnica): devolve modelo, versão (GLX/SS/trim) e obs
+(carroceria/tração: "Cabine Estendida", "4x4", "Sedan") em três campos, pra não poluir nem o
+dropdown de versão nem descartar informação real do carro.
+
+### 5.3 Sentinelas e grupos preservados
+
+- **`MARCA_NAO_IDENTIFICADA`** — nenhuma marca real reconhecível no título (24 anúncios, 0,08% do
+  banco). O modelo guarda o título inteiro, pra revisão manual não perder informação.
+- **`"BUGGY"`** — kit car brasileiro sem fabricante único identificável no título (decisão
+  deliberada 2026-07-15: melhor um grupo genérico honesto do que adivinhar qual dos ~10
+  fabricantes de buggy é). Ambas as sentinelas estão em `_MARCAS_PRESERVADAS` — `sanear_marca_modelo`
+  nunca tenta reinterpretá-las.
+
+## 6. Validação de existência (auditoria 2026-07-21)
+
+Consistência interna não garante que o carro exista — "Willys"/"Overland" separados em
+marca/modelo são grafias internamente consistentes, mas nenhuma delas sozinha é um modelo real.
+`scripts/auditar_existencia_marca_modelo.py` cruza cada par `(marca, modelo)` distinto do banco
+contra `carregar_catalogo()` (CSV + suplemento):
+
+- **Match exato** ou **fuzzy** (mesmo algoritmo de `match_anuncio`) → validado, nenhuma ação.
+- **Sem match** → precisa de revisão manual: ler o título original de amostra (impresso no
+  relatório) pra decidir se é (a) carro real que só falta no suplemento, (b) bug de
+  extração/eco/marca composta a corrigir na origem, ou (c) informação genuinamente insuficiente no
+  título (mantido em branco, não force um valor).
+
+`scripts/corrigir_existencia_marca_modelo.py` aplica as correções decididas: `BULK_FIXES` (todo
+anúncio com o par velho vira o par novo) e `ROW_FIXES`/funções por-linha (`gerar_fixes_ford_willys`)
+para os casos em que o mesmo par errado esconde carros diferentes por linha. Sempre dry-run por
+padrão, `--apply` faz backup (`fazer_backup()`) antes de gravar.
+
+**Resultado da rodada 2026-07-21:** de 1105 pares distintos, 545 exatos + 144 fuzzy já validados
+sem ação; dos 416 sem match, corrigidos os ~40 grupos com 3+ anúncios (432 linhas), 24 pares novos
+no suplemento, ~358 pares residuais (todos 1-2 anúncios, muitos de título de revenda citando vários
+carros) documentados para rodada seguinte.
+
+## 7. Como estender
+
+| Situação | Onde mexer |
+|---|---|
+| Novo typo de marca (`"Chevorlet"`) | `_ALIASES_MARCA` |
+| Marca composta com 2ª palavra que deve ser descartada (não é modelo) | `_MARCA_CANONICA` |
+| Palavra solta que ecoa a marca já identificada (não é modelo) | `_MODELO_ECO_MARCA` |
+| Modelo que só existe pra 1 marca no clássico BR mas é ambíguo no catálogo geral | `_MODELO_AMBIGUO_MARCA` |
+| Carro real confirmado mas ausente do CSV | `_SUPLEMENTO` em `catalog/loader.py`, **nunca** editar o CSV |
+| Grafia nova de spec/carroceria/venda que está vazando pro modelo | `_SPEC_*`, `_MODELO_OBSERVACAO` ou `_CARROCERIA_TRACAO` (qual, depende se deve virar obs ou ser descartada) |
+| Dado já salvo errado (não é bug de código, é histórico) | Script de reprocessamento novo, seguindo o padrão dry-run → resumo → `--apply` com backup (ver `scripts/corrigir_existencia_marca_modelo.py` como modelo) |
+
+Ao mudar `normalizer.py`, rodar `pytest tests/test_normalizer.py` (regra geral do projeto: toda
+correção de padrão vem com teste de regressão, não só o dado corrigido) e o restante da suíte
+(`pytest tests/`, 277 testes em ~22s) antes de reprocessar o banco.
+
+## 8. Linha do tempo (referência rápida)
+
+| Quando | O quê |
+|---|---|
+| 2026-07-15 (3 rodadas no mesmo dia) | Marca-lixo virando marca real (ano solto, cilindrada), 92 marcas fora do catálogo geral (motos/tratores — cobertura, não bug), sentinela `MARCA_NAO_IDENTIFICADA` |
+| 2026-07-17 | Achada a causa raiz real: ficha técnica do ML gravava campo "Marca" cru. Criado `sanear_marca_modelo`, aplicado retroativo — marcas distintas 256→118 |
+| 2026-07-17 | `sanear_modelo` (corta spec do modelo, mantém trim) |
+| 2026-07-20 | `separar_modelo_versao_obs` (versão e obs em campos próprios); correções pontuais (Toyota Bandeirante fragmentado, Mercedes Classe, cores) |
+| 2026-07-21 | Validação de **existência** contra catálogo real (esta rodada): 432 anúncios corrigidos, 24 no suplemento, causa raiz de marca-composta/eco corrigida no pipeline |
+
+## 9. Limitações conhecidas
+
+- `_resolver_willys_composto` (ano decide Ford x Willys) só roda no caminho de **título livre**
+  (`_inferir_marca_modelo_bruto_ano`) — a variante de ficha técnica estruturada
+  (`sanear_marca_modelo`) não recebe `ano`. Não é problema hoje (só o OLX tem esse padrão, e OLX
+  não usa ficha técnica — ver decisão em `docs/` de 2026-07-16 sobre isso), mas revisitar se mudar.
+- ~358 pares marca/modelo (1-2 anúncios cada) continuam sem validação de existência — a maioria
+  precisa leitura individual de título porque vem de anúncio de revenda citando vários carros no
+  mesmo título. `scripts/auditar_existencia_marca_modelo.py` gera a lista atualizada a qualquer
+  momento.
+- O suplemento manual (`_SUPLEMENTO`) é código, não dado — cresce a cada rodada de auditoria e não
+  tem mecanismo de expiração/revisão automática. Se o CSV base for atualizado no futuro, vale
+  checar quais entradas do suplemento já passaram a existir lá (duplicata inofensiva, mas evitável).
