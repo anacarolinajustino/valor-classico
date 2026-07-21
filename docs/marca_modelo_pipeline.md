@@ -149,6 +149,23 @@ pelos conectores sem ficha técnica): devolve modelo, versão (GLX/SS/trim) e ob
 (carroceria/tração: "Cabine Estendida", "4x4", "Sedan") em três campos, pra não poluir nem o
 dropdown de versão nem descartar informação real do carro.
 
+Duas etapas finais do saneamento do modelo, da 2ª passada da auditoria (2026-07-21), tratam a
+fragmentação por grafia:
+
+- **Descolar modelo grudado** (`_descolar_modelo_conhecido`, dentro de `_tokenizar_modelo`):
+  separa um nome de modelo do catálogo grudado ao resto do token — `"Fusca1300"` vira
+  `"Fusca 1300"`, `"EscortXr3"` vira `"Escort Xr3"`. Guardas: o token inteiro não pode ser ele
+  próprio um modelo (`"Golf"` não vira `"Gol F"`), o prefixo precisa ter 4+ letras, e prefixos
+  puramente numéricos são excluídos (o modelo VW `"1600"` colidiria com a cilindrada `"1600S"`).
+
+- **Canonizar grafia** (`canonizar_modelo` em `catalog/loader.py`): unifica as variações de
+  hífen/espaço do mesmo modelo numa só grafia — a do catálogo. `"D-20"` vira `"D20"`, `"C-180"`
+  vira `"C 180"`, `"F1"` vira `"F-1"`. A autoridade de grafia é o CSV base (a forma mais frequente
+  lá); o suplemento só preenche o que o CSV não tem. Sem isso, `"D-20"`, `"D 20"` e `"D20"` eram
+  três grupos distintos do mesmo carro. O CSV é internamente inconsistente (grafa `"C 180"` com
+  espaço mas `"D20"` sem) — segue-se a grafia exata do CSV por modelo; o objetivo é o banco ser
+  consistente com o catálogo, não impor uma regra global de hífen.
+
 ### 5.3 Sentinelas e grupos preservados
 
 - **`MARCA_NAO_IDENTIFICADA`** — nenhuma marca real reconhecível no título (24 anúncios, 0,08% do
@@ -191,11 +208,14 @@ carros) documentados para rodada seguinte.
 | Modelo que só existe pra 1 marca no clássico BR mas é ambíguo no catálogo geral | `_MODELO_AMBIGUO_MARCA` |
 | Carro real confirmado mas ausente do CSV | `_SUPLEMENTO` em `catalog/loader.py`, **nunca** editar o CSV |
 | Grafia nova de spec/carroceria/venda que está vazando pro modelo | `_SPEC_*`, `_MODELO_OBSERVACAO` ou `_CARROCERIA_TRACAO` (qual, depende se deve virar obs ou ser descartada) |
-| Dado já salvo errado (não é bug de código, é histórico) | Script de reprocessamento novo, seguindo o padrão dry-run → resumo → `--apply` com backup (ver `scripts/corrigir_existencia_marca_modelo.py` como modelo) |
+| Grafia hífen/espaço fragmentando o mesmo modelo (`"D-20"` vs `"D20"`) | Já resolvido na raiz por `canonizar_modelo` — a grafia canônica vem do CSV base; ajustar lá se ficar ruim |
+| Modelo do catálogo grudado ao resto (`"Fusca1300"`) | Já resolvido por `_descolar_modelo_conhecido` — só cobre prefixo alfabético 4+ letras |
+| Typo de Willys no modelo | Já resolvido por `_GRAFIAS_WILLYS` no `_resolver_willys_composto` |
+| Dado já salvo errado (não é bug de código, é histórico) | Script de reprocessamento novo, dry-run → resumo → `--apply` com backup (`scripts/reprocessar_grafia_e_modelo.py` é o modelo mais completo: Fase A grafia + Fase B título com guarda de catálogo + overrides por id) |
 
 Ao mudar `normalizer.py`, rodar `pytest tests/test_normalizer.py` (regra geral do projeto: toda
 correção de padrão vem com teste de regressão, não só o dado corrigido) e o restante da suíte
-(`pytest tests/`, 277 testes em ~22s) antes de reprocessar o banco.
+(`pytest tests/`, 286 testes em ~23s) antes de reprocessar o banco.
 
 ## 8. Linha do tempo (referência rápida)
 
@@ -205,7 +225,8 @@ correção de padrão vem com teste de regressão, não só o dado corrigido) e 
 | 2026-07-17 | Achada a causa raiz real: ficha técnica do ML gravava campo "Marca" cru. Criado `sanear_marca_modelo`, aplicado retroativo — marcas distintas 256→118 |
 | 2026-07-17 | `sanear_modelo` (corta spec do modelo, mantém trim) |
 | 2026-07-20 | `separar_modelo_versao_obs` (versão e obs em campos próprios); correções pontuais (Toyota Bandeirante fragmentado, Mercedes Classe, cores) |
-| 2026-07-21 | Validação de **existência** contra catálogo real (esta rodada): 432 anúncios corrigidos, 24 no suplemento, causa raiz de marca-composta/eco corrigida no pipeline |
+| 2026-07-21 (1ª passada) | Validação de **existência** contra catálogo real: 432 anúncios corrigidos, 24 no suplemento, causa raiz de marca-composta/eco corrigida no pipeline |
+| 2026-07-21 (2ª passada) | Canonização de grafia (`D-20`→`D20`, raiz + 1076 anúncios), descolar modelo grudado (`Fusca1300`→`Fusca`), typos de Willys; `modelo='0'`/ano-vazado zerados. Pares distintos 1067→963 |
 
 ## 9. Limitações conhecidas
 
@@ -213,10 +234,14 @@ correção de padrão vem com teste de regressão, não só o dado corrigido) e 
   (`_inferir_marca_modelo_bruto_ano`) — a variante de ficha técnica estruturada
   (`sanear_marca_modelo`) não recebe `ano`. Não é problema hoje (só o OLX tem esse padrão, e OLX
   não usa ficha técnica — ver decisão em `docs/` de 2026-07-16 sobre isso), mas revisitar se mudar.
-- ~358 pares marca/modelo (1-2 anúncios cada) continuam sem validação de existência — a maioria
-  precisa leitura individual de título porque vem de anúncio de revenda citando vários carros no
-  mesmo título. `scripts/auditar_existencia_marca_modelo.py` gera a lista atualizada a qualquer
-  momento.
+- ~256 pares marca/modelo (1-2 anúncios cada) continuam SEM_MATCH — mas a maioria são **nomes
+  reais fora do catálogo** (modelos raros, motos), não erros; e ~30 são revenda multi-carro (título
+  cita vários carros, sem modelo recuperável com segurança). `scripts/analisar_modelos_suspeitos.py`
+  classifica cada par por tipo de problema; `scripts/auditar_existencia_marca_modelo.py` lista os
+  sem-match crus.
+- 46 anúncios ficaram com modelo vazio (hot rods pré-guerra, títulos de revenda sem modelo de
+  fábrica) — vazio honesto em vez de um valor inventado. Somem da listagem por marca/modelo mas
+  seguem no banco.
 - O suplemento manual (`_SUPLEMENTO`) é código, não dado — cresce a cada rodada de auditoria e não
   tem mecanismo de expiração/revisão automática. Se o CSV base for atualizado no futuro, vale
   checar quais entradas do suplemento já passaram a existir lá (duplicata inofensiva, mas evitável).
