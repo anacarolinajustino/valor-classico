@@ -1240,6 +1240,39 @@ a { color: inherit; text-decoration: none; }
 .qv-msg--aviso { color: #B26A00; }
 .qv-msg--erro  { color: #C0392B; }
 
+/* Contagem de anúncios clicável (abre o detalhe do par) */
+.qv-count {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--vc-accent-strong, #B26A00);
+  cursor: pointer;
+  text-decoration: underline;
+  font-variant-numeric: tabular-nums;
+}
+.qv-count:hover { text-decoration: none; }
+
+/* Linha de detalhe: mini-tabela dos anúncios do par */
+.qv-detail-cell { background: rgba(0, 0, 0, .03); padding: 0 12px 12px; }
+.qv-detail-wrap { overflow-x: auto; }
+.qv-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.qv-detail-table th,
+.qv-detail-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--vc-border);
+  vertical-align: top;
+}
+.qv-detail-table th { font-weight: 600; color: var(--vc-ink-muted, #666); }
+.qv-detail-table .an-td--num,
+.qv-detail-table .an-th--num { text-align: right; font-variant-numeric: tabular-nums; }
+.qv-detail-table a { color: var(--vc-accent-strong, #B26A00); }
+
 .admin-section-title {
   font-family: 'Teko', sans-serif;
   font-size: 20px;

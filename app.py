@@ -47,6 +47,7 @@ from src.pipeline.persistence import (
     init_db,
     listar_anuncios,
     listar_anuncios_a_verificar,
+    listar_anuncios_do_par,
     listar_marca_modelo_pares,
     upsert_anuncios,
 )
@@ -228,6 +229,20 @@ def admin_api_corrigir_marca_modelo():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_corrigir_marca_modelo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/anuncios-do-par")
+def admin_api_anuncios_do_par():
+    """Anúncios de um par (marca, modelo) exato — inspeção de item da quarentena."""
+    marca  = request.args.get("marca",  "").strip()
+    modelo = request.args.get("modelo", "").strip()
+    if not marca:
+        return jsonify({"erro": "Marca é obrigatória."}), 400
+    try:
+        return jsonify({"rows": listar_anuncios_do_par(marca, modelo)})
+    except Exception as exc:
+        logger.error("admin_api_anuncios_do_par erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

@@ -644,12 +644,15 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
     a busca em cascata esconde, porque cada marca só mostra os modelos dela
     por vez.
     """
+    # COALESCE trata modelo NULL e '' como o mesmo balde "sem modelo" — senão
+    # os anúncios com modelo NULL some da lista (não apareciam na quarentena
+    # nem batiam com o detalhe do par, que casa por COALESCE).
     sql = """
-        SELECT marca, modelo, COUNT(*) AS qtd
+        SELECT marca, COALESCE(modelo, '') AS modelo, COUNT(*) AS qtd
         FROM anuncios
-        WHERE marca IS NOT NULL AND modelo IS NOT NULL
-        GROUP BY marca, modelo
-        ORDER BY marca, modelo
+        WHERE marca IS NOT NULL
+        GROUP BY marca, COALESCE(modelo, '')
+        ORDER BY marca, COALESCE(modelo, '')
     """
     with _connect() as conn:
         with conn.cursor() as cur:
@@ -736,6 +739,30 @@ def corrigir_marca_modelo(
         "modelo": md_n,
         "no_catalogo": no_catalogo,
     }
+
+
+def listar_anuncios_do_par(marca: str, modelo: str, limite: int = 300) -> list[dict[str, Any]]:
+    """
+    Anúncios de um par (marca, modelo) EXATO — pra inspecionar um item da
+    quarentena no painel antes de corrigir/cadastrar. Casa modelo vazio/NULL
+    via COALESCE (os pares "sem modelo" também precisam ser inspecionáveis).
+    Lista enxuta (sem paginação — um par de quarentena tem poucos anúncios).
+    """
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, fonte, url, titulo, ano, preco, versao, obs "
+                "FROM anuncios "
+                "WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s "
+                "ORDER BY ano NULLS LAST, id "
+                "LIMIT %s",
+                (mk, md, limite),
+            )
+            return [dict(r) for r in cur.fetchall()]
 
 
 def adicionar_ao_catalogo(marca: str, modelo: str) -> dict[str, Any]:

@@ -399,7 +399,7 @@ function renderVerificar() {
     <tr data-marca="${escapeAttr(p.marca)}" data-modelo="${escapeAttr(p.modelo || '')}">
       <td class="an-td">${escapeHtml(p.marca)}</td>
       <td class="an-td">${escapeHtml(p.modelo || '—')}</td>
-      <td class="an-td an-td--num">${p.qtd.toLocaleString('pt-BR')}</td>
+      <td class="an-td an-td--num"><button class="qv-count" onclick="verAnunciosDoPar(this)" title="Ver os anúncios deste par">${p.qtd.toLocaleString('pt-BR')}</button></td>
       <td class="an-td qv-fix">
         <input class="an-filter-input qv-in-marca" list="qv-marcas" value="${escapeAttr(p.marca)}" placeholder="marca" />
         <input class="an-filter-input qv-in-modelo" value="${escapeAttr(p.modelo || '')}" placeholder="modelo" />
@@ -457,6 +457,60 @@ async function corrigirPar(btn) {
     msg.className = 'qv-msg qv-msg--erro';
     msg.textContent = `Erro: ${err.message}`;
     btn.disabled = false;
+  }
+}
+
+async function verAnunciosDoPar(btn) {
+  // Expande/colapsa uma linha de detalhe com os anúncios do par, logo abaixo.
+  const tr = btn.closest('tr');
+  const existente = tr.nextElementSibling;
+  if (existente && existente.classList.contains('qv-detail')) {
+    existente.remove();
+    return;
+  }
+  const marca  = tr.dataset.marca;
+  const modelo = tr.dataset.modelo;
+  const detail = document.createElement('tr');
+  detail.className = 'qv-detail';
+  detail.innerHTML = '<td colspan="4" class="qv-detail-cell">Carregando…</td>';
+  tr.after(detail);
+  const cell = detail.firstElementChild;
+  try {
+    const url = `/admin/api/anuncios-do-par?marca=${encodeURIComponent(marca)}&modelo=${encodeURIComponent(modelo)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.erro) {
+      cell.innerHTML = `<span class="an-empty an-empty--erro">${escapeHtml(data.erro)}</span>`;
+      return;
+    }
+    const rows = data.rows || [];
+    if (!rows.length) {
+      cell.textContent = 'Nenhum anúncio.';
+      return;
+    }
+    cell.innerHTML = `
+      <div class="qv-detail-wrap">
+        <table class="qv-detail-table">
+          <thead>
+            <tr><th>Fonte</th><th>Título</th><th class="an-th--num">Ano</th><th class="an-th--num">Preço</th><th>Versão</th><th>Obs</th></tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.fonte || '—')}</td>
+                <td>${r.url
+                    ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.titulo || '(sem título)')}</a>`
+                    : escapeHtml(r.titulo || '(sem título)')}</td>
+                <td class="an-td--num">${r.ano || '—'}</td>
+                <td class="an-td--num">${fmtPreco(r.preco)}</td>
+                <td>${escapeHtml(r.versao || '—')}</td>
+                <td>${escapeHtml(r.obs || '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    cell.innerHTML = `<span class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</span>`;
   }
 }
 
