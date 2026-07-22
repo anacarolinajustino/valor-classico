@@ -162,12 +162,11 @@ _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
     ("HONDA", "CB 500"): set(range(1971, 1979)),
     ("HONDA", "CB 450"): set(range(1965, 1975)),
     ("HONDA", "CB 360"): set(range(1974, 1977)),
-    # Fabricantes brasileiros de buggy/jipe: catálogo tem a marca mas não
-    # o modelo genérico "Buggy"/nome comercial específico usado nos anúncios.
-    ("BUGRE", "BUGGY"): set(range(1968, 2001)),
-    ("BRM", "BUGGY"): set(range(1971, 2001)),
-    ("FYBER", "BUGGY"): set(range(1980, 1999)),
-    ("FYBER", "STAR"): set(range(1985, 1999)),
+    # (Buggies removidos do suplemento em 2026-07-22 — a usuária decidiu apagar
+    # todos os buggies do banco por não serem automóveis de verdade; ver
+    # scripts/remover_buggies.py. As entradas BUGRE/BRM/FYBER Buggy que ficavam
+    # aqui foram retiradas junto. O base_marcamodelo.csv ainda lista "Buggy"
+    # pra algumas marcas — inerte, sem anúncios.)
     ("ENGESA", "4X4"): set(range(1974, 1995)),
     ("CBT", "JAVALI"): set(range(1988, 1996)),
     # "ASIA MOTORS" é a marca completa (usuária pediu 2026-07-15, ver
