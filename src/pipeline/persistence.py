@@ -662,13 +662,15 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
 
 def _e_buggy_quarentena(marca: str, modelo: str) -> bool:
     """
-    Buggy (de qualquer marca) — kit car sem catálogo fechado, com muita
-    variedade e que nem é automóvel de verdade: a usuária decidiu (2026-07-22)
-    que NÃO entra na quarentena de verificação. Cobre a marca-balde "BUGGY" e
-    qualquer modelo que seja/contenha "BUGGY" (ex.: "GLASPACBUGGY"). Só afeta a
-    lista a verificar — os anúncios seguem no banco normalmente.
+    Buggy — fora do escopo do projeto (decisão da usuária 2026-07-22): não entra
+    na quarentena de verificação. Cobre as marcas de buggy (ver `BUGGY_MARCAS`:
+    BUGGY, BUGWAY, BRM, BUGRE, FYBER...) e qualquer modelo que contenha "BUGGY"
+    (ex.: "GLASPACBUGGY"). Rede de segurança pra buggy que volte num scrape
+    futuro — os anúncios/entradas de catálogo já foram removidos.
     """
-    return marca == "BUGGY" or "BUGGY" in (modelo or "")
+    from src.pipeline.normalizer import BUGGY_MARCAS
+
+    return (marca or "").upper() in BUGGY_MARCAS or "BUGGY" in (modelo or "").upper()
 
 
 def listar_anuncios_a_verificar() -> dict[str, Any]:

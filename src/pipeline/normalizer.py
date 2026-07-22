@@ -371,6 +371,18 @@ MARCA_NAO_IDENTIFICADA = "NAO IDENTIFICADA"
 # como grupo próprio em vez de adivinhar, auditoria 2026-07-15, 2ª rodada).
 _MARCAS_PRESERVADAS: frozenset = frozenset({MARCA_NAO_IDENTIFICADA, "BUGGY"})
 
+# Marcas exclusivamente de buggy/kit car (fabricantes brasileiros que só fazem
+# buggy). A usuária decidiu (2026-07-22) que buggy está FORA do escopo — os
+# anúncios e as entradas de catálogo foram removidos (ver scripts/remover_
+# buggies*.py). Este conjunto identifica buggy por marca (junto com "BUGGY" no
+# modelo) pra que qualquer buggy que volte num scrape futuro fique fora da
+# quarentena. RENO/MENON/GIANTS são marcas de buggy (não confundir RENO com
+# Renault — aqui é a fábrica de buggy "Reno").
+BUGGY_MARCAS: frozenset = frozenset({
+    "BUGGY", "BUGWAY", "WAY BRASIL", "BRM", "BUGRE", "FYBER",
+    "EMIS", "EMISUL", "GIANTS", "MENON", "RENO",
+})
+
 # Palavras comuns de português (adjetivo, conectivo, substantivo de venda)
 # que nunca são nome de marca — quando são o único candidato restante no
 # fallback do passo 4, o anúncio vai para MARCA_NAO_IDENTIFICADA em vez de
