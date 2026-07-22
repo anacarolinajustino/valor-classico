@@ -220,7 +220,9 @@ class TestUpsertAnunciosCorteAno:
             _anuncio("http://x/2", ANO_CORTE_CLASSICO + 1),
             _anuncio("http://x/3", 2024),
         ])
-        assert resultado == {"novos": 1, "atualizados": 0, "descartados_ano": 2}
+        assert resultado == {
+            "novos": 1, "atualizados": 0, "descartados_ano": 2, "descartados_buggy": 0,
+        }
         assert self._contar() == 1
 
     def test_ano_no_limite_entra(self):
@@ -232,6 +234,18 @@ class TestUpsertAnunciosCorteAno:
         resultado = upsert_anuncios([_anuncio("http://x/1", None)])
         assert resultado["novos"] == 1
         assert resultado["descartados_ano"] == 0
+
+    def test_descarta_buggy_na_coleta(self):
+        # Buggy é banido do projeto: descartado na coleta, nem entra no banco.
+        resultado = upsert_anuncios([
+            _anuncio("http://x/1", 1975, marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/2", 1970, marca="BUGGY", modelo="BUGGY"),
+            _anuncio("http://x/3", 1972, marca="BRM", modelo="M-11"),
+            _anuncio("http://x/4", 1974, marca="VOLKSWAGEN", modelo="GLASPACBUGGY"),
+        ])
+        assert resultado["novos"] == 1
+        assert resultado["descartados_buggy"] == 3
+        assert self._contar() == 1
 
 
 # ── AC-P08: get_dashboard_stats agrega os recortes do dashboard ───────────────

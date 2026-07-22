@@ -183,6 +183,9 @@ def upsert_anuncios(
     13 conectores de lojas que não aplicavam o corte por conta própria.
     Anúncios com ano None entram normalmente (clássico com parser falho não
     é carro moderno).
+
+    Descarta também os BUGGY (contados em "descartados_buggy"): a usuária baniu
+    buggy do escopo (2026-07-22), então nem entram no banco — ver `_e_buggy`.
     """
     data = hoje or date.today().isoformat()
     sql_select = "SELECT 1 FROM anuncios WHERE fonte = %s AND url = %s"
@@ -204,11 +207,15 @@ def upsert_anuncios(
     novos = 0
     atualizados = 0
     descartados_ano = 0
+    descartados_buggy = 0
     with _connect() as conn:
         with conn.cursor() as cur:
             for a in anuncios:
                 if a.ano is not None and a.ano > ANO_CORTE_CLASSICO:
                     descartados_ano += 1
+                    continue
+                if _e_buggy(a.marca or "", a.modelo or ""):
+                    descartados_buggy += 1
                     continue
                 cur.execute(sql_select, (a.fonte, a.url))
                 existe = cur.fetchone()
@@ -224,7 +231,12 @@ def upsert_anuncios(
                     atualizados += 1
                 else:
                     novos += 1
-    return {"novos": novos, "atualizados": atualizados, "descartados_ano": descartados_ano}
+    return {
+        "novos": novos,
+        "atualizados": atualizados,
+        "descartados_ano": descartados_ano,
+        "descartados_buggy": descartados_buggy,
+    }
 
 
 def log_search(
@@ -660,13 +672,12 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
             return [dict(r) for r in cur.fetchall()]
 
 
-def _e_buggy_quarentena(marca: str, modelo: str) -> bool:
+def _e_buggy(marca: str, modelo: str) -> bool:
     """
-    Buggy — fora do escopo do projeto (decisão da usuária 2026-07-22): não entra
-    na quarentena de verificação. Cobre as marcas de buggy (ver `BUGGY_MARCAS`:
-    BUGGY, BUGWAY, BRM, BUGRE, FYBER...) e qualquer modelo que contenha "BUGGY"
-    (ex.: "GLASPACBUGGY"). Rede de segurança pra buggy que volte num scrape
-    futuro — os anúncios/entradas de catálogo já foram removidos.
+    Buggy — BANIDO do projeto (decisão da usuária 2026-07-22): descartado já na
+    coleta (`upsert_anuncios`) e nunca aparece na quarentena. Cobre as marcas de
+    buggy (ver `BUGGY_MARCAS`: BUGGY, BUGWAY, BRM, BUGRE, FYBER...) e qualquer
+    modelo que contenha "BUGGY" (ex.: "GLASPACBUGGY").
     """
     from src.pipeline.normalizer import BUGGY_MARCAS
 
@@ -698,7 +709,7 @@ def listar_anuncios_a_verificar() -> dict[str, Any]:
     fora = [
         p for p in pares
         if (normalizar_texto(p["marca"] or ""), normalizar_texto(p["modelo"] or "")) not in catalogo
-        and not _e_buggy_quarentena(p["marca"] or "", p["modelo"] or "")
+        and not _e_buggy(p["marca"] or "", p["modelo"] or "")
     ]
     marcas_catalogo = sorted({mk for mk, _ in catalogo})
     return {
