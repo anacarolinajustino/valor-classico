@@ -1196,31 +1196,49 @@ a { color: inherit; text-decoration: none; }
   margin-top: 16px;
 }
 
-.mm-section {
+.mm-section,
+.qv-section {
   background: var(--vc-surface);
   border: 1px solid var(--vc-border);
   border-radius: var(--radius);
   padding: 24px;
 }
 
-.mm-section .an-filters {
+.mm-section .an-filters,
+.qv-section .an-filters {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 16px;
 }
 
-/* ~1 mil pares não paginados — rolagem interna em vez de esticar a página. */
-.mm-section .an-table-wrap {
+/* Centenas/milhares de pares não paginados — rolagem interna em vez de
+   esticar a página. */
+.mm-section .an-table-wrap,
+.qv-section .an-table-wrap {
   max-height: 600px;
   overflow-y: auto;
 }
 
-.mm-section .an-table thead th {
+.mm-section .an-table thead th,
+.qv-section .an-table thead th {
   position: sticky;
   top: 0;
   background: var(--vc-surface);
   z-index: 1;
 }
+
+/* Correção inline da quarentena: dois campos + botão numa linha só. */
+.qv-fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.qv-fix .an-filter-input { width: 150px; min-width: 90px; }
+.qv-msg { font-size: 13px; font-weight: 600; }
+.qv-msg--ok    { color: #2E7D32; }
+.qv-msg--aviso { color: #B26A00; }
+.qv-msg--erro  { color: #C0392B; }
 
 .admin-section-title {
   font-family: 'Teko', sans-serif;

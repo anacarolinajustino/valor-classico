@@ -40,10 +40,12 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from src.pipeline.backup import fazer_backup
 from src.pipeline.persistence import (
+    corrigir_marca_modelo,
     get_dashboard_stats,
     get_db_stats,
     init_db,
     listar_anuncios,
+    listar_anuncios_a_verificar,
     listar_marca_modelo_pares,
     upsert_anuncios,
 )
@@ -191,6 +193,40 @@ def admin_api_marca_modelo():
         return jsonify({"pares": listar_marca_modelo_pares()})
     except Exception as exc:
         logger.error("admin_api_marca_modelo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/anuncios-a-verificar")
+def admin_api_anuncios_a_verificar():
+    """Quarentena: pares (marca, modelo) fora do catálogo consagrado."""
+    try:
+        return jsonify(listar_anuncios_a_verificar())
+    except Exception as exc:
+        logger.error("admin_api_anuncios_a_verificar erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/corrigir-marca-modelo", methods=["POST"])
+def admin_api_corrigir_marca_modelo():
+    """Reatribui um par (marca, modelo) da quarentena pro par corrigido."""
+    data = request.get_json(silent=True) or {}
+    marca       = (data.get("marca")       or "").strip()
+    modelo      = (data.get("modelo")      or "").strip()
+    marca_nova  = (data.get("marca_nova")  or "").strip()
+    modelo_nova = (data.get("modelo_nova") or "").strip()
+    if not marca or not marca_nova:
+        return jsonify({"erro": "Marca atual e marca nova são obrigatórias."}), 400
+    try:
+        res = corrigir_marca_modelo(marca, modelo, marca_nova, modelo_nova)
+        logger.info(
+            "corrigir-marca-modelo: %r/%r -> %r/%r (%d anúncios, no_catalogo=%s)",
+            marca, modelo, res["marca"], res["modelo"], res["atualizados"], res["no_catalogo"],
+        )
+        return jsonify({"ok": True, **res})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_corrigir_marca_modelo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

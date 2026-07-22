@@ -31,6 +31,7 @@
       <h1 class="admin-title">Anúncios coletados</h1>
       <p class="admin-sub">Todos os anúncios armazenados no banco, com link para a página original.</p>
       <button class="btn btn-outline" id="btn-toggle-mm" onclick="toggleMarcaModelo()">Ver todos os modelos encontrados</button>
+      <button class="btn btn-outline" id="btn-toggle-qv" onclick="toggleVerificar()">Anúncios a verificar</button>
     </div>
 
     <!-- Marca/modelo sem cascata: lista plana pra revisão de qualidade de dado -->
@@ -62,6 +63,42 @@
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- Quarentena: pares marca/modelo fora do catálogo consagrado, pra
+         curadoria manual (indicar marca/modelo corretos e integrar ao grupo) -->
+    <section class="admin-section qv-section hidden" id="qv-section">
+      <h2 class="admin-section-title">Anúncios a verificar</h2>
+      <p class="admin-sub">
+        Pares marca/modelo que <strong>não estão no catálogo consagrado</strong>
+        (base_marcamodelo.csv + suplemento) — uma quarentena. Indique a marca/modelo
+        corretos em cada linha e clique <em>Corrigir</em>: os anúncios daquele par são
+        reatribuídos e, se o par corrigido existir no catálogo, saem desta lista e se
+        integram ao grupo principal.
+      </p>
+      <div class="an-filters">
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="qv-busca">Buscar</label>
+          <input type="text" id="qv-busca" class="an-filter-input" placeholder="filtrar marca ou modelo…" oninput="renderVerificar()" />
+        </div>
+        <span class="an-total" id="qv-total">—</span>
+      </div>
+      <div class="an-table-wrap">
+        <table class="an-table" id="qv-table">
+          <thead>
+            <tr>
+              <th class="an-th an-th--sortable" data-col="marca" onclick="ordenarVerificar('marca')">Marca <span class="an-sort-icon" id="qv-sort-marca">↑</span></th>
+              <th class="an-th an-th--sortable" data-col="modelo" onclick="ordenarVerificar('modelo')">Modelo <span class="an-sort-icon" id="qv-sort-modelo"></span></th>
+              <th class="an-th an-th--sortable an-th--num" data-col="qtd" onclick="ordenarVerificar('qtd')">Anúncios <span class="an-sort-icon" id="qv-sort-qtd"></span></th>
+              <th class="an-th">Correção (marca / modelo)</th>
+            </tr>
+          </thead>
+          <tbody id="qv-tbody">
+            <tr><td colspan="4" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <datalist id="qv-marcas"></datalist>
     </section>
 
     <!-- Filtros -->

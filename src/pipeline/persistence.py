@@ -657,6 +657,87 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
             return [dict(r) for r in cur.fetchall()]
 
 
+def listar_anuncios_a_verificar() -> dict[str, Any]:
+    """
+    "Quarentena": pares (marca, modelo) do banco que NÃO estão no catálogo
+    consagrado (base_marcamodelo.csv + suplemento). São os anúncios a
+    verificar manualmente no painel — dali a usuária indica a marca/modelo
+    corretos (via `corrigir_marca_modelo`) pra integrá-los ao grupo principal.
+
+    Retorna:
+      - `pares`: lista {marca, modelo, qtd}, ordenada por marca/modelo;
+      - `total_pares` / `total_anuncios`: totais da quarentena;
+      - `marcas_catalogo`: marcas distintas do catálogo (pra datalist do
+        campo de correção, evitando typo de marca na hora de corrigir).
+    """
+    # Import tardio: loader importa normalizer/schema, não persistence (sem
+    # ciclo), mas mantido local por consistência com os outros usos do catálogo.
+    from src.catalog.loader import carregar_catalogo
+    from src.pipeline.normalizer import normalizar_texto
+
+    catalogo = carregar_catalogo()
+    pares = listar_marca_modelo_pares()
+    fora = [
+        p for p in pares
+        if (normalizar_texto(p["marca"] or ""), normalizar_texto(p["modelo"] or "")) not in catalogo
+    ]
+    marcas_catalogo = sorted({mk for mk, _ in catalogo})
+    return {
+        "pares": fora,
+        "total_pares": len(fora),
+        "total_anuncios": sum(p["qtd"] for p in fora),
+        "marcas_catalogo": marcas_catalogo,
+    }
+
+
+def corrigir_marca_modelo(
+    marca_atual: str, modelo_atual: str, marca_nova: str, modelo_nova: str
+) -> dict[str, Any]:
+    """
+    Reatribui TODOS os anúncios do par (marca_atual, modelo_atual) pro par
+    corrigido (marca_nova, modelo_nova) — o mecanismo de "sair da quarentena"
+    do painel. Os valores novos são normalizados (maiúsculo, sem acento) pra
+    bater com a convenção de armazenamento.
+
+    Retorna {atualizados, marca, modelo, no_catalogo}: `no_catalogo` diz se o
+    par corrigido está no catálogo consagrado (ou seja, se de fato saiu da
+    quarentena) — senão, continuará aparecendo na lista a verificar.
+
+    NB: correção de uso interativo (curadoria manual) — não gera backup por
+    edição (seria lento demais pra triagem de centenas de pares); cada correção
+    é pequena e fica registrada no log da rota chamadora. Os backups pós-coleta
+    seguem cobrindo o banco.
+    """
+    from src.catalog.loader import carregar_catalogo
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk_a = normalizar_texto(marca_atual or "")
+    md_a = normalizar_texto(modelo_atual or "")
+    mk_n = normalizar_texto(marca_nova or "")
+    md_n = normalizar_texto(modelo_nova or "")
+    if not mk_n:
+        raise ValueError("Marca nova não pode ser vazia.")
+    if (mk_a, md_a) == (mk_n, md_n):
+        raise ValueError("O par corrigido é igual ao atual — nada a fazer.")
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE anuncios SET marca = %s, modelo = %s "
+                "WHERE UPPER(marca) = %s AND UPPER(modelo) = %s",
+                (mk_n, md_n, mk_a, md_a),
+            )
+            atualizados = cur.rowcount
+
+    no_catalogo = (mk_n, md_n) in carregar_catalogo()
+    return {
+        "atualizados": atualizados,
+        "marca": mk_n,
+        "modelo": md_n,
+        "no_catalogo": no_catalogo,
+    }
+
+
 def get_marcas_db() -> list[str]:
     """Retorna lista de marcas distintas presentes na tabela anuncios."""
     sql = "SELECT DISTINCT UPPER(marca) AS marca FROM anuncios WHERE marca IS NOT NULL ORDER BY 1"

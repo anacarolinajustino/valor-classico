@@ -323,6 +323,142 @@ function renderMarcaModelo() {
   `).join('');
 }
 
+// ── Anúncios a verificar (quarentena: pares fora do catálogo) ───────────
+let qvPares = null;
+let qvMarcas = [];
+let qvOrder = 'qtd';
+let qvDir = 'desc';
+
+function toggleVerificar() {
+  const secao = document.getElementById('qv-section');
+  const abrindo = secao.classList.contains('hidden');
+  secao.classList.toggle('hidden');
+  document.getElementById('btn-toggle-qv').textContent =
+    abrindo ? 'Esconder a verificar' : 'Anúncios a verificar';
+  if (abrindo) carregarVerificar();
+}
+
+async function carregarVerificar() {
+  const tbody = document.getElementById('qv-tbody');
+  tbody.innerHTML = '<tr><td colspan="4" class="an-empty">Carregando…</td></tr>';
+  try {
+    const res = await fetch('/admin/api/anuncios-a-verificar');
+    const data = await res.json();
+    if (data.erro) {
+      tbody.innerHTML = `<tr><td colspan="4" class="an-empty an-empty--erro">${escapeHtml(data.erro)}</td></tr>`;
+      return;
+    }
+    qvPares = data.pares || [];
+    qvMarcas = data.marcas_catalogo || [];
+    document.getElementById('qv-marcas').innerHTML =
+      qvMarcas.map(m => `<option value="${escapeAttr(m)}">`).join('');
+    renderVerificar();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function ordenarVerificar(col) {
+  if (qvOrder === col) {
+    qvDir = qvDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    qvOrder = col;
+    qvDir = col === 'qtd' ? 'desc' : 'asc';
+  }
+  ['marca', 'modelo', 'qtd'].forEach(c => {
+    const el = document.getElementById(`qv-sort-${c}`);
+    if (el) el.textContent = c === qvOrder ? (qvDir === 'asc' ? '↑' : '↓') : '';
+  });
+  renderVerificar();
+}
+
+function renderVerificar() {
+  const tbody = document.getElementById('qv-tbody');
+  if (qvPares === null) return;
+
+  const termo = document.getElementById('qv-busca').value.trim().toUpperCase();
+  let linhas = termo
+    ? qvPares.filter(p => p.marca.includes(termo) || (p.modelo || '').includes(termo))
+    : qvPares.slice();
+
+  linhas.sort((a, b) => {
+    const dir = qvDir === 'asc' ? 1 : -1;
+    if (qvOrder === 'qtd') return (a.qtd - b.qtd) * dir;
+    return String(a[qvOrder]).localeCompare(String(b[qvOrder])) * dir;
+  });
+
+  const totalAnuncios = qvPares.reduce((s, p) => s + p.qtd, 0);
+  document.getElementById('qv-total').textContent =
+    `${linhas.length.toLocaleString('pt-BR')} de ${qvPares.length.toLocaleString('pt-BR')} pares · ${totalAnuncios.toLocaleString('pt-BR')} anúncios`;
+
+  if (!linhas.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="an-empty">Nenhum par a verificar.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = linhas.map(p => `
+    <tr data-marca="${escapeAttr(p.marca)}" data-modelo="${escapeAttr(p.modelo || '')}">
+      <td class="an-td">${escapeHtml(p.marca)}</td>
+      <td class="an-td">${escapeHtml(p.modelo || '—')}</td>
+      <td class="an-td an-td--num">${p.qtd.toLocaleString('pt-BR')}</td>
+      <td class="an-td qv-fix">
+        <input class="an-filter-input qv-in-marca" list="qv-marcas" value="${escapeAttr(p.marca)}" placeholder="marca" />
+        <input class="an-filter-input qv-in-modelo" value="${escapeAttr(p.modelo || '')}" placeholder="modelo" />
+        <button class="btn btn-primary btn-sm" onclick="corrigirPar(this)">Corrigir</button>
+        <span class="qv-msg"></span>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function corrigirPar(btn) {
+  const tr = btn.closest('tr');
+  const msg = tr.querySelector('.qv-msg');
+  const marcaNova  = tr.querySelector('.qv-in-marca').value.trim();
+  const modeloNova = tr.querySelector('.qv-in-modelo').value.trim();
+  const payload = {
+    marca:  tr.dataset.marca,
+    modelo: tr.dataset.modelo,
+    marca_nova:  marcaNova,
+    modelo_nova: modeloNova,
+  };
+  btn.disabled = true;
+  msg.className = 'qv-msg';
+  msg.textContent = 'Salvando…';
+  try {
+    const res = await fetch('/admin/api/corrigir-marca-modelo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (data.erro) {
+      msg.className = 'qv-msg qv-msg--erro';
+      msg.textContent = data.erro;
+      btn.disabled = false;
+      return;
+    }
+    // Correção invalida a lista de "todos os modelos" (cache) — recarrega ao reabrir.
+    mmPares = null;
+    if (data.no_catalogo) {
+      msg.className = 'qv-msg qv-msg--ok';
+      msg.textContent = `✓ ${data.atualizados} → catálogo`;
+      // Saiu da quarentena: remove o par do estado local e re-renderiza.
+      qvPares = qvPares.filter(p => !(p.marca === tr.dataset.marca && (p.modelo || '') === tr.dataset.modelo));
+      setTimeout(renderVerificar, 900);
+    } else {
+      // Gravado, mas o par corrigido ainda não está no catálogo — recarrega
+      // do servidor pra refletir a fusão/renomeação e continua na lista.
+      msg.className = 'qv-msg qv-msg--aviso';
+      msg.textContent = `✓ ${data.atualizados} (ainda fora do catálogo)`;
+      setTimeout(carregarVerificar, 900);
+    }
+  } catch (err) {
+    msg.className = 'qv-msg qv-msg--erro';
+    msg.textContent = `Erro: ${err.message}`;
+    btn.disabled = false;
+  }
+}
+
 // ── XSS helpers ────────────────────────────────────────────────────────
 function escapeHtml(str) {
   return String(str)
