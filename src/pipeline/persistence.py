@@ -660,12 +660,25 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
             return [dict(r) for r in cur.fetchall()]
 
 
+def _e_buggy_quarentena(marca: str, modelo: str) -> bool:
+    """
+    Buggy (de qualquer marca) — kit car sem catálogo fechado, com muita
+    variedade e que nem é automóvel de verdade: a usuária decidiu (2026-07-22)
+    que NÃO entra na quarentena de verificação. Cobre a marca-balde "BUGGY" e
+    qualquer modelo que seja/contenha "BUGGY" (ex.: "GLASPACBUGGY"). Só afeta a
+    lista a verificar — os anúncios seguem no banco normalmente.
+    """
+    return marca == "BUGGY" or "BUGGY" in (modelo or "")
+
+
 def listar_anuncios_a_verificar() -> dict[str, Any]:
     """
     "Quarentena": pares (marca, modelo) do banco que NÃO estão no catálogo
     consagrado (base_marcamodelo.csv + suplemento). São os anúncios a
     verificar manualmente no painel — dali a usuária indica a marca/modelo
     corretos (via `corrigir_marca_modelo`) pra integrá-los ao grupo principal.
+
+    Buggies ficam de fora por decisão da usuária (ver `_e_buggy_quarentena`).
 
     Retorna:
       - `pares`: lista {marca, modelo, qtd}, ordenada por marca/modelo;
@@ -683,6 +696,7 @@ def listar_anuncios_a_verificar() -> dict[str, Any]:
     fora = [
         p for p in pares
         if (normalizar_texto(p["marca"] or ""), normalizar_texto(p["modelo"] or "")) not in catalogo
+        and not _e_buggy_quarentena(p["marca"] or "", p["modelo"] or "")
     ]
     marcas_catalogo = sorted({mk for mk, _ in catalogo})
     return {
