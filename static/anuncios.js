@@ -404,6 +404,7 @@ function renderVerificar() {
         <input class="an-filter-input qv-in-marca" list="qv-marcas" value="${escapeAttr(p.marca)}" placeholder="marca" />
         <input class="an-filter-input qv-in-modelo" value="${escapeAttr(p.modelo || '')}" placeholder="modelo" />
         <button class="btn btn-primary btn-sm" onclick="corrigirPar(this)">Corrigir</button>
+        <button class="btn btn-outline btn-sm" onclick="adicionarCatalogo(this)" title="O par já está correto — cadastra no catálogo (suplemento manual)">Ao catálogo</button>
         <span class="qv-msg"></span>
       </td>
     </tr>
@@ -452,6 +453,50 @@ async function corrigirPar(btn) {
       msg.textContent = `✓ ${data.atualizados} (ainda fora do catálogo)`;
       setTimeout(carregarVerificar, 900);
     }
+  } catch (err) {
+    msg.className = 'qv-msg qv-msg--erro';
+    msg.textContent = `Erro: ${err.message}`;
+    btn.disabled = false;
+  }
+}
+
+async function adicionarCatalogo(btn) {
+  // Cadastra o par ATUAL da linha no catálogo — pro caso em que a marca/modelo
+  // já estão certos e só faltava estar no catálogo consagrado. (Se precisar
+  // ajustar a grafia antes, use "Corrigir"; o par corrigido reaparece e aí sim
+  // "Ao catálogo".)
+  const tr = btn.closest('tr');
+  const msg = tr.querySelector('.qv-msg');
+  const marca  = tr.dataset.marca;
+  const modelo = tr.dataset.modelo;
+  if (!modelo) {
+    msg.className = 'qv-msg qv-msg--erro';
+    msg.textContent = 'Sem modelo — use "Corrigir" antes.';
+    return;
+  }
+  btn.disabled = true;
+  msg.className = 'qv-msg';
+  msg.textContent = 'Adicionando…';
+  try {
+    const res = await fetch('/admin/api/adicionar-ao-catalogo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ marca, modelo }),
+    });
+    const data = await res.json();
+    if (data.erro) {
+      msg.className = 'qv-msg qv-msg--erro';
+      msg.textContent = data.erro;
+      btn.disabled = false;
+      return;
+    }
+    mmPares = null;  // "todos os modelos" muda de contagem/pertencimento
+    msg.className = 'qv-msg qv-msg--ok';
+    const faixa = (data.ano_min && data.ano_max) ? ` (${data.ano_min}–${data.ano_max})` : '';
+    msg.textContent = data.ja_existia ? '✓ já no catálogo' : `✓ no catálogo${faixa}`;
+    // Saiu da quarentena: remove do estado local e re-renderiza.
+    qvPares = qvPares.filter(p => !(p.marca === marca && (p.modelo || '') === modelo));
+    setTimeout(renderVerificar, 900);
   } catch (err) {
     msg.className = 'qv-msg qv-msg--erro';
     msg.textContent = `Erro: ${err.message}`;

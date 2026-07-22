@@ -40,6 +40,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from src.pipeline.backup import fazer_backup
 from src.pipeline.persistence import (
+    adicionar_ao_catalogo,
     corrigir_marca_modelo,
     get_dashboard_stats,
     get_db_stats,
@@ -227,6 +228,28 @@ def admin_api_corrigir_marca_modelo():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_corrigir_marca_modelo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/adicionar-ao-catalogo", methods=["POST"])
+def admin_api_adicionar_ao_catalogo():
+    """Cadastra um par (marca, modelo) já correto no catálogo (suplemento manual)."""
+    data = request.get_json(silent=True) or {}
+    marca  = (data.get("marca")  or "").strip()
+    modelo = (data.get("modelo") or "").strip()
+    if not marca or not modelo:
+        return jsonify({"erro": "Marca e modelo são obrigatórios."}), 400
+    try:
+        res = adicionar_ao_catalogo(marca, modelo)
+        logger.info(
+            "adicionar-ao-catalogo: %r/%r (ja_existia=%s, anos=%s-%s)",
+            res["marca"], res["modelo"], res["ja_existia"], res["ano_min"], res["ano_max"],
+        )
+        return jsonify({"ok": True, **res})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_adicionar_ao_catalogo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

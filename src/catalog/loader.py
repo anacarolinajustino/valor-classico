@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 CSV_PADRAO = Path(__file__).parent.parent.parent / "data" / "base_marcamodelo.csv"
 
+# Suplemento EDITÁVEL EM RUNTIME pelo painel ("adicionar ao catálogo", botão
+# da quarentena /admin/anuncios) — diferente do _SUPLEMENTO hardcoded abaixo,
+# este é um CSV que a usuária alimenta pela interface sem mexer no código.
+# Colunas: marca,modelo,ano_min,ano_max (marca/modelo já normalizados).
+SUPLEMENTO_MANUAL_CSV = Path(__file__).parent.parent.parent / "data" / "suplemento_manual.csv"
+
 # Suplemento manual: modelos ausentes do CSV principal.
 # Chaves já normalizadas (uppercase, sem acento). Ranges = anos de produção no Brasil.
 _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
@@ -240,9 +246,43 @@ def carregar_catalogo(caminho: Optional[Path] = None) -> dict[tuple[str, str], s
     for chave, anos_sup in _SUPLEMENTO.items():
         _catalogo.setdefault(chave, set()).update(anos_sup)
     logger.info("Suplemento aplicado: %d entradas adicionadas/estendidas", len(_SUPLEMENTO))
+
+    manual = _carregar_suplemento_manual()
+    for chave, anos_man in manual.items():
+        _catalogo.setdefault(chave, set()).update(anos_man)
+    if manual:
+        logger.info("Suplemento manual aplicado: %d entradas", len(manual))
     _carregado = True
 
     return _catalogo
+
+
+def _carregar_suplemento_manual() -> dict[tuple[str, str], set[int]]:
+    """
+    Lê o suplemento manual (CSV editado pelo painel) como
+    (marca_norm, modelo_norm) -> set de anos. Ausência do arquivo ou linha
+    malformada degrada pra vazio (nunca derruba o catálogo).
+    """
+    extra: dict[tuple[str, str], set[int]] = {}
+    try:
+        with open(SUPLEMENTO_MANUAL_CSV, encoding="utf-8", newline="") as f:
+            for linha in csv.DictReader(f):
+                mk = normalizar_texto((linha.get("marca") or "").strip())
+                md = normalizar_texto((linha.get("modelo") or "").strip())
+                if not mk or not md:
+                    continue
+                anos: set[int] = set()
+                a0 = (linha.get("ano_min") or "").strip()
+                a1 = (linha.get("ano_max") or "").strip()
+                if a0 and a1:
+                    try:
+                        anos = set(range(int(a0), int(a1) + 1))
+                    except ValueError:
+                        anos = set()
+                extra.setdefault((mk, md), set()).update(anos)
+    except FileNotFoundError:
+        pass
+    return extra
 
 
 _grafia_idx: Optional[dict[tuple[str, str], str]] = None

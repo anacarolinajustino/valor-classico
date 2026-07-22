@@ -738,6 +738,60 @@ def corrigir_marca_modelo(
     }
 
 
+def adicionar_ao_catalogo(marca: str, modelo: str) -> dict[str, Any]:
+    """
+    Adiciona um par (marca, modelo) ao catálogo, pro caso em que o anúncio já
+    está com marca/modelo corretos e o que faltava era cadastrar o modelo
+    (ele estava na quarentena só por ausência do catálogo). Grava no
+    suplemento manual (data/suplemento_manual.csv), que o loader lê junto com
+    o CSV base — persiste entre reinícios sem mexer no código.
+
+    A faixa de anos é derivada dos próprios anúncios desse par (min/max do ano
+    presente no banco); sem ano, fica vazia (a chave existe mesmo assim, que é
+    o que tira o par da quarentena). Reseta o cache do catálogo pra a mudança
+    valer já na próxima consulta.
+
+    Retorna {ja_existia, marca, modelo, ano_min, ano_max}.
+    """
+    import csv as _csv
+
+    from src.catalog.loader import (
+        SUPLEMENTO_MANUAL_CSV,
+        carregar_catalogo,
+        resetar_cache,
+    )
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    if not mk or not md:
+        raise ValueError("Marca e modelo são obrigatórios pra adicionar ao catálogo.")
+
+    if (mk, md) in carregar_catalogo():
+        return {"ja_existia": True, "marca": mk, "modelo": md, "ano_min": None, "ano_max": None}
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT MIN(ano) AS mn, MAX(ano) AS mx FROM anuncios "
+                "WHERE UPPER(marca) = %s AND UPPER(modelo) = %s AND ano IS NOT NULL",
+                (mk, md),
+            )
+            r = cur.fetchone()
+    ano_min, ano_max = (r["mn"], r["mx"]) if r else (None, None)
+
+    novo = not SUPLEMENTO_MANUAL_CSV.exists()
+    SUPLEMENTO_MANUAL_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with open(SUPLEMENTO_MANUAL_CSV, "a", encoding="utf-8", newline="") as f:
+        w = _csv.writer(f)
+        if novo:
+            w.writerow(["marca", "modelo", "ano_min", "ano_max"])
+        w.writerow([mk, md, ano_min if ano_min is not None else "", ano_max if ano_max is not None else ""])
+
+    resetar_cache()  # próxima carregar_catalogo() já enxerga o novo par
+    return {"ja_existia": False, "marca": mk, "modelo": md, "ano_min": ano_min, "ano_max": ano_max}
+
+
 def get_marcas_db() -> list[str]:
     """Retorna lista de marcas distintas presentes na tabela anuncios."""
     sql = "SELECT DISTINCT UPPER(marca) AS marca FROM anuncios WHERE marca IS NOT NULL ORDER BY 1"
