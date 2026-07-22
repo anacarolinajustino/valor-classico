@@ -267,6 +267,51 @@ _MODELO_ABREVIACAO: dict[tuple[str, str], str] = {
     # depois da âncora, não da tokenização (ver sanear_modelo/
     # separar_modelo_versao_obs).
     ("VOLKSWAGEN", "KARMANN GHIA"): "KARMANN-GHIA",
+    # Auditoria de grafia 2026-07-22 (3ª passada — a usuária apontou que a
+    # mesma linha aparecia com grafias diferentes fragmentando o grupo:
+    # "Chevete"/"Chevette", "Chevrolet Brasil"/"ChevroletBrasil",
+    # "Tornado"/"Toronado"...). Cada chave é a grafia crua achada no banco;
+    # o valor é a grafia canônica do catálogo (existência conferida em
+    # base_marcamodelo.csv). São dois tipos:
+    #
+    #  (a) typo/variação de 1 token -> nome canônico (o token grudado tipo
+    #      "GRABLAZER" é 1 token só no campo, então mapeia direto aqui — o
+    #      valor multi-palavra volta a ser reconhecido pela âncora porque
+    #      "GRAND BLAZER" & cia estão no catálogo);
+    #  (b) marca/carroceria colada ao modelo num token só
+    #      ("CHEVROLETBRASIL", "DEVILLESEDAN", "JIPEBANDEIRANTE").
+    #
+    # NB: casos onde o título revela que o "modelo" nem é modelo (Chevrolet
+    # "Americano"/"Anericana" = descritor do Bel Air; "Chevrolete" = "Sedã
+    # 1934" sem linha) NÃO entram aqui — viram correção por id no script de
+    # reprocessamento (não há grafia canônica pra onde canonizar).
+    ("CHEVROLET", "CHEVETE"):         "CHEVETTE",
+    ("CHEVROLET", "CHEYNNE"):         "CHEYENNE",
+    ("CHEVROLET", "GRABLAZER"):       "GRAND BLAZER",
+    ("CHEVROLET", "CHEVROLETBRASIL"): "BRASIL",
+    ("CHEVROLET", "BISCAYNE2"):       "BISCAYNE",
+    ("FORD", "GALAXI"):               "GALAXIE",
+    ("FORD", "THUNDERBIR"):           "THUNDERBIRD",
+    ("FORD", "SCORT"):                "ESCORT",
+    ("FORD", "PAMAPA"):               "PAMPA",
+    ("FORD", "RANCHEIRO"):            "RANCHERO",
+    ("FORD", "TBUCKET"):              "T-BUCKET",
+    ("FIAT", "PANAROMA"):             "PANORAMA",
+    ("MERCURY", "HEIGT"):             "EIGHT",
+    ("MG", "MIDJET"):                 "MIDGET",
+    # "MG A"/"MG B" — a marca consome "MG" e sobra a letra solta; a linha
+    # se chama "MGA"/"MGB" (junto), que é como o catálogo grafa.
+    ("MG", "A"):                      "MGA",
+    ("MG", "B"):                      "MGB",
+    ("MINI", "CUPER"):                "COOPER",
+    ("OLDSMOBILE", "TORNADO"):        "TORONADO",
+    ("BUICK", "SKYLARC"):             "SKYLARK",
+    ("DKW", "VEMAGET"):               "VEMAGUET",
+    ("TOYOTA", "JIPEBANDEIRANTE"):    "BANDEIRANTE",
+    ("JEEP", "GRACHEROKEE"):          "GRAND CHEROKEE",
+    ("SUZUKI", "GRAVITARA"):          "GRAND VITARA",
+    ("GURGEL", "BRBR-800"):           "BR-800",
+    ("CADILLAC", "DEVILLESEDAN"):     "DE VILLE",
 }
 
 # O catálogo geral grafa a mesma marca de mais de um jeito ("WILLYS" e
