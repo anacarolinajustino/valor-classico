@@ -408,6 +408,7 @@ function renderVerificar() {
         <input class="an-filter-input qv-in-modelo" value="${escapeAttr(p.modelo || '')}" placeholder="ou digite um modelo novo" />
         <button class="btn btn-primary btn-sm" onclick="corrigirPar(this)">Corrigir</button>
         <button class="btn btn-outline btn-sm" onclick="adicionarCatalogo(this)" title="O par já está correto — cadastra no catálogo (suplemento manual)">Ao catálogo</button>
+        <button class="btn btn-danger btn-sm" onclick="excluirPar(this)" title="O veículo não pertence ao acervo — apaga todos os anúncios deste par">Excluir</button>
         <span class="qv-msg"></span>
       </td>
     </tr>
@@ -574,6 +575,48 @@ async function adicionarCatalogo(btn) {
     const faixa = (data.ano_min && data.ano_max) ? ` (${data.ano_min}–${data.ano_max})` : '';
     msg.textContent = data.ja_existia ? '✓ já no catálogo' : `✓ no catálogo${faixa}`;
     // Saiu da quarentena: remove do estado local e re-renderiza.
+    qvPares = qvPares.filter(p => !(p.marca === marca && (p.modelo || '') === modelo));
+    setTimeout(renderVerificar, 900);
+  } catch (err) {
+    msg.className = 'qv-msg qv-msg--erro';
+    msg.textContent = `Erro: ${err.message}`;
+    btn.disabled = false;
+  }
+}
+
+async function excluirPar(btn) {
+  // Apaga TODOS os anúncios do par — pro caso em que o veículo nem pertence ao
+  // acervo (ex.: um VW T-Cross que entrou por ano forjado no título). Ação
+  // destrutiva e irreversível: confirma antes.
+  const tr = btn.closest('tr');
+  const msg = tr.querySelector('.qv-msg');
+  const marca  = tr.dataset.marca;
+  const modelo = tr.dataset.modelo;
+  const qtd = tr.querySelector('.qv-count')?.textContent?.trim() || '?';
+  const nome = `${marca} ${modelo || '(sem modelo)'}`.trim();
+  if (!confirm(`Apagar definitivamente ${qtd} anúncio(s) de "${nome}"?\n\nUse esta opção só quando o veículo não pertence ao acervo. Não dá pra desfazer.`)) {
+    return;
+  }
+  btn.disabled = true;
+  msg.className = 'qv-msg';
+  msg.textContent = 'Excluindo…';
+  try {
+    const res = await fetch('/admin/api/excluir-marca-modelo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ marca, modelo }),
+    });
+    const data = await res.json();
+    if (data.erro) {
+      msg.className = 'qv-msg qv-msg--erro';
+      msg.textContent = data.erro;
+      btn.disabled = false;
+      return;
+    }
+    mmPares = null;  // "todos os modelos" muda de contagem
+    msg.className = 'qv-msg qv-msg--ok';
+    msg.textContent = `✓ ${data.excluidos} apagado(s)`;
+    // Sumiu do banco: remove do estado local e re-renderiza.
     qvPares = qvPares.filter(p => !(p.marca === marca && (p.modelo || '') === modelo));
     setTimeout(renderVerificar, 900);
   } catch (err) {

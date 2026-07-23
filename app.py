@@ -42,6 +42,7 @@ from src.pipeline.backup import fazer_backup
 from src.pipeline.persistence import (
     adicionar_ao_catalogo,
     corrigir_marca_modelo,
+    excluir_marca_modelo,
     get_dashboard_stats,
     get_db_stats,
     init_db,
@@ -245,6 +246,25 @@ def admin_api_anuncios_do_par():
         return jsonify({"rows": listar_anuncios_do_par(marca, modelo)})
     except Exception as exc:
         logger.error("admin_api_anuncios_do_par erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/excluir-marca-modelo", methods=["POST"])
+def admin_api_excluir_marca_modelo():
+    """Apaga todos os anúncios de um par (marca, modelo) que não pertence ao acervo."""
+    data = request.get_json(silent=True) or {}
+    marca  = (data.get("marca")  or "").strip()
+    modelo = (data.get("modelo") or "").strip()
+    if not marca:
+        return jsonify({"erro": "Marca é obrigatória."}), 400
+    try:
+        res = excluir_marca_modelo(marca, modelo)
+        logger.info("excluir-marca-modelo: %r/%r (%d anúncios apagados)", marca, modelo, res["excluidos"])
+        return jsonify({"ok": True, **res})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_excluir_marca_modelo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

@@ -13,6 +13,7 @@ import pytest
 from src.pipeline.persistence import (
     ANO_CORTE_CLASSICO,
     CHART_MIN_DIAS,
+    excluir_marca_modelo,
     get_dashboard_stats,
     init_db,
     listar_anuncios,
@@ -261,6 +262,35 @@ class TestUpsertAnunciosCorteAno:
         assert resultado["novos"] == 1
         assert resultado["descartados_hot_rod"] == 3
         assert self._contar() == 1
+
+
+class TestExcluirMarcaModelo:
+    def _contar(self) -> int:
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM anuncios")
+            n = cur.fetchone()[0]
+        conn.close()
+        return n
+
+    def test_exclui_todos_do_par(self):
+        upsert_anuncios([
+            _anuncio("http://x/1", 1975, marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/2", 1972, marca="VOLKSWAGEN", modelo="T-CROSS"),
+            _anuncio("http://x/3", 1972, marca="VOLKSWAGEN", modelo="T-CROSS"),
+        ])
+        res = excluir_marca_modelo("Volkswagen", "T-Cross")
+        assert res["excluidos"] == 2
+        assert self._contar() == 1  # o Fusca fica
+
+    def test_casa_modelo_vazio_via_coalesce(self):
+        upsert_anuncios([_anuncio("http://x/1", 1970, marca="FORD", modelo="")])
+        assert excluir_marca_modelo("Ford", "")["excluidos"] == 1
+        assert self._contar() == 0
+
+    def test_marca_vazia_e_erro(self):
+        with pytest.raises(ValueError):
+            excluir_marca_modelo("", "T-Cross")
 
 
 # ── AC-P08: get_dashboard_stats agrega os recortes do dashboard ───────────────

@@ -798,6 +798,36 @@ def corrigir_marca_modelo(
     }
 
 
+def excluir_marca_modelo(marca: str, modelo: str) -> dict[str, Any]:
+    """
+    Apaga TODOS os anúncios de um par (marca, modelo) da quarentena — pro caso
+    em que o veículo simplesmente não pertence ao acervo (ex.: um VW T-Cross que
+    entrou por ano forjado no título "…1.0 TSI … 1972"). Casa modelo vazio/NULL
+    via COALESCE, igual `listar_anuncios_do_par`.
+
+    NB: ação de curadoria interativa, irreversível. Como `corrigir_marca_modelo`,
+    NÃO gera backup por clique (seria lento demais na triagem) — a rota chamadora
+    loga o que foi apagado e a UI confirma antes; os backups pós-coleta cobrem o
+    banco. Retorna {excluidos}.
+    """
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    if not mk:
+        raise ValueError("Marca é obrigatória.")
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM anuncios "
+                "WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s",
+                (mk, md),
+            )
+            excluidos = cur.rowcount
+    return {"excluidos": excluidos}
+
+
 def listar_anuncios_do_par(marca: str, modelo: str, limite: int = 300) -> list[dict[str, Any]]:
     """
     Anúncios de um par (marca, modelo) EXATO — pra inspecionar um item da
