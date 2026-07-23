@@ -186,6 +186,8 @@ def upsert_anuncios(
 
     Descarta também os BUGGY (contados em "descartados_buggy"): a usuária baniu
     buggy do escopo (2026-07-22), então nem entram no banco — ver `_e_buggy`.
+    Idem para HOT ROD (contados em "descartados_hot_rod"; banido em 2026-07-23,
+    identificado pelo título/versão/modelo — ver `_e_hot_rod`).
     """
     data = hoje or date.today().isoformat()
     sql_select = "SELECT 1 FROM anuncios WHERE fonte = %s AND url = %s"
@@ -208,6 +210,7 @@ def upsert_anuncios(
     atualizados = 0
     descartados_ano = 0
     descartados_buggy = 0
+    descartados_hot_rod = 0
     with _connect() as conn:
         with conn.cursor() as cur:
             for a in anuncios:
@@ -216,6 +219,9 @@ def upsert_anuncios(
                     continue
                 if _e_buggy(a.marca or "", a.modelo or ""):
                     descartados_buggy += 1
+                    continue
+                if _e_hot_rod(a.titulo or "", a.modelo or "", a.versao or ""):
+                    descartados_hot_rod += 1
                     continue
                 cur.execute(sql_select, (a.fonte, a.url))
                 existe = cur.fetchone()
@@ -236,6 +242,7 @@ def upsert_anuncios(
         "atualizados": atualizados,
         "descartados_ano": descartados_ano,
         "descartados_buggy": descartados_buggy,
+        "descartados_hot_rod": descartados_hot_rod,
     }
 
 
@@ -682,6 +689,19 @@ def _e_buggy(marca: str, modelo: str) -> bool:
     from src.pipeline.normalizer import BUGGY_MARCAS
 
     return (marca or "").upper() in BUGGY_MARCAS or "BUGGY" in (modelo or "").upper()
+
+
+def _e_hot_rod(titulo: str, modelo: str, versao: str) -> bool:
+    """
+    Hot rod — BANIDO do projeto (decisão da usuária 2026-07-23): descartado já na
+    coleta (`upsert_anuncios`). Diferente do buggy, hot rod não é marca (são
+    Fords dos anos 30, Chevrolets... reais), então é identificado pela palavra
+    "hot rod"/"hotrod"/"hot-rod" no título (onde quase sempre aparece), na versão
+    ou no modelo. Ver `contem_hot_rod` (normalizer) e scripts/remover_hot_rods.py.
+    """
+    from src.pipeline.normalizer import contem_hot_rod
+
+    return contem_hot_rod(titulo, modelo, versao)
 
 
 def listar_anuncios_a_verificar() -> dict[str, Any]:

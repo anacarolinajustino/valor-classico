@@ -383,6 +383,20 @@ BUGGY_MARCAS: frozenset = frozenset({
     "EMIS", "EMISUL", "GIANTS", "MENON", "RENO",
 })
 
+# Hot rod — também FORA do escopo (decisão da usuária 2026-07-23), pelo mesmo
+# motivo do buggy: é carro fortemente customizado, não um clássico de fábrica.
+# Diferente do buggy, hot rod NÃO é marca (são Fords dos anos 30, Chevrolets,
+# Oldsmobiles... reais), então é identificado pela palavra-chave no TÍTULO (onde
+# quase sempre aparece), na versão ou no modelo — não há entradas de hot rod no
+# catálogo. Cobre "hot rod", "hotrod" e "hot-rod". Ver `_e_hot_rod` (persistence)
+# e scripts/remover_hot_rods.py.
+HOT_ROD_RE = re.compile(r"hot[\s-]?rod", re.IGNORECASE)
+
+
+def contem_hot_rod(*textos: Optional[str]) -> bool:
+    """True se qualquer um dos textos (título, modelo, versão) mencionar hot rod."""
+    return any(HOT_ROD_RE.search(t) for t in textos if t)
+
 # Palavras comuns de português (adjetivo, conectivo, substantivo de venda)
 # que nunca são nome de marca — quando são o único candidato restante no
 # fallback do passo 4, o anúncio vai para MARCA_NAO_IDENTIFICADA em vez de

@@ -198,10 +198,11 @@ class TestLogSearch:
 
 # ── AC-P07: upsert_anuncios aplica o corte de ano centralmente ────────────────
 
-def _anuncio(url: str, ano, fonte: str = "teste", marca: str = "VOLKSWAGEN", modelo: str = "FUSCA") -> Anuncio:
+def _anuncio(url: str, ano, fonte: str = "teste", marca: str = "VOLKSWAGEN", modelo: str = "FUSCA",
+             titulo: str | None = None, versao: str | None = None) -> Anuncio:
     return Anuncio(
-        titulo=f"Carro {ano}", preco=50000.0, marca=marca, modelo=modelo,
-        ano=ano, versao=None, url=url, fonte=fonte, data_coleta="2026-07-14",
+        titulo=titulo if titulo is not None else f"Carro {ano}", preco=50000.0, marca=marca, modelo=modelo,
+        ano=ano, versao=versao, url=url, fonte=fonte, data_coleta="2026-07-14",
     )
 
 
@@ -222,6 +223,7 @@ class TestUpsertAnunciosCorteAno:
         ])
         assert resultado == {
             "novos": 1, "atualizados": 0, "descartados_ano": 2, "descartados_buggy": 0,
+            "descartados_hot_rod": 0,
         }
         assert self._contar() == 1
 
@@ -245,6 +247,19 @@ class TestUpsertAnunciosCorteAno:
         ])
         assert resultado["novos"] == 1
         assert resultado["descartados_buggy"] == 3
+        assert self._contar() == 1
+
+    def test_descarta_hot_rod_na_coleta(self):
+        # Hot rod é banido do projeto (como o buggy): descartado na coleta. É
+        # detectado pelo título/versão/modelo — a marca/modelo é legítima (Ford).
+        resultado = upsert_anuncios([
+            _anuncio("http://x/1", 1975, marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/2", 1932, marca="FORD", modelo="ROADSTER", titulo="Ford 1932 Roadster Hotrod"),
+            _anuncio("http://x/3", 1930, marca="FORD", modelo="TUDOR", titulo="Ford Tudor Hot Rod 1930"),
+            _anuncio("http://x/4", 1934, marca="FORD", modelo="34", titulo="Ford 34", versao="HOT ROD"),
+        ])
+        assert resultado["novos"] == 1
+        assert resultado["descartados_hot_rod"] == 3
         assert self._contar() == 1
 
 
