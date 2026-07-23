@@ -314,6 +314,16 @@ _MODELO_ABREVIACAO: dict[tuple[str, str], str] = {
     ("CADILLAC", "DEVILLESEDAN"):     "DE VILLE",
 }
 
+# Nome comercial que FUNDE modelo + trim num token só (ou grafia própria do
+# fabricante), onde o _MODELO_ABREVIACAO não serve porque ele só renomeia o
+# modelo e perderia o trim. Expande o token em "MODELO VERSAO" ainda na
+# tokenização: a âncora acha o modelo real no catálogo e o trim vira versão à
+# parte (auditoria 2026-07-23). Ex.: a Chevrolet vendeu a S10 com acabamento SS
+# como "SS10" — na verdade é S10, versão SS (apontado pela usuária).
+_MODELO_EXPANSAO: dict[tuple[str, str], str] = {
+    ("CHEVROLET", "SS10"): "S10 SS",
+}
+
 # O catálogo geral grafa a mesma marca de mais de um jeito ("WILLYS" e
 # "WILLYS OVERLAND" são o mesmo fabricante) — a regra "prefixo mais longo
 # primeiro" do passo 1 preferiria a forma composta, fragmentando o grupo já
@@ -575,6 +585,12 @@ def _tokenizar_modelo(marca_norm: str, modelo: str) -> list[str]:
     for t in modelo_norm.split():
         t = _TOKEN_DUPLICADO.sub(r"\1", t)
         t = _MODELO_ABREVIACAO.get((marca_norm, t), t)
+        # Nome comercial que funde modelo+trim ("SS10"→"S10 SS") — expande antes
+        # de descolar, pra âncora achar o modelo e o trim virar versão.
+        expandido = _MODELO_EXPANSAO.get((marca_norm, t))
+        if expandido:
+            tokens.extend(expandido.split())
+            continue
         # Modelo conhecido grudado ao resto ("FUSCA1300"→"FUSCA 1300",
         # "ESCORTXR3"→"ESCORT XR3") — separa em tokens pra âncora achar o nome.
         tokens.extend(_descolar_modelo_conhecido(marca_norm, t).split())

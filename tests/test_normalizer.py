@@ -664,6 +664,19 @@ class TestSepararModeloVersaoObs:
         assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca") == ("FUSCA", None, None)
         assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca 1300") == ("FUSCA", None, None)
 
+    def test_ss10_vira_s10_versao_ss(self):
+        # A usuária apontou (2026-07-23): "SS10" é a S10 com acabamento SS —
+        # modelo S10, versão SS (ver _MODELO_EXPANSAO). O token fundido expande
+        # pra "S10 SS" na tokenização.
+        assert separar_modelo_versao_obs("CHEVROLET", "SS10") == ("S10", "SS", None)
+        assert separar_modelo_versao_obs("CHEVROLET", "SS10 Americana") == (
+            "S10", "SS AMERICANA", None
+        )
+        # Não afeta a S10 comum.
+        assert separar_modelo_versao_obs("CHEVROLET", "S10 Executive") == (
+            "S10", "EXECUTIVE", None
+        )
+
     def test_geracao_vira_versao_junto_com_trim(self):
         # Usuária decidiu (2026-07-20): geração não é um campo à parte, some
         # dentro da versão.
