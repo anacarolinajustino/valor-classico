@@ -18,6 +18,15 @@ Observações descobertas na auditoria (2026-07-23):
     devolvia sempre a página 1 sem filtro de ano.
   - Sem `url`, o filtro de ano não é aplicado (vinham carros 2024/2025/2026).
   - O total real (≤2000) é ~212 páginas ≈ 5.070 anúncios.
+
+Anti-bot (PerimeterX): o bloqueio é reputacional por IP — um IP "fresco" passa
+~185 páginas antes do primeiro 403 e, uma vez marcado, é bloqueado
+agressivamente por horas. Solução: rotear cada requisição por um IP residencial
+DIFERENTE do pool DataImpulse (novo `sessid` a cada `requests_proxies()`), já
+que a listagem é stateless. Assim nenhum IP acumula tráfego suficiente para ser
+marcado. Sem as env vars DATAIMPULSE_* o conector conecta direto (degrada para
+o comportamento antigo, que satura o IP após ~185 páginas). Custo medido:
+~73 KB/página → coleta completa ~15 MB ≈ US$0,015 a US$1/GB.
 """
 from __future__ import annotations
 
@@ -31,6 +40,7 @@ from typing import Optional
 
 import requests
 
+from src.connectors._browser import proxy_configurado, requests_proxies
 from src.pipeline.normalizer import normalizar_preco, normalizar_texto, separar_marca_modelo_versao_obs
 from src.pipeline.schema import Anuncio
 
@@ -48,13 +58,15 @@ FILTRO_URL = (
 QUANTIDADE_POR_PAGINA = 24
 # UA do app mobile Android — contorna PerimeterX que bloqueia browsers headless
 USER_AGENT = "com.webmotors.app/5.0 (Android 13; Pixel 6)"
-TIMEOUT = 20
-MAX_RETRIES = 2
+TIMEOUT = 40  # proxy residencial é mais lento que conexão direta
+MAX_RETRIES = 4  # cada tentativa sai de um IP diferente, então retentar tem valor real
 BACKOFF = 2.0
-RATE_LIMIT = 1.5
-# Resiliência ao 403 intermitente do PerimeterX durante a coleta completa.
-PAUSA_APOS_BLOQUEIO = 20.0   # segundos-base; cresce a cada falha seguida
-MAX_FALHAS_SEGUIDAS = 4      # após N páginas seguidas sem resposta, desiste
+RATE_LIMIT = 1.0
+# Resiliência ao 403 do PerimeterX durante a coleta completa. Com IP rotativo um
+# 403 é raro (IP do pool que já estava marcado) e a retentativa já pega outro IP,
+# então a pausa é curta — não precisamos "esperar o IP esfriar" como sem proxy.
+PAUSA_APOS_BLOQUEIO = 5.0    # segundos-base; cresce a cada falha seguida
+MAX_FALHAS_SEGUIDAS = 6      # após N páginas seguidas sem resposta, desiste
 
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
@@ -101,6 +113,13 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
 def coletar_completo(max_paginas: int = 300) -> tuple[list[Anuncio], dict]:
     """Coleta todos os anúncios de carros clássicos (≤ 2000)."""
     sessao = _criar_sessao()
+    if proxy_configurado():
+        logger.info("[webmotors] usando proxy residencial DataImpulse (IP rotativo por requisição)")
+    else:
+        logger.warning(
+            "[webmotors] DATAIMPULSE_* não configurado — conectando direto; o "
+            "PerimeterX satura o IP após ~185 páginas e bloqueia o resto"
+        )
     data_coleta = date.today().isoformat()
     inicio = time.monotonic()
     anuncios: list[Anuncio] = []
@@ -336,23 +355,34 @@ def _criar_sessao() -> requests.Session:
 
 def _requisitar(sessao: requests.Session, params: dict) -> Optional[dict]:
     for i in range(1, MAX_RETRIES + 1):
+        # IP residencial novo a cada tentativa (novo sessid do pool DataImpulse).
+        # Se o proxy não estiver configurado, requests_proxies() devolve None e a
+        # requisição sai direto — degradando para o comportamento antigo.
+        proxies = requests_proxies()
         try:
-            r = sessao.get(API_URL, params=params, timeout=TIMEOUT)
+            r = sessao.get(API_URL, params=params, proxies=proxies, timeout=TIMEOUT)
             if r.status_code == 403:
-                logger.warning("[webmotors] bloqueado por PerimeterX (403)")
-                return None
+                # IP marcado pelo PerimeterX: a próxima tentativa sai de outro IP.
+                logger.warning("[webmotors] 403 do PerimeterX (tentativa %d/%d) — trocando de IP", i, MAX_RETRIES)
+                if i < MAX_RETRIES:
+                    time.sleep(BACKOFF)
+                continue
             r.raise_for_status()
             data = r.json()
             # PerimeterX retorna 200 com JSON de challenge quando bloqueia
             if isinstance(data, dict) and "appId" in data and "jsClientSrc" in data:
-                logger.warning("[webmotors] resposta é challenge PerimeterX, não dados")
-                return None
+                logger.warning("[webmotors] challenge PerimeterX (tentativa %d/%d) — trocando de IP", i, MAX_RETRIES)
+                if i < MAX_RETRIES:
+                    time.sleep(BACKOFF)
+                continue
             return data
         except requests.RequestException as exc:
             logger.warning("[webmotors] tentativa %d/%d: %s", i, MAX_RETRIES, exc)
             if i < MAX_RETRIES:
                 time.sleep(BACKOFF)
         except ValueError as exc:
-            logger.warning("[webmotors] JSON inválido: %s", exc)
-            return None
+            # Corpo não-JSON costuma ser página de challenge — tenta outro IP.
+            logger.warning("[webmotors] JSON inválido (tentativa %d/%d): %s", i, MAX_RETRIES, exc)
+            if i < MAX_RETRIES:
+                time.sleep(BACKOFF)
     return None
