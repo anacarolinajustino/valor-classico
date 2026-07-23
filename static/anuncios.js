@@ -326,6 +326,7 @@ function renderMarcaModelo() {
 // ── Anúncios a verificar (quarentena: pares fora do catálogo) ───────────
 let qvPares = null;
 let qvMarcas = [];
+let qvModelos = {};   // {MARCA: [modelos do catálogo]} — pra selecionar um já cadastrado
 let qvOrder = 'qtd';
 let qvDir = 'desc';
 
@@ -350,6 +351,7 @@ async function carregarVerificar() {
     }
     qvPares = data.pares || [];
     qvMarcas = data.marcas_catalogo || [];
+    qvModelos = data.modelos_catalogo || {};
     document.getElementById('qv-marcas').innerHTML =
       qvMarcas.map(m => `<option value="${escapeAttr(m)}">`).join('');
     renderVerificar();
@@ -401,14 +403,37 @@ function renderVerificar() {
       <td class="an-td">${escapeHtml(p.modelo || '—')}</td>
       <td class="an-td an-td--num"><button class="qv-count" onclick="verAnunciosDoPar(this)" title="Ver os anúncios deste par">${p.qtd.toLocaleString('pt-BR')}</button></td>
       <td class="an-td qv-fix">
-        <input class="an-filter-input qv-in-marca" list="qv-marcas" value="${escapeAttr(p.marca)}" placeholder="marca" />
-        <input class="an-filter-input qv-in-modelo" value="${escapeAttr(p.modelo || '')}" placeholder="modelo" />
+        <input class="an-filter-input qv-in-marca" list="qv-marcas" value="${escapeAttr(p.marca)}" placeholder="marca" oninput="atualizarModelosLinha(this)" />
+        <select class="an-filter-select qv-sel-modelo" onchange="aoSelecionarModelo(this)" title="Selecionar um modelo já cadastrado desta marca">${opcoesModeloSelect(p.marca)}</select>
+        <input class="an-filter-input qv-in-modelo" value="${escapeAttr(p.modelo || '')}" placeholder="ou digite um modelo novo" />
         <button class="btn btn-primary btn-sm" onclick="corrigirPar(this)">Corrigir</button>
         <button class="btn btn-outline btn-sm" onclick="adicionarCatalogo(this)" title="O par já está correto — cadastra no catálogo (suplemento manual)">Ao catálogo</button>
         <span class="qv-msg"></span>
       </td>
     </tr>
   `).join('');
+}
+
+// Opções do <select> de modelos já cadastrados da marca (vazio se a marca não
+// está no catálogo — a usuária ajusta a marca primeiro e o select repopula).
+function opcoesModeloSelect(marca) {
+  const modelos = qvModelos[(marca || '').trim().toUpperCase()] || [];
+  const cabeca = modelos.length
+    ? '<option value="">— modelo cadastrado —</option>'
+    : '<option value="">— marca sem modelos no catálogo —</option>';
+  return cabeca + modelos.map(m => `<option value="${escapeAttr(m)}">${escapeHtml(m)}</option>`).join('');
+}
+
+// Escolher um modelo cadastrado preenche o campo de modelo (que o Corrigir usa).
+function aoSelecionarModelo(sel) {
+  if (!sel.value) return;
+  sel.closest('tr').querySelector('.qv-in-modelo').value = sel.value;
+}
+
+// Ao trocar a marca, repopula o select com os modelos daquela marca.
+function atualizarModelosLinha(inp) {
+  const sel = inp.closest('tr').querySelector('.qv-sel-modelo');
+  if (sel) sel.innerHTML = opcoesModeloSelect(inp.value);
 }
 
 async function corrigirPar(btn) {

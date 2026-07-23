@@ -717,7 +717,10 @@ def listar_anuncios_a_verificar() -> dict[str, Any]:
       - `pares`: lista {marca, modelo, qtd}, ordenada por marca/modelo;
       - `total_pares` / `total_anuncios`: totais da quarentena;
       - `marcas_catalogo`: marcas distintas do catálogo (pra datalist do
-        campo de correção, evitando typo de marca na hora de corrigir).
+        campo de correção, evitando typo de marca na hora de corrigir);
+      - `modelos_catalogo`: mapa {marca: [modelos]} do catálogo consagrado, pra
+        a usuária SELECIONAR um modelo já cadastrado da marca (garante casar com
+        um par existente em vez de digitar e arriscar grafia divergente).
     """
     # Import tardio: loader importa normalizer/schema, não persistence (sem
     # ciclo), mas mantido local por consistência com os outros usos do catálogo.
@@ -732,11 +735,18 @@ def listar_anuncios_a_verificar() -> dict[str, Any]:
         and not _e_buggy(p["marca"] or "", p["modelo"] or "")
     ]
     marcas_catalogo = sorted({mk for mk, _ in catalogo})
+    modelos_catalogo: dict[str, list[str]] = {}
+    for mk, md in catalogo:
+        if md:
+            modelos_catalogo.setdefault(mk, []).append(md)
+    for mk in modelos_catalogo:
+        modelos_catalogo[mk] = sorted(modelos_catalogo[mk])
     return {
         "pares": fora,
         "total_pares": len(fora),
         "total_anuncios": sum(p["qtd"] for p in fora),
         "marcas_catalogo": marcas_catalogo,
+        "modelos_catalogo": modelos_catalogo,
     }
 
 
