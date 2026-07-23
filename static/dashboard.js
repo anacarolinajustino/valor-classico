@@ -283,6 +283,7 @@ const filtroFonte = document.getElementById("filtro-fonte");
 const filtroMarca = document.getElementById("filtro-marca");
 const filtroModelo = document.getElementById("filtro-modelo");
 const filtroAno = document.getElementById("filtro-ano");
+const filtroMinAnuncios = document.getElementById("filtro-min-anuncios");
 let fontesPopuladas = false;
 
 async function carregar() {
@@ -293,6 +294,7 @@ async function carregar() {
     if (filtroMarca.value) params.set("marca", filtroMarca.value);
     if (filtroModelo.value) params.set("modelo", filtroModelo.value);
     if (filtroAno.value) params.set("ano", filtroAno.value);
+    if (filtroMinAnuncios.value) params.set("min_anuncios", filtroMinAnuncios.value);
     const qs = params.toString();
     const resp = await fetch("/admin/api/dashboard" + (qs ? `?${qs}` : ""));
     const dados = await resp.json();
@@ -382,4 +384,5 @@ filtroModelo.addEventListener("change", () => {
   carregar();
 });
 filtroAno.addEventListener("change", carregar);
+filtroMinAnuncios.addEventListener("change", carregar);
 carregar();

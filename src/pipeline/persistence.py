@@ -460,6 +460,7 @@ def get_dashboard_stats(
     marca: str | None = None,
     modelo: str | None = None,
     ano: int | None = None,
+    min_anuncios: int | None = None,
 ) -> dict[str, Any]:
     """
     Agregados pro dashboard do painel admin, opcionalmente recortados por
@@ -467,6 +468,11 @@ def get_dashboard_stats(
     consome, pra manter os números consistentes entre si (mesma foto do
     banco) — incluindo as opções de cada filtro com a contagem de anúncios,
     no estilo faceta (ver `_opcoes_marca_modelo_ano`).
+
+    `min_anuncios` é um recorte por VOLUME: restringe tudo aos veículos (pares
+    marca+modelo) que têm pelo menos essa quantidade de anúncios coletados
+    (dentro dos outros filtros ativos) — pra focar nos modelos bem representados
+    e tirar o ruído dos que aparecem só uma ou duas vezes.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -486,6 +492,19 @@ def get_dashboard_stats(
         return sql, params
 
     cond, params = _where()
+
+    # Recorte por volume: só os pares (marca, modelo) com COUNT(*) >= min_anuncios
+    # (sob os mesmos filtros). Aplicado a todos os blocos via a condição comum.
+    if min_anuncios and min_anuncios > 1:
+        sub_sql, sub_params = _where()
+        sub_cond = (f"{sub_sql} AND " if sub_sql else "WHERE ") + "marca IS NOT NULL AND modelo IS NOT NULL"
+        pair_sql = (
+            "(marca, modelo) IN (SELECT marca, modelo FROM anuncios "
+            f"{sub_cond} GROUP BY marca, modelo HAVING COUNT(*) >= %s)"
+        )
+        cond = f"{cond} AND {pair_sql}" if cond else f"WHERE {pair_sql}"
+        params = params + sub_params + [min_anuncios]
+
     cond_e = f"{cond} AND" if cond else "WHERE"
 
     with _connect() as conn:
