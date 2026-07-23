@@ -3,20 +3,29 @@ Conector Webmotors.
 Site: https://www.webmotors.com.br
 Motor: API interna JSON (endpoint /api/search/car)
 Estratégia: requests contra a API interna do site, sem autenticação.
-             Filtra por anoate=2000 para focar em carros clássicos.
+             O filtro de ano até 2000 (clássicos) é passado via a URL amigável
+             do site no parâmetro `url` — os parâmetros soltos de ano da API
+             (yearEnd/yearTo/…) são ignorados pelo backend.
 
-Parâmetros principais:
-  tipoveiculo  = "carros"
-  pagina       = 1, 2, 3 … (base-1)
-  quantidade   = 24 (resultados por página)
-  anoate       = 2000 (ano até — filtra clássicos)
-  marca        = ex. "VOLKSWAGEN"
-  modelo       = ex. "FUSCA"
+Parâmetros que a API realmente respeita:
+  url            = URL amigável do site já com o filtro (…/estoque/ate.2000?…)
+  actualPage     = 1, 2, 3 … (base-1)
+  displayPerPage = 24 (resultados por página)
+  showCount      = "true" (necessário para vir Pagination.PageTotal preenchido)
+
+Observações descobertas na auditoria (2026-07-23):
+  - Os nomes antigos (`pagina`, `quantidade`, `anoate`) eram ignorados: a API
+    devolvia sempre a página 1 sem filtro de ano.
+  - Sem `url`, o filtro de ano não é aplicado (vinham carros 2024/2025/2026).
+  - O total real (≤2000) é ~212 páginas ≈ 5.070 anúncios.
 """
 from __future__ import annotations
 
 import logging
+import os
+import re
 import time
+import unicodedata
 from datetime import date
 from typing import Optional
 
@@ -31,6 +40,11 @@ FONTE = "webmotors"
 API_URL = "https://www.webmotors.com.br/api/search/car"
 SITE_BASE = "https://www.webmotors.com.br"
 ANO_MAXIMO_CLASSICO = 2000
+# URL amigável do site que carrega o filtro "até 2000" no backend da API.
+FILTRO_URL = (
+    f"{SITE_BASE}/carros/estoque/ate.{ANO_MAXIMO_CLASSICO}"
+    f"?tipoveiculo=carros&anoate={ANO_MAXIMO_CLASSICO}"
+)
 QUANTIDADE_POR_PAGINA = 24
 # UA do app mobile Android — contorna PerimeterX que bloqueia browsers headless
 USER_AGENT = "com.webmotors.app/5.0 (Android 13; Pixel 6)"
@@ -38,10 +52,17 @@ TIMEOUT = 20
 MAX_RETRIES = 2
 BACKOFF = 2.0
 RATE_LIMIT = 1.5
+# Resiliência ao 403 intermitente do PerimeterX durante a coleta completa.
+PAUSA_APOS_BLOQUEIO = 20.0   # segundos-base; cresce a cada falha seguida
+MAX_FALHAS_SEGUIDAS = 4      # após N páginas seguidas sem resposta, desiste
 
 
 def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
-    """Busca por marca+modelo no Webmotors, limitado a carros clássicos (≤2000)."""
+    """Busca por marca+modelo no Webmotors, limitado a carros clássicos (≤2000).
+
+    A API não filtra por marca/modelo de forma confiável, então varremos a
+    listagem de clássicos e filtramos localmente pelo título.
+    """
     sessao = _criar_sessao()
     data_coleta = date.today().isoformat()
     marca_norm = normalizar_texto(marca)
@@ -50,13 +71,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     seen: set[str] = set()
 
     for pg in range(1, paginas + 1):
-        params = _params_base(pg)
-        if marca:
-            params["marca"] = marca.upper()
-        if modelo:
-            params["modelo"] = modelo.upper()
-
-        dados = _requisitar(sessao, params)
+        dados = _requisitar(sessao, _params_base(pg))
         if dados is None:
             break
 
@@ -83,8 +98,8 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
     return anuncios
 
 
-def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
-    """Coleta todos os anúncios de carros clássicos (≤ %d)."""
+def coletar_completo(max_paginas: int = 300) -> tuple[list[Anuncio], dict]:
+    """Coleta todos os anúncios de carros clássicos (≤ 2000)."""
     sessao = _criar_sessao()
     data_coleta = date.today().isoformat()
     inicio = time.monotonic()
@@ -92,13 +107,26 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
     seen: set[str] = set()
     erros = 0
     paginas_ok = 0
+    falhas_seguidas = 0
 
-    for pg in range(1, max_paginas + 1):
+    pg = 1
+    while pg <= max_paginas:
         dados = _requisitar(sessao, _params_base(pg))
         if dados is None:
+            # 403 do PerimeterX é intermitente: não aborta a coleta inteira.
+            # Pausa (progressiva) e tenta a MESMA página de novo; só desiste
+            # após MAX_FALHAS_SEGUIDAS páginas seguidas sem resposta.
             erros += 1
-            break
+            falhas_seguidas += 1
+            if falhas_seguidas >= MAX_FALHAS_SEGUIDAS:
+                logger.warning("[webmotors] %d falhas seguidas na pág %d, encerrando", falhas_seguidas, pg)
+                break
+            espera = PAUSA_APOS_BLOQUEIO * falhas_seguidas
+            logger.warning("[webmotors] sem resposta na pág %d, aguardando %.0fs e retentando", pg, espera)
+            time.sleep(espera)
+            continue
 
+        falhas_seguidas = 0
         items = _extrair_listings(dados)
         if not items:
             break
@@ -111,6 +139,7 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
 
         if not _tem_proxima(dados, pg):
             break
+        pg += 1
         time.sleep(RATE_LIMIT)
 
     metricas = {
@@ -129,17 +158,16 @@ def coletar_completo(max_paginas: int = 100) -> tuple[list[Anuncio], dict]:
 
 def _params_base(pagina: int) -> dict:
     return {
-        "tipoveiculo": "carros",
-        "pagina": pagina,
-        "quantidade": QUANTIDADE_POR_PAGINA,
-        "anoate": ANO_MAXIMO_CLASSICO,
+        "url": FILTRO_URL,
+        "actualPage": pagina,
+        "displayPerPage": QUANTIDADE_POR_PAGINA,
+        "showCount": "true",
         "order": 1,  # relevância
     }
 
 
 def _extrair_listings(dados: dict) -> list[dict]:
     """Extrai a lista de anúncios da resposta JSON."""
-    # Webmotors pode retornar em 'SearchResults' ou 'results' ou lista direta
     if isinstance(dados, list):
         return dados
     for chave in ("SearchResults", "results", "data", "items", "listings"):
@@ -149,16 +177,60 @@ def _extrair_listings(dados: dict) -> list[dict]:
 
 
 def _tem_proxima(dados: dict, pagina_atual: int) -> bool:
-    """Verifica se há próxima página na resposta."""
-    total_paginas = (
-        dados.get("TotalPages")
-        or dados.get("total_pages")
-        or dados.get("totalPages")
-    )
-    if total_paginas is not None:
+    """Verifica se há próxima página na resposta (Pagination.PageTotal)."""
+    pag = dados.get("Pagination") or {}
+    total_paginas = pag.get("PageTotal") or pag.get("pageTotal")
+    if total_paginas:
         return pagina_atual < int(total_paginas)
-    total_count = dados.get("TotalCount") or dados.get("total") or 0
-    return pagina_atual * QUANTIDADE_POR_PAGINA < int(total_count)
+    # Sem contagem confiável: continua enquanto a página vier cheia.
+    items = _extrair_listings(dados)
+    return len(items) >= QUANTIDADE_POR_PAGINA
+
+
+def _slug_do_photopath(item: dict) -> str:
+    """Extrai o slug oficial do anúncio do caminho das fotos.
+
+    Ex.: '…/fiat-uno-1.0-mille-eletronic-8v-gasolina-4p-manual-wmimagem10095…jpg'
+         → 'fiat-uno-1.0-mille-eletronic-8v-gasolina-4p-manual'
+    """
+    media = item.get("Media") or {}
+    fotos = media.get("Photos") or []
+    caminho = ""
+    if fotos and isinstance(fotos[0], dict):
+        caminho = fotos[0].get("PhotoPath") or ""
+    if not caminho:
+        caminho = item.get("PhotoPath") or ""
+    if not caminho:
+        return ""
+    nome = os.path.basename(caminho.replace("\\", "/"))
+    slug = re.split(r"-?wmimagem", nome, maxsplit=1, flags=re.IGNORECASE)[0]
+    slug = slug.strip("-")
+    # Formatos legados vêm colados e/ou com a extensão da imagem: rejeita para
+    # cair no slug derivado do título (limpo e consistente).
+    if "." in slug or "-" not in slug:
+        return ""
+    return slug
+
+
+def _slugificar(texto: str) -> str:
+    """Fallback: gera um slug a partir de um texto livre (ex.: título)."""
+    if not texto:
+        return ""
+    t = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+    t = t.lower()
+    t = re.sub(r"[^a-z0-9]+", "-", t)
+    return t.strip("-")
+
+
+def _montar_url(item: dict, titulo: str) -> str:
+    """Monta a URL do anúncio: /comprar/{slug}/{UniqueId}."""
+    uid = item.get("UniqueId") or item.get("id") or item.get("unique_id") or ""
+    slug = _slug_do_photopath(item) or _slugificar(titulo)
+    if slug and uid:
+        return f"{SITE_BASE}/comprar/{slug}/{uid}"
+    if uid:
+        return f"{SITE_BASE}/comprar/{uid}"
+    return SITE_BASE
 
 
 def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
@@ -204,11 +276,11 @@ def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
             or item.get("ano")
         )
         try:
-            ano = int(ano) if ano else None
+            ano = int(float(ano)) if ano else None
         except (ValueError, TypeError):
             ano = None
 
-        # Filtra apenas clássicos
+        # Salvaguarda: mesmo com o filtro na URL, descarta qualquer ano > 2000.
         if ano and ano > ANO_MAXIMO_CLASSICO:
             continue
 
@@ -228,22 +300,14 @@ def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
         if not preco or preco <= 0:
             continue
 
-        # URL
-        uid = item.get("UniqueId") or item.get("id") or item.get("unique_id") or ""
-        slug = item.get("Path") or item.get("path") or item.get("slug") or ""
-        if slug:
-            url_anuncio = SITE_BASE + ("/" if not slug.startswith("/") else "") + slug
-        elif uid:
-            url_anuncio = f"{SITE_BASE}/comprar/{uid}"
-        else:
-            url_anuncio = SITE_BASE
-
         # Título sintético
         partes = [p for p in [marca, modelo, versao, str(ano) if ano else ""] if p]
         titulo = " ".join(partes) if partes else f"{marca} {modelo}".strip()
 
         if not modelo:
             continue
+
+        url_anuncio = _montar_url(item, titulo)
 
         anuncios.append(Anuncio(
             titulo=titulo,

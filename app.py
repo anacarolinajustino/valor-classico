@@ -100,6 +100,8 @@ CONNECTOR_MODULES: dict[str, str] = {
     "escuderiacoqueiro":      "src.connectors.escuderiacoqueiro",
     "poaparts":               "src.connectors.poaparts",
     "ggworld":                "src.connectors.ggworld",
+    # Novas fontes (2026-07-23)
+    "icarros":                "src.connectors.icarros",
 }
 
 # Fontes bloqueadas ou sem listing de preços (checagem geral 2026-07-09).
