@@ -297,9 +297,11 @@ function renderMarcaModelo() {
   if (mmPares === null) return;
 
   const termo = document.getElementById('mm-busca').value.trim().toUpperCase();
+  const min = parseInt(document.getElementById('mm-min-anuncios').value, 10) || 0;
   let linhas = termo
     ? mmPares.filter(p => p.marca.includes(termo) || p.modelo.includes(termo))
     : mmPares.slice();
+  if (min > 1) linhas = linhas.filter(p => p.qtd >= min);
 
   linhas.sort((a, b) => {
     const dir = mmDir === 'asc' ? 1 : -1;

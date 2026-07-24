@@ -47,6 +47,19 @@
           <label class="an-filter-label" for="mm-busca">Buscar</label>
           <input type="text" id="mm-busca" class="an-filter-input" placeholder="filtrar marca ou modelo…" oninput="renderMarcaModelo()" />
         </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="mm-min-anuncios">Mín. de anúncios</label>
+          <select id="mm-min-anuncios" class="an-filter-select"
+                  title="Só pares marca/modelo com pelo menos esta quantidade de anúncios coletados"
+                  onchange="renderMarcaModelo()">
+            <option value="">Qualquer quantidade</option>
+            <option value="2">2 ou mais</option>
+            <option value="3">3 ou mais</option>
+            <option value="5">5 ou mais</option>
+            <option value="10">10 ou mais</option>
+            <option value="20">20 ou mais</option>
+          </select>
+        </div>
         <span class="an-total" id="mm-total">—</span>
       </div>
       <div class="an-table-wrap">
