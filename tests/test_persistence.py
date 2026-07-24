@@ -355,22 +355,6 @@ class TestGetDashboardStats:
         anos = {x["ano"]: x["qtd"] for x in d["opcoes"]["ano"]}
         assert anos == {1975: 1, 1968: 1}
 
-    def test_min_anuncios_recorta_por_volume(self):
-        # FUSCA x2, KOMBI x1, OPALA x1 — min 2 deixa só o par com >= 2 (FUSCA).
-        self._semear_marcas()
-        d = get_dashboard_stats(min_anuncios=2)
-        assert d["kpis"]["total"] == 2
-        assert {x["modelo"] for x in d["top_modelos"]} == {"FUSCA"}
-        # min 1 (ou None) não recorta nada.
-        assert get_dashboard_stats(min_anuncios=1)["kpis"]["total"] == 4
-
-    def test_min_anuncios_combina_com_outros_filtros(self):
-        self._semear_marcas()
-        # Sob marca=VW, só FUSCA (2) alcança o mínimo; KOMBI (1) sai.
-        d = get_dashboard_stats(marca="volkswagen", min_anuncios=2)
-        assert d["kpis"]["total"] == 2
-        assert {x["modelo"] for x in d["top_modelos"]} == {"FUSCA"}
-
 
 # ── listar_anuncios: marca/modelo/ano são dropdowns, filtro por igualdade ─────
 

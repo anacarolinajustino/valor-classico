@@ -296,15 +296,13 @@ def admin_api_dashboard():
     marca  = request.args.get("marca",  "").strip() or None
     modelo = request.args.get("modelo", "").strip() or None
     ano_raw = request.args.get("ano", "").strip()
-    min_raw = request.args.get("min_anuncios", "").strip()
     try:
         ano = int(ano_raw) if ano_raw else None
-        min_anuncios = int(min_raw) if min_raw else None
     except ValueError:
-        return jsonify({"erro": "Parâmetro ano/min_anuncios inválido"}), 400
+        return jsonify({"erro": "Parâmetro ano inválido"}), 400
 
     try:
-        return jsonify(get_dashboard_stats(fonte=fonte, marca=marca, modelo=modelo, ano=ano, min_anuncios=min_anuncios))
+        return jsonify(get_dashboard_stats(fonte=fonte, marca=marca, modelo=modelo, ano=ano))
     except Exception as exc:
         logger.error("admin_api_dashboard erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
