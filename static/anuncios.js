@@ -316,11 +316,13 @@ function renderMarcaModelo() {
     tbody.innerHTML = '<tr><td colspan="3" class="an-empty">Nenhum par encontrado.</td></tr>';
     return;
   }
+  // A contagem é um botão: abre o grupo de anúncios daquele par logo abaixo
+  // (mesmo detalhe usado na quarentena).
   tbody.innerHTML = linhas.map(p => `
-    <tr>
+    <tr data-marca="${escapeAttr(p.marca)}" data-modelo="${escapeAttr(p.modelo || '')}">
       <td class="an-td">${escapeHtml(p.marca)}</td>
       <td class="an-td">${escapeHtml(p.modelo)}</td>
-      <td class="an-td an-td--num">${p.qtd.toLocaleString('pt-BR')}</td>
+      <td class="an-td an-td--num"><button class="qv-count" onclick="verAnunciosDoPar(this)" title="Ver os anúncios deste par">${p.qtd.toLocaleString('pt-BR')}</button></td>
     </tr>
   `).join('');
 }
@@ -488,8 +490,24 @@ async function corrigirPar(btn) {
   }
 }
 
+function filtrarPorPar(btn) {
+  // Manda o par pros filtros da tabela principal — é lá que o grupo inteiro é
+  // consultável (paginado, ordenável), sem o corte de 300 do detalhe. Reusa o
+  // mesmo caminho dos links vindos da URL: os <option> de modelo só existem
+  // depois da resposta, então o par vai como filtro pendente.
+  const tr = btn.closest('tr');
+  document.getElementById('filter-q').value     = '';
+  document.getElementById('filter-fonte').value = '';
+  document.getElementById('filter-ano').value   = '';
+  filtrosPendentesDaUrl = { marca: tr.dataset.marca, modelo: tr.dataset.modelo };
+  buscar(1);
+  document.getElementById('an-table').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function verAnunciosDoPar(btn) {
   // Expande/colapsa uma linha de detalhe com os anúncios do par, logo abaixo.
+  // Serve as duas tabelas de pares (quarentena e "todas as marcas e modelos"),
+  // que têm número de colunas diferente — daí o colspan calculado.
   const tr = btn.closest('tr');
   const existente = tr.nextElementSibling;
   if (existente && existente.classList.contains('qv-detail')) {
@@ -500,7 +518,9 @@ async function verAnunciosDoPar(btn) {
   const modelo = tr.dataset.modelo;
   const detail = document.createElement('tr');
   detail.className = 'qv-detail';
-  detail.innerHTML = '<td colspan="4" class="qv-detail-cell">Carregando…</td>';
+  detail.dataset.marca  = marca;
+  detail.dataset.modelo = modelo;
+  detail.innerHTML = `<td colspan="${tr.children.length}" class="qv-detail-cell">Carregando…</td>`;
   tr.after(detail);
   const cell = detail.firstElementChild;
   try {
@@ -516,7 +536,23 @@ async function verAnunciosDoPar(btn) {
       cell.textContent = 'Nenhum anúncio.';
       return;
     }
+    // O servidor corta em 300 (`listar_anuncios_do_par`) e ordena por ano; em par
+    // gordo (FUSCA tem milhares) o grupo é uma amostra — diz isso em vez de fingir
+    // que é tudo, e oferece a tabela principal (paginada) pra ver o grupo inteiro.
+    const total = parseInt((btn.textContent || '').replace(/\D/g, ''), 10) || rows.length;
+    const parcial = rows.length < total;
+    const verTodos = modelo
+      ? '<button class="btn btn-outline btn-sm" onclick="filtrarPorPar(this)">Ver na lista completa</button>'
+      : '';
+    const legenda = (parcial || verTodos)
+      ? `<p class="qv-detail-nota">${
+          parcial
+            ? `Mostrando ${rows.length.toLocaleString('pt-BR')} dos ${total.toLocaleString('pt-BR')} anúncios deste par (os de ano mais antigo primeiro). `
+            : ''
+        }${verTodos}</p>`
+      : '';
     cell.innerHTML = `
+      ${legenda}
       <div class="qv-detail-wrap">
         <table class="qv-detail-table">
           <thead>

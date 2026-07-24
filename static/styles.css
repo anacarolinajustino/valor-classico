@@ -1282,6 +1282,17 @@ a { color: inherit; text-decoration: none; }
 .qv-detail-table .an-td--num,
 .qv-detail-table .an-th--num { text-align: right; font-variant-numeric: tabular-nums; }
 .qv-detail-table a { color: var(--vc-accent-strong, #B26A00); }
+/* Nota do detalhe: aviso de amostra + atalho pra lista completa */
+.qv-detail-nota {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--vc-ink-muted, #666);
+}
 
 .admin-section-title {
   font-family: 'Teko', sans-serif;
