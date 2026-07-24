@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Calculadora de média</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    /* ── Calculadora de média ─────────────────────────────────────────── */
+    .calc-controles {
+      display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem 1.5rem;
+      margin: 0 0 1.5rem;
+    }
+    .calc-grupo { display: flex; flex-direction: column; gap: .4rem; }
+    .calc-grupo label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--vc-ink-muted);
+    }
+    .calc-grupo select {
+      font: inherit; padding: .5rem .75rem; border-radius: var(--radius);
+      border: 1px solid var(--vc-border); background: var(--vc-white);
+      color: var(--vc-ink); min-width: 220px;
+    }
+    .calc-grupo select:disabled { opacity: .55; cursor: not-allowed; }
+
+    /* Card de destaque da média */
+    .calc-destaque {
+      background: var(--vc-white); border: 1px solid var(--vc-border);
+      border-left: 4px solid var(--vc-accent-strong, #B26A00);
+      border-radius: var(--radius-lg); padding: 1.5rem 1.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .calc-destaque .calc-modelo-nome {
+      font-family: 'Teko', sans-serif; font-size: 1.35rem; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--vc-ink); margin: 0 0 .25rem;
+    }
+    .calc-destaque .calc-media-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--vc-ink-muted);
+    }
+    .calc-destaque .calc-media-valor {
+      font-family: 'Playfair Display', Georgia, serif; font-weight: 700;
+      font-size: 2.6rem; line-height: 1.1; color: var(--vc-ink); margin-top: .1rem;
+    }
+    .calc-destaque .calc-media-sub { color: var(--vc-ink-soft); font-size: .9rem; margin-top: .35rem; }
+
+    .calc-resultado { transition: opacity var(--transition); }
+    .calc-resultado.carregando { opacity: .5; pointer-events: none; }
+    .calc-hint { color: var(--vc-ink-soft); }
+    .calc-erro { color: #B23A2E; }
+
+    .calc-secao-titulo {
+      font-family: 'Teko', sans-serif; font-size: 20px; font-weight: 600;
+      letter-spacing: 1px; text-transform: uppercase; color: var(--vc-ink);
+      margin: 1.75rem 0 .75rem;
+    }
+
+    /* Tabelas (média por ano / por fonte) */
+    .calc-tabela-wrap { overflow-x: auto; }
+    .calc-tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .calc-tabela th {
+      text-align: left; color: var(--vc-ink-muted); font-weight: 600;
+      padding: .45rem .7rem; border-bottom: 1px solid var(--vc-border);
+    }
+    .calc-tabela td { padding: .45rem .7rem; border-bottom: 1px solid var(--vc-border); color: var(--vc-ink-soft); }
+    .calc-tabela .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .calc-acoes { margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="/static/LogoValorClassico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <span class="admin-badge-header">Painel Administrativo</span>
+      <nav class="header-nav">
+        <a href="/admin">Coleta</a>
+        <a href="/admin/anuncios">Ver anúncios</a>
+        <a href="/admin/dashboard">Dashboard</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main container">
+
+    <div class="admin-page-header">
+      <h1 class="admin-title">Calculadora de média</h1>
+      <p class="admin-sub">
+        Escolha um modelo pra ver o valor médio dele nos anúncios coletados.
+        Só entram na lista os modelos com pelo menos a quantidade mínima de
+        anúncios selecionada (padrão: 3), pra a média ter alguma base.
+      </p>
+    </div>
+
+    <div class="calc-controles">
+      <div class="calc-grupo">
+        <label for="calc-min">Mín. de anúncios</label>
+        <select id="calc-min" title="Só modelos com pelo menos esta quantidade de anúncios coletados">
+          <option value="3" selected>3 ou mais</option>
+          <option value="5">5 ou mais</option>
+          <option value="10">10 ou mais</option>
+          <option value="1">Qualquer quantidade</option>
+        </select>
+      </div>
+
+      <div class="calc-grupo">
+        <label for="calc-marca">Marca</label>
+        <select id="calc-marca">
+          <option value="">Carregando…</option>
+        </select>
+      </div>
+
+      <div class="calc-grupo">
+        <label for="calc-modelo">Modelo</label>
+        <select id="calc-modelo" disabled>
+          <option value="">Selecione uma marca</option>
+        </select>
+      </div>
+    </div>
+
+    <p id="calc-msg" class="calc-hint">Selecione uma marca e um modelo acima.</p>
+
+    <!-- Pequeno dashboard do modelo escolhido -->
+    <section id="calc-resultado" class="calc-resultado hidden">
+      <div class="calc-destaque">
+        <p class="calc-modelo-nome" id="calc-modelo-nome">—</p>
+        <span class="calc-media-label">Valor médio</span>
+        <div class="calc-media-valor" id="calc-media">—</div>
+        <p class="calc-media-sub" id="calc-media-sub">—</p>
+      </div>
+
+      <div class="admin-stats-grid">
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Mediana</span>
+          <span class="admin-stat-value" id="calc-mediana">—</span>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Anúncios (com preço)</span>
+          <span class="admin-stat-value" id="calc-qtd">—</span>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Menor preço</span>
+          <span class="admin-stat-value" id="calc-min-preco">—</span>
+        </div>
+        <div class="admin-stat-card">
+          <span class="admin-stat-label">Maior preço</span>
+          <span class="admin-stat-value" id="calc-max-preco">—</span>
+        </div>
+      </div>
+
+      <h2 class="calc-secao-titulo">Média por ano do veículo</h2>
+      <div class="calc-tabela-wrap">
+        <table class="calc-tabela" id="calc-tab-ano">
+          <thead>
+            <tr><th>Ano</th><th class="num">Anúncios</th><th class="num">Média</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2 class="calc-secao-titulo">Por fonte</h2>
+      <div class="calc-tabela-wrap">
+        <table class="calc-tabela" id="calc-tab-fonte">
+          <thead>
+            <tr><th>Fonte</th><th class="num">Anúncios</th><th class="num">Média</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="calc-acoes">
+        <a class="btn btn-outline btn-sm" id="calc-ver-anuncios" href="#">Ver esses anúncios na lista</a>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/calculadora.js"></script>
+</body>
+</html>

@@ -10,9 +10,11 @@ Endpoints:
   GET  /admin                             → painel de status e coleta
   GET  /admin/anuncios                    → lista/filtra anúncios coletados
   GET  /admin/dashboard                   → dashboard com recortes dos dados
+  GET  /admin/calculadora                 → calculadora de média por modelo
   GET  /admin/api/status                  → status do banco + conectores
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
   GET  /admin/api/marca-modelo            → todos os pares (marca, modelo) distintos, sem cascata
+  GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=)
   GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
@@ -45,6 +47,7 @@ from src.pipeline.persistence import (
     excluir_marca_modelo,
     get_dashboard_stats,
     get_db_stats,
+    get_media_modelo,
     init_db,
     listar_anuncios,
     listar_anuncios_a_verificar,
@@ -142,6 +145,11 @@ def admin_dashboard():
     return send_from_directory(".", "dashboard.html")
 
 
+@app.route("/admin/calculadora")
+def admin_calculadora():
+    return send_from_directory(".", "calculadora.html")
+
+
 # ──────────────────────────────────────────────────────
 # Admin API
 # ──────────────────────────────────────────────────────
@@ -232,6 +240,20 @@ def admin_api_corrigir_marca_modelo():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_corrigir_marca_modelo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/media-modelo")
+def admin_api_media_modelo():
+    """Estatísticas de preço (média, mediana, faixa) de um par marca+modelo — calculadora de média."""
+    marca  = request.args.get("marca",  "").strip()
+    modelo = request.args.get("modelo", "").strip()
+    if not marca or not modelo:
+        return jsonify({"erro": "Marca e modelo são obrigatórios."}), 400
+    try:
+        return jsonify(get_media_modelo(marca, modelo))
+    except Exception as exc:
+        logger.error("admin_api_media_modelo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

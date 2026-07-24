@@ -575,6 +575,77 @@ def get_dashboard_stats(
     }
 
 
+def get_media_modelo(marca: str, modelo: str) -> dict[str, Any]:
+    """
+    Estatísticas de preço de um par (marca, modelo) EXATO — pro pequeno
+    dashboard da calculadora de média. O destaque é o valor MÉDIO daquele
+    modelo; acompanha a mediana (mais robusta a outliers), a faixa min–max, a
+    contagem e a média por ano (evolução) e por fonte. Preços nulos ou <= 0
+    (anúncio "sob consulta") não entram nas médias, mas contam no total.
+    """
+    mk = (marca or "").strip().upper()
+    md = (modelo or "").strip().upper()
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*)                                            AS total,
+                       COUNT(preco) FILTER (WHERE preco > 0)               AS com_preco,
+                       AVG(preco)   FILTER (WHERE preco > 0)               AS preco_medio,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco)
+                           FILTER (WHERE preco > 0)                        AS preco_mediano,
+                       MIN(preco)   FILTER (WHERE preco > 0)               AS preco_min,
+                       MAX(preco)   FILTER (WHERE preco > 0)               AS preco_max,
+                       MIN(ano)                                            AS ano_min,
+                       MAX(ano)                                            AS ano_max
+                FROM anuncios
+                WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
+                """,
+                (mk, md),
+            )
+            k = dict(cur.fetchone())
+
+            cur.execute(
+                """
+                SELECT ano, COUNT(*) AS qtd,
+                       AVG(preco) FILTER (WHERE preco > 0) AS preco_medio
+                FROM anuncios
+                WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
+                  AND ano IS NOT NULL
+                GROUP BY ano ORDER BY ano
+                """,
+                (mk, md),
+            )
+            por_ano = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT fonte, COUNT(*) AS qtd,
+                       AVG(preco) FILTER (WHERE preco > 0) AS preco_medio
+                FROM anuncios
+                WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
+                GROUP BY fonte ORDER BY qtd DESC
+                """,
+                (mk, md),
+            )
+            por_fonte = [dict(r) for r in cur.fetchall()]
+
+    return {
+        "marca": mk,
+        "modelo": md,
+        "total": k["total"],
+        "com_preco": k["com_preco"],
+        "preco_medio": k["preco_medio"],
+        "preco_mediano": k["preco_mediano"],
+        "preco_min": k["preco_min"],
+        "preco_max": k["preco_max"],
+        "ano_min": k["ano_min"],
+        "ano_max": k["ano_max"],
+        "por_ano": por_ano,
+        "por_fonte": por_fonte,
+    }
+
+
 def listar_anuncios(
     fonte: str | None = None,
     marca: str | None = None,

@@ -15,6 +15,7 @@ from src.pipeline.persistence import (
     CHART_MIN_DIAS,
     excluir_marca_modelo,
     get_dashboard_stats,
+    get_media_modelo,
     init_db,
     listar_anuncios,
     upsert_anuncios,
@@ -354,6 +355,57 @@ class TestGetDashboardStats:
         d = get_dashboard_stats(marca="volkswagen", modelo="fusca")
         anos = {x["ano"]: x["qtd"] for x in d["opcoes"]["ano"]}
         assert anos == {1975: 1, 1968: 1}
+
+
+# ── get_media_modelo: estatísticas de preço de um par (calculadora de média) ──
+
+class TestGetMediaModelo:
+    def _anuncio_preco(self, url, preco, ano=1975, fonte="olx",
+                       marca="VOLKSWAGEN", modelo="FUSCA"):
+        return Anuncio(
+            titulo=f"Carro {ano}", preco=preco, marca=marca, modelo=modelo,
+            ano=ano, versao=None, url=url, fonte=fonte, data_coleta="2026-07-14",
+        )
+
+    def _semear(self):
+        upsert_anuncios([
+            self._anuncio_preco("http://x/1", 30000.0, ano=1970, fonte="olx"),
+            self._anuncio_preco("http://x/2", 50000.0, ano=1975, fonte="olx"),
+            self._anuncio_preco("http://x/3", 70000.0, ano=1975, fonte="maxicar"),
+            # Sem preço (sob consulta): conta no total, fora das médias.
+            self._anuncio_preco("http://x/4", None, ano=1980, fonte="maxicar"),
+            # Outro modelo, não deve entrar na conta do FUSCA.
+            self._anuncio_preco("http://x/5", 999999.0, modelo="KOMBI"),
+        ])
+
+    def test_media_e_faixa(self):
+        self._semear()
+        d = get_media_modelo("volkswagen", "fusca")
+        assert d["total"] == 4          # inclui o sem preço
+        assert d["com_preco"] == 3
+        assert d["preco_medio"] == 50000.0   # (30k+50k+70k)/3
+        assert d["preco_mediano"] == 50000.0
+        assert d["preco_min"] == 30000.0
+        assert d["preco_max"] == 70000.0
+        assert d["ano_min"] == 1970
+        assert d["ano_max"] == 1980
+
+    def test_por_ano_e_por_fonte(self):
+        self._semear()
+        d = get_media_modelo("volkswagen", "fusca")
+        por_ano = {r["ano"]: (r["qtd"], r["preco_medio"]) for r in d["por_ano"]}
+        assert por_ano[1975] == (2, 60000.0)   # (50k+70k)/2
+        assert por_ano[1980] == (1, None)      # só o sem preço
+        por_fonte = {r["fonte"]: r["qtd"] for r in d["por_fonte"]}
+        assert por_fonte == {"olx": 2, "maxicar": 2}
+
+    def test_modelo_inexistente_zera(self):
+        self._semear()
+        d = get_media_modelo("volkswagen", "brasilia")
+        assert d["total"] == 0
+        assert d["com_preco"] == 0
+        assert d["preco_medio"] is None
+        assert d["por_ano"] == []
 
 
 # ── listar_anuncios: marca/modelo/ano são dropdowns, filtro por igualdade ─────
