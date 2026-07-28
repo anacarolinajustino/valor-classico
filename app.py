@@ -14,7 +14,7 @@ Endpoints:
   GET  /admin/api/status                  → status do banco + conectores
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
   GET  /admin/api/marca-modelo            → todos os pares (marca, modelo) distintos, sem cascata
-  GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=)
+  GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=&versao=)
   GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
@@ -154,6 +154,21 @@ def admin_calculadora():
 # Admin API
 # ──────────────────────────────────────────────────────
 
+# "Sem versão informada" é um recorte legítimo (em muitos modelos é o maior
+# grupo), e string vazia na query string não distingue "não filtrar" de
+# "filtrar pelos sem versão" — daí o sentinela explícito na camada web. A
+# persistência usa a convenção do módulo: None = todas, "" = sem versão.
+VERSAO_SEM = "__sem__"
+
+
+def _arg_versao() -> str | None:
+    """Lê o filtro de versão da query string, traduzindo o sentinela."""
+    valor = request.args.get("versao", "").strip()
+    if not valor:
+        return None
+    return "" if valor == VERSAO_SEM else valor
+
+
 @app.route("/admin/api/status")
 def admin_status():
     try:
@@ -191,7 +206,8 @@ def admin_api_anuncios():
     try:
         result = listar_anuncios(
             fonte=fonte, marca=marca, modelo=modelo,
-            ano=ano, q=q, order_by=order_by, order_dir=order_dir,
+            ano=ano, versao=_arg_versao(), q=q,
+            order_by=order_by, order_dir=order_dir,
             page=page, page_size=page_size,
         )
         return jsonify(result)
@@ -251,7 +267,7 @@ def admin_api_media_modelo():
     if not marca or not modelo:
         return jsonify({"erro": "Marca e modelo são obrigatórios."}), 400
     try:
-        return jsonify(get_media_modelo(marca, modelo))
+        return jsonify(get_media_modelo(marca, modelo, _arg_versao()))
     except Exception as exc:
         logger.error("admin_api_media_modelo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
@@ -259,13 +275,25 @@ def admin_api_media_modelo():
 
 @app.route("/admin/api/anuncios-do-par")
 def admin_api_anuncios_do_par():
-    """Anúncios de um par (marca, modelo) exato — inspeção de item da quarentena."""
+    """
+    Anúncios de um par (marca, modelo) exato — inspeção de item da quarentena
+    e detalhe das linhas da calculadora (daí os recortes versão/ano/fonte).
+    """
     marca  = request.args.get("marca",  "").strip()
     modelo = request.args.get("modelo", "").strip()
+    fonte  = request.args.get("fonte",  "").strip() or None
     if not marca:
         return jsonify({"erro": "Marca é obrigatória."}), 400
     try:
-        return jsonify({"rows": listar_anuncios_do_par(marca, modelo)})
+        ano_raw = request.args.get("ano", "").strip()
+        ano = int(ano_raw) if ano_raw else None
+    except ValueError:
+        return jsonify({"erro": "Parâmetros inválidos"}), 400
+    try:
+        rows = listar_anuncios_do_par(
+            marca, modelo, versao=_arg_versao(), ano=ano, fonte=fonte,
+        )
+        return jsonify({"rows": rows})
     except Exception as exc:
         logger.error("admin_api_anuncios_do_par erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500

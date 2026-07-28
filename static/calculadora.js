@@ -3,11 +3,29 @@
  * Lê a relação de pares (marca, modelo) uma vez, recorta pelo mínimo de
  * anúncios (padrão 3) e, ao escolher o modelo, busca as estatísticas de
  * preço e monta um pequeno dashboard (média em destaque + mediana, faixa,
- * média por ano e por fonte). Sem bibliotecas.
+ * média por versão, por ano e por fonte). A versão é um recorte a mais —
+ * é nela que mora boa parte da diferença de preço dentro de um mesmo modelo.
+ * Toda contagem é consultável: abre os anúncios daquele recorte ali mesmo,
+ * como na lista de marcas/modelos. Sem bibliotecas.
  */
 "use strict";
 
 const FMT_INT = new Intl.NumberFormat("pt-BR");
+
+// Sentinela de "sem versão informada" (string vazia na query string não
+// distingue isso de "todas as versões") — a API traduz. Ver _arg_versao().
+const VERSAO_SEM = "__sem__";
+
+// Corte do servidor em listar_anuncios_do_par — o detalhe é uma amostra
+// quando o grupo é maior que isso.
+const DETALHE_LIMITE = 300;
+
+// Quantas versões a tabela mostra antes de colapsar. Modelo popular tem
+// dezenas de versões de 1 anúncio só (o Fusca tem 60+), que empurrariam as
+// seções de ano e fonte pra fora da tela — a lista vem ordenada por
+// quantidade, então as que importam estão no topo.
+const VERSOES_VISIVEIS = 15;
+let mostrarTodasVersoes = false;
 
 function fmtBRL(v) {
   if (v == null) return "—";
@@ -27,6 +45,7 @@ let pares = [];   // [{marca, modelo, qtd}] — carregado uma vez
 const selMin    = document.getElementById("calc-min");
 const selMarca  = document.getElementById("calc-marca");
 const selModelo = document.getElementById("calc-modelo");
+const selVersao = document.getElementById("calc-versao");
 const msg       = document.getElementById("calc-msg");
 const resultado = document.getElementById("calc-resultado");
 
@@ -74,6 +93,7 @@ function popularModelos() {
   if (!marca) {
     selModelo.replaceChildren(new Option("Selecione uma marca", ""));
     selModelo.disabled = true;
+    limparVersoes();
     return;
   }
   const modelos = pares
@@ -87,10 +107,32 @@ function popularModelos() {
   selModelo.disabled = false;
   if (modelos.some(p => p.modelo === anterior)) {
     selModelo.value = anterior;
+  } else {
+    limparVersoes();   // trocou de modelo: a versão anterior não vale mais
   }
 }
 
-// ── Estatísticas do modelo escolhido ─────────────────────────────────────
+function limparVersoes() {
+  selVersao.replaceChildren(new Option("Selecione um modelo", ""));
+  selVersao.disabled = true;
+  mostrarTodasVersoes = false;   // outro modelo, outra lista de versões
+}
+
+// As versões vêm de `por_versao` (sempre o par inteiro, mesmo com recorte
+// ativo), então a lista não muda ao escolher uma versão — só a seleção.
+function popularVersoes(porVersao) {
+  const anterior = selVersao.value;
+  selVersao.replaceChildren(new Option("Todas as versões", ""));
+  for (const r of porVersao) {
+    const valor  = r.versao ? r.versao : VERSAO_SEM;
+    const rotulo = r.versao ? r.versao : "Sem versão informada";
+    selVersao.add(new Option(`${rotulo} (${FMT_INT.format(r.qtd)})`, valor));
+  }
+  selVersao.disabled = porVersao.length === 0;
+  if ([...selVersao.options].some(o => o.value === anterior)) selVersao.value = anterior;
+}
+
+// ── Estatísticas do recorte escolhido ────────────────────────────────────
 async function calcular() {
   const marca  = selMarca.value;
   const modelo = selModelo.value;
@@ -103,9 +145,11 @@ async function calcular() {
   resultado.classList.remove("hidden");
   resultado.classList.add("carregando");
   mostrarMsg("", "calc-hint");
+  fecharDetalheGeral();
   try {
-    const qs  = `marca=${encodeURIComponent(marca)}&modelo=${encodeURIComponent(modelo)}`;
-    const res = await fetch(`/admin/api/media-modelo?${qs}`);
+    const p = new URLSearchParams({ marca, modelo });
+    if (selVersao.value) p.set("versao", selVersao.value);
+    const res = await fetch(`/admin/api/media-modelo?${p.toString()}`);
     const d   = await res.json();
     if (d.erro) throw new Error(d.erro);
     render(d);
@@ -117,8 +161,32 @@ async function calcular() {
   }
 }
 
+// Recorte ativo (o que os detalhes e o link pra lista completa carregam).
+// `versao`: "" = todas, VERSAO_SEM = sem versão informada, texto = exata.
+function recorteAtual() {
+  return { marca: selMarca.value, modelo: selModelo.value, versao: selVersao.value };
+}
+
+// Query string de um recorte: o base (marca/modelo/versão) mais o que a
+// linha clicada acrescenta (ano, fonte ou uma versão própria).
+function qsRecorte(extra = {}) {
+  const base = recorteAtual();
+  const p = new URLSearchParams({ marca: base.marca, modelo: base.modelo });
+  const versao = extra.versao !== undefined ? extra.versao : base.versao;
+  if (versao) p.set("versao", versao);
+  if (extra.ano)   p.set("ano",   extra.ano);
+  if (extra.fonte) p.set("fonte", extra.fonte);
+  return p;
+}
+
 function render(d) {
-  document.getElementById("calc-modelo-nome").textContent = `${d.marca} ${d.modelo}`;
+  popularVersoes(d.por_versao);
+
+  const rotuloVersao = selVersao.value
+    ? (selVersao.value === VERSAO_SEM ? "sem versão informada" : d.versao)
+    : "";
+  document.getElementById("calc-modelo-nome").textContent =
+    `${d.marca} ${d.modelo}${rotuloVersao ? " · " + rotuloVersao : ""}`;
 
   const semPreco = !d.com_preco;
   document.getElementById("calc-media").textContent = semPreco ? "sem preço" : fmtBRL(d.preco_medio);
@@ -136,39 +204,238 @@ function render(d) {
   document.getElementById("calc-min-preco").textContent = semPreco ? "—" : fmtBRL(d.preco_min);
   document.getElementById("calc-max-preco").textContent = semPreco ? "—" : fmtBRL(d.preco_max);
 
-  // Média por ano
-  const tbAno = document.querySelector("#calc-tab-ano tbody");
-  tbAno.replaceChildren();
-  if (!d.por_ano.length) {
+  renderVersoes(d.por_versao);
+  renderAnos(d.por_ano);
+  renderFontes(d.por_fonte);
+
+  // Atalho pra ver o recorte inteiro na lista paginada
+  document.getElementById("calc-ver-anuncios").href = `/admin/anuncios?${qsRecorte().toString()}`;
+}
+
+// Contagem clicável: abre os anúncios daquele recorte logo abaixo da linha.
+function celulaContagem(qtd, recorte) {
+  const td = document.createElement("td");
+  td.className = "num";
+  const btn = texto("button", FMT_INT.format(qtd), "qv-count");
+  btn.type = "button";
+  btn.title = "Ver os anúncios deste recorte";
+  btn.dataset.qtd = qtd;
+  btn.dataset.recorte = JSON.stringify(recorte);
+  btn.addEventListener("click", () => verAnunciosDaLinha(btn));
+  td.append(btn);
+  return td;
+}
+
+function renderVersoes(porVersao) {
+  const tb = document.querySelector("#calc-tab-versao tbody");
+  tb.replaceChildren();
+  if (!porVersao.length) {
     const tr = document.createElement("tr");
-    tr.append(texto("td", "Nenhum ano identificado."));
-    tr.firstChild.colSpan = 3;
-    tbAno.append(tr);
-  } else {
-    for (const r of d.por_ano) {
-      const tr = document.createElement("tr");
-      tr.append(texto("td", r.ano));
-      tr.append(texto("td", FMT_INT.format(r.qtd), "num"));
-      tr.append(texto("td", r.preco_medio == null ? "—" : fmtBRL(r.preco_medio), "num"));
-      tbAno.append(tr);
-    }
+    const td = texto("td", "Nenhum anúncio.");
+    td.colSpan = 3;
+    tr.append(td);
+    tb.append(tr);
+    return;
   }
 
-  // Por fonte
-  const tbFonte = document.querySelector("#calc-tab-fonte tbody");
-  tbFonte.replaceChildren();
-  for (const r of d.por_fonte) {
+  // A versão recortada tem de aparecer sempre, mesmo que seja uma das raras
+  // que ficariam abaixo do corte.
+  const posicaoAtiva = porVersao.findIndex(r => (r.versao || VERSAO_SEM) === selVersao.value);
+  const todas = mostrarTodasVersoes || posicaoAtiva >= VERSOES_VISIVEIS;
+  const visiveis = todas ? porVersao : porVersao.slice(0, VERSOES_VISIVEIS);
+
+  for (const r of visiveis) {
+    const valor = r.versao ? r.versao : VERSAO_SEM;
+    const tr = document.createElement("tr");
+    if (selVersao.value === valor) tr.className = "calc-linha-ativa";
+
+    // Clicar no nome recorta a média por essa versão (e destrava com um 2º clique).
+    const tdNome = document.createElement("td");
+    const btn = texto("button", r.versao || "Sem versão informada", "calc-versao-link");
+    btn.type = "button";
+    btn.title = selVersao.value === valor
+      ? "Clique pra voltar a todas as versões"
+      : "Clique pra recortar a média por esta versão";
+    btn.addEventListener("click", () => {
+      selVersao.value = selVersao.value === valor ? "" : valor;
+      calcular();
+    });
+    tdNome.append(btn);
+
+    tr.append(tdNome);
+    tr.append(celulaContagem(r.qtd, { versao: valor }));
+    tr.append(texto("td", r.preco_medio == null ? "—" : fmtBRL(r.preco_medio), "num"));
+    tb.append(tr);
+  }
+
+  if (visiveis.length < porVersao.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    const btn = texto(
+      "button",
+      `Mostrar as outras ${FMT_INT.format(porVersao.length - visiveis.length)} versões ` +
+      `(as de menos anúncios)`,
+      "calc-versao-link",
+    );
+    btn.type = "button";
+    btn.addEventListener("click", () => {
+      mostrarTodasVersoes = true;
+      renderVersoes(porVersao);
+    });
+    td.append(btn);
+    tr.append(td);
+    tb.append(tr);
+  }
+}
+
+function renderAnos(porAno) {
+  const tb = document.querySelector("#calc-tab-ano tbody");
+  tb.replaceChildren();
+  if (!porAno.length) {
+    const tr = document.createElement("tr");
+    const td = texto("td", "Nenhum ano identificado.");
+    td.colSpan = 3;
+    tr.append(td);
+    tb.append(tr);
+    return;
+  }
+  for (const r of porAno) {
+    const tr = document.createElement("tr");
+    tr.append(texto("td", r.ano));
+    tr.append(celulaContagem(r.qtd, { ano: r.ano }));
+    tr.append(texto("td", r.preco_medio == null ? "—" : fmtBRL(r.preco_medio), "num"));
+    tb.append(tr);
+  }
+}
+
+function renderFontes(porFonte) {
+  const tb = document.querySelector("#calc-tab-fonte tbody");
+  tb.replaceChildren();
+  for (const r of porFonte) {
     const tr = document.createElement("tr");
     tr.append(texto("td", r.fonte || "—"));
-    tr.append(texto("td", FMT_INT.format(r.qtd), "num"));
+    tr.append(celulaContagem(r.qtd, { fonte: r.fonte }));
     tr.append(texto("td", r.preco_medio == null ? "—" : fmtBRL(r.preco_medio), "num"));
-    tbFonte.append(tr);
+    tb.append(tr);
   }
+}
 
-  // Atalho pra ver os anúncios desse par na lista
-  const link = document.getElementById("calc-ver-anuncios");
-  const p = new URLSearchParams({ marca: d.marca, modelo: d.modelo });
-  link.href = `/admin/anuncios?${p.toString()}`;
+// ── Detalhe: os anúncios por trás de um número ───────────────────────────
+function verAnunciosDaLinha(btn) {
+  const tr = btn.closest("tr");
+  const seguinte = tr.nextElementSibling;
+  if (seguinte && seguinte.classList.contains("qv-detail")) {
+    seguinte.remove();
+    return;
+  }
+  const linha = document.createElement("tr");
+  linha.className = "qv-detail";
+  const cell = document.createElement("td");
+  cell.className = "qv-detail-cell";
+  cell.colSpan = tr.children.length;
+  linha.append(cell);
+  tr.after(linha);
+
+  const extra = JSON.parse(btn.dataset.recorte);
+  carregarDetalhe(cell, qsRecorte(extra), parseInt(btn.dataset.qtd, 10));
+}
+
+// Mesmo detalhe, mas do recorte inteiro (botão do rodapé) — fora de tabela.
+function verAnunciosDoRecorte(btn) {
+  const alvo = document.getElementById("calc-detalhe-geral");
+  if (alvo.firstChild) {
+    fecharDetalheGeral();
+    return;
+  }
+  const cell = document.createElement("div");
+  cell.className = "qv-detail-cell";
+  alvo.append(cell);
+  btn.textContent = "Esconder os anúncios";
+  const total = parseInt(
+    (document.getElementById("calc-qtd").textContent.split("/")[1] || "").replace(/\D/g, ""),
+    10,
+  );
+  carregarDetalhe(cell, qsRecorte(), total);
+}
+
+function fecharDetalheGeral() {
+  document.getElementById("calc-detalhe-geral").replaceChildren();
+  document.getElementById("calc-ver-aqui").textContent = "Ver os anúncios aqui";
+}
+
+async function carregarDetalhe(cell, params, total) {
+  cell.replaceChildren(texto("p", "Carregando…", "qv-detail-nota"));
+  try {
+    const res  = await fetch(`/admin/api/anuncios-do-par?${params.toString()}`);
+    const data = await res.json();
+    if (data.erro) throw new Error(data.erro);
+    const rows = data.rows || [];
+    if (!rows.length) {
+      cell.replaceChildren(texto("p", "Nenhum anúncio.", "qv-detail-nota"));
+      return;
+    }
+    cell.replaceChildren();
+
+    // O servidor corta em 300: em grupo gordo o detalhe é uma amostra — diz
+    // isso, em vez de fingir que é tudo, e oferece a lista paginada.
+    const nota = document.createElement("p");
+    nota.className = "qv-detail-nota";
+    if (rows.length >= DETALHE_LIMITE && total > rows.length) {
+      nota.append(document.createTextNode(
+        `Mostrando ${FMT_INT.format(rows.length)} dos ${FMT_INT.format(total)} anúncios deste recorte ` +
+        `(os de ano mais antigo primeiro). `));
+    } else {
+      nota.append(document.createTextNode(`${FMT_INT.format(rows.length)} anúncio(s). `));
+    }
+    const link = texto("a", "Ver na lista completa", "btn btn-outline btn-sm");
+    link.href = `/admin/anuncios?${params.toString()}`;
+    nota.append(link);
+    cell.append(nota);
+
+    const wrap = document.createElement("div");
+    wrap.className = "qv-detail-wrap";
+    const tabela = document.createElement("table");
+    tabela.className = "qv-detail-table";
+
+    const thead = document.createElement("thead");
+    const trh = document.createElement("tr");
+    for (const [rotulo, classe] of [
+      ["Fonte", ""], ["Título", ""], ["Ano", "an-th--num"],
+      ["Preço", "an-th--num"], ["Versão", ""], ["Obs", ""],
+    ]) trh.append(texto("th", rotulo, classe));
+    thead.append(trh);
+    tabela.append(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      tr.append(texto("td", r.fonte || "—"));
+
+      const tdTitulo = document.createElement("td");
+      if (r.url) {
+        const a = texto("a", r.titulo || "(sem título)");
+        a.href = r.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        tdTitulo.append(a);
+      } else {
+        tdTitulo.textContent = r.titulo || "(sem título)";
+      }
+      tr.append(tdTitulo);
+
+      tr.append(texto("td", r.ano || "—", "an-td--num"));
+      tr.append(texto("td", fmtBRL(r.preco), "an-td--num"));
+      tr.append(texto("td", r.versao || "—"));
+      tr.append(texto("td", r.obs || "—"));
+      tbody.append(tr);
+    }
+    tabela.append(tbody);
+    wrap.append(tabela);
+    cell.append(wrap);
+  } catch (err) {
+    cell.replaceChildren(texto("p", `Erro: ${err.message}`, "calc-erro"));
+  }
 }
 
 function mostrarMsg(txt, classe) {
@@ -183,9 +450,14 @@ selMin.addEventListener("change", () => {
   calcular();  // o par pode ter deixado de alcançar o mínimo → esconde/recalcula
 });
 selMarca.addEventListener("change", () => {
+  limparVersoes();   // outra marca, outras versões
   popularModelos();
   calcular();
 });
-selModelo.addEventListener("change", calcular);
+selModelo.addEventListener("change", () => {
+  limparVersoes();   // a versão do modelo anterior não vale pro novo
+  calcular();
+});
+selVersao.addEventListener("change", calcular);
 
 carregarPares();

@@ -18,6 +18,7 @@ from src.pipeline.persistence import (
     get_media_modelo,
     init_db,
     listar_anuncios,
+    listar_anuncios_do_par,
     upsert_anuncios,
     upsert_preco,
     log_search,
@@ -361,10 +362,10 @@ class TestGetDashboardStats:
 
 class TestGetMediaModelo:
     def _anuncio_preco(self, url, preco, ano=1975, fonte="olx",
-                       marca="VOLKSWAGEN", modelo="FUSCA"):
+                       marca="VOLKSWAGEN", modelo="FUSCA", versao=None):
         return Anuncio(
             titulo=f"Carro {ano}", preco=preco, marca=marca, modelo=modelo,
-            ano=ano, versao=None, url=url, fonte=fonte, data_coleta="2026-07-14",
+            ano=ano, versao=versao, url=url, fonte=fonte, data_coleta="2026-07-14",
         )
 
     def _semear(self):
@@ -406,6 +407,42 @@ class TestGetMediaModelo:
         assert d["com_preco"] == 0
         assert d["preco_medio"] is None
         assert d["por_ano"] == []
+
+    # ── recorte por versão (é nela que mora a diferença de preço) ──────────
+
+    def _semear_versoes(self):
+        upsert_anuncios([
+            self._anuncio_preco("http://v/1", 100000.0, versao="SS"),
+            self._anuncio_preco("http://v/2", 140000.0, versao="SS", ano=1976),
+            self._anuncio_preco("http://v/3", 40000.0, versao="DE LUXO"),
+            # Sem versão: balde próprio, não some da conta.
+            self._anuncio_preco("http://v/4", 60000.0),
+        ])
+
+    def test_por_versao_quebra_o_par_inteiro(self):
+        self._semear_versoes()
+        d = get_media_modelo("volkswagen", "fusca")
+        por_versao = {r["versao"]: (r["qtd"], r["preco_medio"]) for r in d["por_versao"]}
+        assert por_versao["SS"] == (2, 120000.0)      # (100k+140k)/2
+        assert por_versao["DE LUXO"] == (1, 40000.0)
+        assert por_versao[""] == (1, 60000.0)         # sem versão informada
+        assert d["versao"] is None
+
+    def test_versao_recorta_media_e_quebras(self):
+        self._semear_versoes()
+        d = get_media_modelo("volkswagen", "fusca", "ss")
+        assert d["versao"] == "SS"
+        assert d["total"] == 2
+        assert d["preco_medio"] == 120000.0
+        assert {r["ano"] for r in d["por_ano"]} == {1975, 1976}
+        # por_versao ignora o recorte: é o mapa que monta o seletor de versão.
+        assert len(d["por_versao"]) == 3
+
+    def test_versao_vazia_recorta_os_sem_versao(self):
+        self._semear_versoes()
+        d = get_media_modelo("volkswagen", "fusca", "")
+        assert d["total"] == 1
+        assert d["preco_medio"] == 60000.0
 
 
 # ── listar_anuncios: marca/modelo/ano são dropdowns, filtro por igualdade ─────
@@ -449,6 +486,63 @@ class TestListarAnuncios:
         r = listar_anuncios(marca="VOLKSWAGEN", modelo="FUSCA 1300")
         marcas = {x["marca"] for x in r["opcoes"]["marca"]}
         assert marcas == {"VOLKSWAGEN", "CHEVROLET"}
+
+    # ── versão: dropdown em cascata do modelo (atalho da calculadora) ──────
+
+    def _semear_versoes(self):
+        upsert_anuncios([
+            _anuncio("http://v/1", 1975, marca="CHEVROLET", modelo="OPALA", versao="SS"),
+            _anuncio("http://v/2", 1976, marca="CHEVROLET", modelo="OPALA", versao="SS"),
+            _anuncio("http://v/3", 1977, marca="CHEVROLET", modelo="OPALA", versao="COMODORO"),
+            _anuncio("http://v/4", 1978, marca="CHEVROLET", modelo="OPALA"),
+        ])
+
+    def test_versao_filtra_por_igualdade(self):
+        self._semear_versoes()
+        r = listar_anuncios(marca="CHEVROLET", modelo="OPALA", versao="SS")
+        assert r["total"] == 2
+        assert all(row["versao"] == "SS" for row in r["rows"])
+
+    def test_versao_vazia_traz_os_sem_versao(self):
+        # "" é um recorte legítimo (o balde "sem versão informada"), diferente
+        # de None, que é "todas as versões" — a rota traduz o sentinela.
+        self._semear_versoes()
+        assert listar_anuncios(marca="CHEVROLET", modelo="OPALA", versao="")["total"] == 1
+        assert listar_anuncios(marca="CHEVROLET", modelo="OPALA")["total"] == 4
+
+    def test_opcoes_versao_so_com_modelo_escolhido(self):
+        self._semear_versoes()
+        sem_modelo = listar_anuncios(marca="CHEVROLET")
+        assert sem_modelo["opcoes"]["versao"] == []
+
+        com_modelo = listar_anuncios(marca="CHEVROLET", modelo="OPALA")
+        versoes = {x["versao"]: x["qtd"] for x in com_modelo["opcoes"]["versao"]}
+        assert versoes == {"SS": 2, "COMODORO": 1, "": 1}
+
+
+# ── listar_anuncios_do_par: detalhe de um grupo (quarentena e calculadora) ────
+
+class TestListarAnunciosDoPar:
+    def _semear(self):
+        upsert_anuncios([
+            _anuncio("http://p/1", 1975, fonte="olx", marca="CHEVROLET", modelo="OPALA", versao="SS"),
+            _anuncio("http://p/2", 1976, fonte="maxicar", marca="CHEVROLET", modelo="OPALA", versao="SS"),
+            _anuncio("http://p/3", 1975, fonte="olx", marca="CHEVROLET", modelo="OPALA", versao="COMODORO"),
+            _anuncio("http://p/4", 1975, fonte="olx", marca="CHEVROLET", modelo="OPALA"),
+        ])
+
+    def test_par_inteiro_sem_recorte(self):
+        self._semear()
+        assert len(listar_anuncios_do_par("chevrolet", "opala")) == 4
+
+    def test_recortes_de_versao_ano_e_fonte(self):
+        self._semear()
+        assert len(listar_anuncios_do_par("chevrolet", "opala", versao="ss")) == 2
+        assert len(listar_anuncios_do_par("chevrolet", "opala", versao="")) == 1   # sem versão
+        assert len(listar_anuncios_do_par("chevrolet", "opala", ano=1975)) == 3
+        assert len(listar_anuncios_do_par("chevrolet", "opala", fonte="maxicar")) == 1
+        # Recortes combinam (linha "por ano" com uma versão já selecionada).
+        assert len(listar_anuncios_do_par("chevrolet", "opala", versao="SS", ano=1975)) == 1
 
 
 # ── AC-P06: get_mais_pesquisados retorna ranking ordenado por contagem DESC ───

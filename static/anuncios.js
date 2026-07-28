@@ -6,6 +6,10 @@
 let currentPage   = 1;
 let currentOrder  = 'ultima_vista';
 let currentDir    = 'desc';
+// Sentinela de "sem versão informada" no filtro de versão (a API traduz —
+// ver _arg_versao() no app.py). Precisa ser um valor distinto de '', que já
+// significa "todas as versões" no <select>.
+const VERSAO_SEM = '__sem__';
 // Filtros vindos da URL (ex.: link "ver anúncios" do dashboard) que ainda
 // não foram aplicados aos selects — eles só existem depois da 1ª resposta
 // da API (ver aplicarFiltrosPendentes()).
@@ -46,7 +50,7 @@ function popularSelect(select, itens, { valorFn, rotuloFn, placeholder }) {
 function params(page) {
   const p = new URLSearchParams();
   const q      = document.getElementById('filter-q').value.trim();
-  const fonte  = document.getElementById('filter-fonte').value;
+  const fonte  = document.getElementById('filter-fonte').value || (filtrosPendentesDaUrl || {}).fonte || '';
   // Antes da 1ª resposta chegar, marca/modelo/ano vindos da URL ainda não
   // existem como <option> nos selects (não dá pra setar .value) — usa o
   // valor pendente pra já buscar com o recorte certo (e trazer, na mesma
@@ -55,6 +59,7 @@ function params(page) {
   const marca  = document.getElementById('filter-marca').value  || pend.marca  || '';
   const modelo = document.getElementById('filter-modelo').value || pend.modelo || '';
   const ano    = document.getElementById('filter-ano').value    || pend.ano    || '';
+  const versao = document.getElementById('filter-versao').value || pend.versao || '';
   const ps     = document.getElementById('filter-page-size').value;
 
   if (q)      p.set('q',      q);
@@ -62,6 +67,7 @@ function params(page) {
   if (marca)  p.set('marca',  marca);
   if (modelo) p.set('modelo', modelo);
   if (ano)    p.set('ano',    ano);
+  if (versao) p.set('versao', versao);
   p.set('order_by',  currentOrder);
   p.set('order_dir', currentDir);
   p.set('page',      page);
@@ -74,6 +80,7 @@ function limparFiltros() {
   document.getElementById('filter-fonte').value  = '';
   document.getElementById('filter-marca').value  = '';
   document.getElementById('filter-modelo').value = '';
+  document.getElementById('filter-versao').value = '';
   document.getElementById('filter-ano').value    = '';
   buscar(1);
 }
@@ -110,10 +117,12 @@ function atualizarIconesSort() {
  */
 function aplicarFiltrosPendentes() {
   if (!filtrosPendentesDaUrl) return;
-  const { marca, modelo, ano } = filtrosPendentesDaUrl;
+  const { marca, modelo, ano, versao, fonte } = filtrosPendentesDaUrl;
   if (marca)  document.getElementById('filter-marca').value  = marca;
   if (modelo) document.getElementById('filter-modelo').value = modelo;
   if (ano)    document.getElementById('filter-ano').value    = ano;
+  if (versao) document.getElementById('filter-versao').value = versao;
+  if (fonte)  document.getElementById('filter-fonte').value  = fonte;
   filtrosPendentesDaUrl = null;
 }
 
@@ -183,6 +192,18 @@ async function buscar(page) {
         valorFn: (x) => String(x.ano),
         rotuloFn: (x) => `${x.ano} (${x.qtd.toLocaleString('pt-BR')})`,
         placeholder: 'Todos',
+      });
+
+      // Versão é cascata de modelo (a mesma "1.6 8V GASOLINA" existe em
+      // modelos diferentes) e tem o balde "sem versão informada", que a
+      // string vazia não distingue de "todas" — daí o sentinela VERSAO_SEM.
+      const filtroVersao = document.getElementById('filter-versao');
+      const temModelo = Boolean(filtroModelo.value || filtrosPendentesDaUrl?.modelo);
+      filtroVersao.disabled = !temModelo;
+      popularSelect(filtroVersao, data.opcoes.versao || [], {
+        valorFn: (x) => x.versao || VERSAO_SEM,
+        rotuloFn: (x) => `${x.versao || 'Sem versão informada'} (${x.qtd.toLocaleString('pt-BR')})`,
+        placeholder: temModelo ? 'Todas' : 'Selecione um modelo',
       });
     }
 
@@ -496,9 +517,10 @@ function filtrarPorPar(btn) {
   // mesmo caminho dos links vindos da URL: os <option> de modelo só existem
   // depois da resposta, então o par vai como filtro pendente.
   const tr = btn.closest('tr');
-  document.getElementById('filter-q').value     = '';
-  document.getElementById('filter-fonte').value = '';
-  document.getElementById('filter-ano').value   = '';
+  document.getElementById('filter-q').value      = '';
+  document.getElementById('filter-fonte').value  = '';
+  document.getElementById('filter-versao').value = '';
+  document.getElementById('filter-ano').value    = '';
   filtrosPendentesDaUrl = { marca: tr.dataset.marca, modelo: tr.dataset.modelo };
   buscar(1);
   document.getElementById('an-table').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -690,21 +712,25 @@ document.getElementById('filter-q')?.addEventListener('keydown', e => {
 document.getElementById('filter-fonte')?.addEventListener('change', () => buscar(1));
 document.getElementById('filter-marca')?.addEventListener('change', () => {
   document.getElementById('filter-modelo').value = '';
+  document.getElementById('filter-versao').value = '';
   document.getElementById('filter-ano').value = '';
   buscar(1);
 });
 document.getElementById('filter-modelo')?.addEventListener('change', () => {
+  document.getElementById('filter-versao').value = '';   // versão é cascata de modelo
   document.getElementById('filter-ano').value = '';
   buscar(1);
 });
+document.getElementById('filter-versao')?.addEventListener('change', () => buscar(1));
 document.getElementById('filter-ano')?.addEventListener('change', () => buscar(1));
 
 // ── Init ───────────────────────────────────────────────────────────────
 /**
- * Lê marca/modelo/ano da query string (ex.: link "ver anúncios" do
- * dashboard: /admin/anuncios?marca=Volkswagen&modelo=Fusca) — os valores só
- * são aplicados aos selects depois que a 1ª busca traz as opções (são
- * dropdowns agora, não dá pra setar .value antes da <option> existir).
+ * Lê marca/modelo/versão/ano/fonte da query string (ex.: link "ver anúncios"
+ * do dashboard ou da calculadora de média:
+ * /admin/anuncios?marca=Volkswagen&modelo=Fusca&versao=1.6%208V...) — os
+ * valores só são aplicados aos selects depois que a 1ª busca traz as opções
+ * (são dropdowns, não dá pra setar .value antes da <option> existir).
  * "q" é texto livre, pode ser pré-preenchido direto.
  */
 function lerFiltrosDaUrl() {
@@ -715,7 +741,11 @@ function lerFiltrosDaUrl() {
   const marca = urlParams.get('marca');
   const modelo = urlParams.get('modelo');
   const ano = urlParams.get('ano');
-  if (marca || modelo || ano) filtrosPendentesDaUrl = { marca, modelo, ano };
+  const versao = urlParams.get('versao');
+  const fonte = urlParams.get('fonte');
+  if (marca || modelo || ano || versao || fonte) {
+    filtrosPendentesDaUrl = { marca, modelo, ano, versao, fonte };
+  }
 }
 
 lerFiltrosDaUrl();

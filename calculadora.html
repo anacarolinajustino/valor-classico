@@ -68,7 +68,24 @@
     .calc-tabela td { padding: .45rem .7rem; border-bottom: 1px solid var(--vc-border); color: var(--vc-ink-soft); }
     .calc-tabela .num { text-align: right; font-variant-numeric: tabular-nums; }
 
-    .calc-acoes { margin-top: 1.5rem; }
+    /* Linha da versão que está recortando a média */
+    .calc-tabela tr.calc-linha-ativa td { background: rgba(178, 106, 0, .08); }
+    .calc-tabela tr.calc-linha-ativa td:first-child { font-weight: 600; }
+
+    /* Nome da versão: clicar recorta a média por ela */
+    .calc-versao-link {
+      background: none; border: none; padding: 0; font: inherit; cursor: pointer;
+      color: var(--vc-ink-soft); text-align: left; text-decoration: underline dotted;
+    }
+    .calc-versao-link:hover { color: var(--vc-accent-strong, #B26A00); }
+
+    .calc-legenda { color: var(--vc-ink-soft); font-size: .85rem; margin: -.4rem 0 .75rem; }
+
+    .calc-acoes { margin-top: 1.5rem; display: flex; flex-wrap: wrap; gap: .75rem; }
+
+    /* Detalhe fora de tabela (botão "Ver os anúncios aqui") reusa o visual
+       das linhas de detalhe da lista de anúncios (.qv-detail-* em styles.css). */
+    #calc-detalhe-geral .qv-detail-cell { display: block; margin-top: .75rem; border-radius: var(--radius); }
   </style>
 </head>
 <body>
@@ -92,9 +109,11 @@
     <div class="admin-page-header">
       <h1 class="admin-title">Calculadora de média</h1>
       <p class="admin-sub">
-        Escolha um modelo pra ver o valor médio dele nos anúncios coletados.
-        Só entram na lista os modelos com pelo menos a quantidade mínima de
-        anúncios selecionada (padrão: 3), pra a média ter alguma base.
+        Escolha um modelo pra ver o valor médio dele nos anúncios coletados —
+        e, se quiser, afine o recorte por versão. Só entram na lista os
+        modelos com pelo menos a quantidade mínima de anúncios selecionada
+        (padrão: 3), pra a média ter alguma base. Todo número de anúncios é
+        clicável: abre os anúncios daquele recorte aqui mesmo.
       </p>
     </div>
 
@@ -120,6 +139,13 @@
         <label for="calc-modelo">Modelo</label>
         <select id="calc-modelo" disabled>
           <option value="">Selecione uma marca</option>
+        </select>
+      </div>
+
+      <div class="calc-grupo">
+        <label for="calc-versao">Versão</label>
+        <select id="calc-versao" disabled title="Recorta a média por versão — é nela que mora boa parte da diferença de preço">
+          <option value="">Selecione um modelo</option>
         </select>
       </div>
     </div>
@@ -154,6 +180,21 @@
         </div>
       </div>
 
+      <h2 class="calc-secao-titulo">Média por versão</h2>
+      <p class="calc-legenda">
+        Todas as versões deste modelo, independentemente do recorte acima.
+        Clique na versão pra recortar a média por ela; clique no número de
+        anúncios pra ver o grupo aqui mesmo.
+      </p>
+      <div class="calc-tabela-wrap">
+        <table class="calc-tabela" id="calc-tab-versao">
+          <thead>
+            <tr><th>Versão</th><th class="num">Anúncios</th><th class="num">Média</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <h2 class="calc-secao-titulo">Média por ano do veículo</h2>
       <div class="calc-tabela-wrap">
         <table class="calc-tabela" id="calc-tab-ano">
@@ -175,8 +216,10 @@
       </div>
 
       <div class="calc-acoes">
+        <button class="btn btn-outline btn-sm" id="calc-ver-aqui" onclick="verAnunciosDoRecorte(this)">Ver os anúncios aqui</button>
         <a class="btn btn-outline btn-sm" id="calc-ver-anuncios" href="#">Ver esses anúncios na lista</a>
       </div>
+      <div id="calc-detalhe-geral"></div>
     </section>
 
   </main>

@@ -396,6 +396,7 @@ def get_db_stats() -> dict[str, Any]:
 
 def _opcoes_marca_modelo_ano(
     cur, fonte: str | None, marca: str | None, modelo: str | None, ano: int | None,
+    versao: str | None = None, com_versao: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Opções pros dropdowns de marca/modelo/ano (dashboard e /admin/anuncios),
@@ -403,20 +404,28 @@ def _opcoes_marca_modelo_ano(
     nunca sob ela mesma (senão só sobraria a opção já escolhida). Modelo é
     uma cascata de marca (5,5 mil modelos distintos no banco todo — só faz
     sentido listar depois que uma marca reduz o universo).
+
+    `versao` segue a convenção do módulo: None = todas, "" = sem versão
+    informada (COALESCE trata NULL e '' como o mesmo balde). As opções de
+    versão são cascata de modelo (só saem com `com_versao`, pra o dashboard
+    não pagar uma query que não usa).
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
         "marca": marca.strip().upper() if marca else None,
         "modelo": modelo.strip().upper() if modelo else None,
         "ano": ano,
+        "versao": versao.strip().upper() if versao is not None else None,
     }
 
     def _where(excluir: tuple[str, ...] = (), *extra: str) -> tuple[str, list]:
         conds, params = [], []
         for campo, valor in filtros.items():
-            if valor is not None and campo not in excluir:
-                conds.append(f"{campo} = %s")
-                params.append(valor)
+            if valor is None or campo in excluir:
+                continue
+            # Versão vazia é um valor legítimo ("sem versão"): casa NULL e ''.
+            conds.append("COALESCE(versao, '') = %s" if campo == "versao" else f"{campo} = %s")
+            params.append(valor)
         conds.extend(extra)
         sql = ("WHERE " + " AND ".join(conds)) if conds else ""
         return sql, params
@@ -452,7 +461,24 @@ def _opcoes_marca_modelo_ano(
     )
     opcoes_ano = [dict(r) for r in cur.fetchall()]
 
-    return {"marca": opcoes_marca, "modelo": opcoes_modelo, "ano": opcoes_ano}
+    # Versão: subordinada ao modelo (a mesma "1.6 8V GASOLINA 2P MANUAL" existe
+    # em modelos diferentes), então só lista com um modelo escolhido.
+    opcoes_versao: list[dict[str, Any]] = []
+    if com_versao and filtros["modelo"]:
+        cond_op_versao, params_op_versao = _where(("versao",))
+        cur.execute(
+            f"SELECT COALESCE(versao, '') AS versao, COUNT(*) AS qtd FROM anuncios "
+            f"{cond_op_versao} GROUP BY 1 ORDER BY qtd DESC, 1",
+            params_op_versao,
+        )
+        opcoes_versao = [dict(r) for r in cur.fetchall()]
+
+    return {
+        "marca": opcoes_marca,
+        "modelo": opcoes_modelo,
+        "ano": opcoes_ano,
+        "versao": opcoes_versao,
+    }
 
 
 def get_dashboard_stats(
@@ -575,20 +601,40 @@ def get_dashboard_stats(
     }
 
 
-def get_media_modelo(marca: str, modelo: str) -> dict[str, Any]:
+def get_media_modelo(marca: str, modelo: str, versao: str | None = None) -> dict[str, Any]:
     """
     Estatísticas de preço de um par (marca, modelo) EXATO — pro pequeno
     dashboard da calculadora de média. O destaque é o valor MÉDIO daquele
     modelo; acompanha a mediana (mais robusta a outliers), a faixa min–max, a
-    contagem e a média por ano (evolução) e por fonte. Preços nulos ou <= 0
-    (anúncio "sob consulta") não entram nas médias, mas contam no total.
+    contagem e a média por versão, por ano (evolução) e por fonte. Preços
+    nulos ou <= 0 (anúncio "sob consulta") não entram nas médias, mas contam
+    no total.
+
+    `versao` recorta ainda mais o cálculo (versão é onde mora o preço de
+    verdade — um Opala SS não vale o mesmo que um Opala de luxo): None = todas
+    as versões, "" = só os anúncios sem versão informada, texto = versão exata.
+
+    `por_versao` é a exceção: sai SEMPRE sobre o par inteiro, ignorando o
+    recorte, porque é o mapa que a calculadora usa pra montar o seletor de
+    versão (e pra comparar as versões entre si). Os demais blocos respeitam o
+    recorte.
     """
     mk = (marca or "").strip().upper()
     md = (modelo or "").strip().upper()
+    vs = versao.strip().upper() if versao is not None else None
+
+    par_where = "UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s"
+    par_params: list[Any] = [mk, md]
+    where = par_where
+    params = list(par_params)
+    if vs is not None:
+        where += " AND COALESCE(UPPER(versao), '') = %s"
+        params.append(vs)
+
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT COUNT(*)                                            AS total,
                        COUNT(preco) FILTER (WHERE preco > 0)               AS com_preco,
                        AVG(preco)   FILTER (WHERE preco > 0)               AS preco_medio,
@@ -599,40 +645,52 @@ def get_media_modelo(marca: str, modelo: str) -> dict[str, Any]:
                        MIN(ano)                                            AS ano_min,
                        MAX(ano)                                            AS ano_max
                 FROM anuncios
-                WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
+                WHERE {where}
                 """,
-                (mk, md),
+                params,
             )
             k = dict(cur.fetchone())
 
             cur.execute(
-                """
+                f"""
                 SELECT ano, COUNT(*) AS qtd,
                        AVG(preco) FILTER (WHERE preco > 0) AS preco_medio
                 FROM anuncios
-                WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
-                  AND ano IS NOT NULL
+                WHERE {where} AND ano IS NOT NULL
                 GROUP BY ano ORDER BY ano
                 """,
-                (mk, md),
+                params,
             )
             por_ano = [dict(r) for r in cur.fetchall()]
 
             cur.execute(
-                """
+                f"""
                 SELECT fonte, COUNT(*) AS qtd,
                        AVG(preco) FILTER (WHERE preco > 0) AS preco_medio
                 FROM anuncios
-                WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
+                WHERE {where}
                 GROUP BY fonte ORDER BY qtd DESC
                 """,
-                (mk, md),
+                params,
             )
             por_fonte = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                f"""
+                SELECT COALESCE(versao, '') AS versao, COUNT(*) AS qtd,
+                       AVG(preco) FILTER (WHERE preco > 0) AS preco_medio
+                FROM anuncios
+                WHERE {par_where}
+                GROUP BY 1 ORDER BY qtd DESC, 1
+                """,
+                par_params,
+            )
+            por_versao = [dict(r) for r in cur.fetchall()]
 
     return {
         "marca": mk,
         "modelo": md,
+        "versao": vs,
         "total": k["total"],
         "com_preco": k["com_preco"],
         "preco_medio": k["preco_medio"],
@@ -641,6 +699,7 @@ def get_media_modelo(marca: str, modelo: str) -> dict[str, Any]:
         "preco_max": k["preco_max"],
         "ano_min": k["ano_min"],
         "ano_max": k["ano_max"],
+        "por_versao": por_versao,
         "por_ano": por_ano,
         "por_fonte": por_fonte,
     }
@@ -651,6 +710,7 @@ def listar_anuncios(
     marca: str | None = None,
     modelo: str | None = None,
     ano: int | None = None,
+    versao: str | None = None,
     q: str | None = None,
     order_by: str = "ultima_vista",
     order_dir: str = "desc",
@@ -661,9 +721,10 @@ def listar_anuncios(
     Retorna anúncios paginados com filtros opcionais.
     Usado pelo painel /admin/anuncios.
 
-    fonte/marca/modelo/ano são dropdowns (valores exatos do catálogo — ver
-    `opcoes` no retorno, no estilo faceta de `_opcoes_marca_modelo_ano`); `q`
-    é a única busca livre (LIKE em título/marca/modelo).
+    fonte/marca/modelo/ano/versão são dropdowns (valores exatos do catálogo —
+    ver `opcoes` no retorno, no estilo faceta de `_opcoes_marca_modelo_ano`);
+    `q` é a única busca livre (LIKE em título/marca/modelo). Versão segue a
+    convenção do módulo: None = todas, "" = sem versão informada.
     """
     allowed_order = {"ultima_vista", "preco", "ano", "marca", "modelo", "fonte", "titulo"}
     if order_by not in allowed_order:
@@ -685,6 +746,9 @@ def listar_anuncios(
     if ano:
         conditions.append("ano = %s")
         params.append(ano)
+    if versao is not None:
+        conditions.append("COALESCE(UPPER(versao), '') = %s")
+        params.append(versao.strip().upper())
     if q:
         conditions.append("(UPPER(titulo) LIKE %s OR UPPER(marca) LIKE %s OR UPPER(modelo) LIKE %s)")
         like = f"%{q.strip().upper()}%"
@@ -712,7 +776,9 @@ def listar_anuncios(
             cur.execute("SELECT DISTINCT fonte FROM anuncios ORDER BY fonte")
             fontes = [r["fonte"] for r in cur.fetchall()]
 
-            opcoes = _opcoes_marca_modelo_ano(cur, fonte, marca, modelo, ano)
+            opcoes = _opcoes_marca_modelo_ano(
+                cur, fonte, marca, modelo, ano, versao, com_versao=True,
+            )
 
     return {
         "total": total,
@@ -899,26 +965,49 @@ def excluir_marca_modelo(marca: str, modelo: str) -> dict[str, Any]:
     return {"excluidos": excluidos}
 
 
-def listar_anuncios_do_par(marca: str, modelo: str, limite: int = 300) -> list[dict[str, Any]]:
+def listar_anuncios_do_par(
+    marca: str,
+    modelo: str,
+    versao: str | None = None,
+    ano: int | None = None,
+    fonte: str | None = None,
+    limite: int = 300,
+) -> list[dict[str, Any]]:
     """
     Anúncios de um par (marca, modelo) EXATO — pra inspecionar um item da
-    quarentena no painel antes de corrigir/cadastrar. Casa modelo vazio/NULL
-    via COALESCE (os pares "sem modelo" também precisam ser inspecionáveis).
-    Lista enxuta (sem paginação — um par de quarentena tem poucos anúncios).
+    quarentena no painel antes de corrigir/cadastrar, e pra abrir os anúncios
+    por trás de cada linha da calculadora de média (daí os recortes opcionais
+    de versão/ano/fonte). Casa modelo vazio/NULL via COALESCE (os pares "sem
+    modelo" também precisam ser inspecionáveis); versão segue a convenção do
+    módulo: None = todas, "" = sem versão informada.
+    Lista enxuta (sem paginação — cortada em `limite`).
     """
     from src.pipeline.normalizer import normalizar_texto
 
     mk = normalizar_texto(marca or "")
     md = normalizar_texto(modelo or "")
+
+    conds = ["UPPER(marca) = %s", "COALESCE(UPPER(modelo), '') = %s"]
+    params: list[Any] = [mk, md]
+    if versao is not None:
+        conds.append("COALESCE(UPPER(versao), '') = %s")
+        params.append(versao.strip().upper())
+    if ano:
+        conds.append("ano = %s")
+        params.append(ano)
+    if fonte:
+        conds.append("fonte = %s")
+        params.append(fonte)
+
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, fonte, url, titulo, ano, preco, versao, obs "
                 "FROM anuncios "
-                "WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s "
+                f"WHERE {' AND '.join(conds)} "
                 "ORDER BY ano NULLS LAST, id "
                 "LIMIT %s",
-                (mk, md, limite),
+                params + [limite],
             )
             return [dict(r) for r in cur.fetchall()]
 
