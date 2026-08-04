@@ -169,6 +169,17 @@ def _arg_versao() -> str | None:
     return "" if valor == VERSAO_SEM else valor
 
 
+def _arg_geracao() -> str | None:
+    """
+    Idem para o filtro de geração, que ganhou campo próprio na auditoria de
+    2026-08-04 (antes vinha grudado na versão: "GERACAO I CL").
+    """
+    valor = request.args.get("geracao", "").strip()
+    if not valor:
+        return None
+    return "" if valor == VERSAO_SEM else valor
+
+
 @app.route("/admin/api/status")
 def admin_status():
     try:
@@ -267,7 +278,7 @@ def admin_api_media_modelo():
     if not marca or not modelo:
         return jsonify({"erro": "Marca e modelo são obrigatórios."}), 400
     try:
-        return jsonify(get_media_modelo(marca, modelo, _arg_versao()))
+        return jsonify(get_media_modelo(marca, modelo, _arg_versao(), _arg_geracao()))
     except Exception as exc:
         logger.error("admin_api_media_modelo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
@@ -277,7 +288,8 @@ def admin_api_media_modelo():
 def admin_api_anuncios_do_par():
     """
     Anúncios de um par (marca, modelo) exato — inspeção de item da quarentena
-    e detalhe das linhas da calculadora (daí os recortes versão/ano/fonte).
+    e detalhe das linhas da calculadora (daí os recortes versão/geração/ano/
+    fonte).
     """
     marca  = request.args.get("marca",  "").strip()
     modelo = request.args.get("modelo", "").strip()
@@ -292,6 +304,7 @@ def admin_api_anuncios_do_par():
     try:
         rows = listar_anuncios_do_par(
             marca, modelo, versao=_arg_versao(), ano=ano, fonte=fonte,
+            geracao=_arg_geracao(),
         )
         return jsonify({"rows": rows})
     except Exception as exc:

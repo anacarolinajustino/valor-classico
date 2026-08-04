@@ -1339,7 +1339,128 @@ _CARROCERIA_TRACAO: frozenset = frozenset({
     # reprocessamento futuro que recombine essas colunas já vê "CAP" sem
     # ponto (achado reprocessando de novo nesta mesma rodada).
     "JIPE", "PICAPE", "CAP", "CAP.", "CAPOTA", "LONA", "ACO", "TETO",
+    # Auditoria de VERSÃO 2026-08-04 (item 5 do estudo): carroceria que ainda
+    # não estava aqui e por isso fragmentava o trim no campo versão — o mesmo
+    # "GL" virava "GL", "GL SW" e "GL HATCH" em três grupos. O catálogo lista
+    # essas palavras dentro do nome da versão ("GL SW", "L HATCH"), mas o que
+    # elas descrevem é a carroceria, não o acabamento; separá-las junta o trim
+    # e mantém a informação em obs. "PICK"/"UP" cobrem "Pick Up" escrito com
+    # espaço (o hifenizado "PICK-UP" já é um token só).
+    "VAN", "MINIVAN", "HATCH", "SW", "STATION", "WAGON", "UTILITARIO",
+    "PICK", "UP",
 })
+
+# ────────────────────────────────────────────────
+# Decomposição da VERSÃO em eixos próprios (auditoria 2026-08-04)
+# ────────────────────────────────────────────────
+#
+# O estudo da variação de versão achou 2.593 versões distintas pra 1.018 pares
+# marca/modelo — e a causa principal não era grafia, era o campo carregar cinco
+# informações de uma vez. No Gol conviviam trim ("CL"), geração ("GERACAO I"),
+# série especial ("ROLLING STONES"), motorização ("1.6 8V GASOLINA 2P MANUAL")
+# e modificação ("TURBO LEGALIZADO"): como tudo virava uma string só, cada
+# combinação criava um grupo novo e o mesmo trim CL aparecia em quatro grupos
+# ("CL", "GERACAO I CL", "GERACAO II CL", "1.6 CL 8V GASOLINA 2P MANUAL").
+#
+# `decompor_versao` separa esses eixos em campos próprios (versao/geracao/motor
+# /obs). Fica no pipeline, não nos conectores: é o mesmo motivo do corte de ano
+# e do descarte de buggy/hot rod morarem em `upsert_anuncios` — vale pra toda
+# fonte, e a Webmotors provou (2026-08-04) que confiar em cada conector aplicar
+# o saneamento por conta própria não funciona (gravava `Version.Value` cru:
+# 5.060 versões no formato "1.6 8V GASOLINA 2P MANUAL", 1.418 com acento).
+
+# Geração escrita por extenso ("Geração I") ou na forma abreviada do catálogo
+# ("G.III") / dos anúncios ("G3", "GIII"). Canonizada sempre pro romano puro
+# ("I", "II", "III") — é a forma que a usuária lê no painel.
+_ROMANOS: dict[str, str] = {
+    "I": "I", "II": "II", "III": "III", "IV": "IV", "V": "V",
+    "VI": "VI", "VII": "VII", "VIII": "VIII",
+    "1": "I", "2": "II", "3": "III", "4": "IV", "5": "V",
+    "6": "VI", "7": "VII", "8": "VIII",
+}
+# "G."/"G" entram aqui porque a tokenização descola a abreviação do que vem
+# colado ("G.III" -> "G." + "III", ver _ABREVIACAO_COLADA); só valem como
+# geração quando o token seguinte é o número/romano — sozinhos seguem como
+# token normal, pra não engolir um trim de uma letra.
+_GERACAO_PALAVRA: frozenset = frozenset({"GERACAO", "GER", "GER.", "G", "G."})
+# Destes, os que não informam nada quando o romano não vem depois.
+_GERACAO_PALAVRA_VAZIA: frozenset = frozenset({"GERACAO", "GER", "GER."})
+# "G.III", "G3", "GIII" — a letra G colada ao número/romano.
+_GERACAO_GLUED = re.compile(r"^G[.]?([IVX]{1,4}|[1-8])$")
+# Apelido popular de geração do Gol (a usuária usa os dois no painel): o
+# "quadrado" é a G1/G2 e a "bola" é a G3. Só valem como geração quando a
+# marca/modelo confere — "BOLA" solto em outro carro não é geração.
+_GERACAO_APELIDO: dict[tuple[str, str, str], str] = {
+    ("VOLKSWAGEN", "GOL", "QUADRADO"): "I",
+    ("VOLKSWAGEN", "GOL", "QUADRADINHO"): "I",
+    ("VOLKSWAGEN", "GOL", "BOLA"): "III",
+    ("VOLKSWAGEN", "GOL", "BOLINHA"): "III",
+}
+
+# Motorização: o que vai pro campo `motor`, na ordem canônica
+# cilindrada -> configuração/válvulas -> combustível ("1.6 8V GASOLINA").
+# Câmbio e número de portas continuam sendo descartados como sempre foram —
+# não viraram campo próprio porque não é isso que a usuária consulta.
+_MOTOR_CILINDRADA = re.compile(r"^(\d)[.,](\d)$")
+# Cilindrada em cc no campo versão ("1600", "1300"): mesma informação que
+# "1.6"/"1.3" com outra unidade. Convertida pra litros pra não fragmentar o
+# grupo (o Fusca aparecia como 1300 e como 1.3 na mesma base). O ano já foi
+# extraído bem antes daqui, então 4 dígitos nesta altura é cilindrada.
+_MOTOR_CC = re.compile(r"^(\d{3,4})$")
+_MOTOR_VALVULAS = re.compile(r"^\d{1,2}V$")
+_MOTOR_CONFIG = re.compile(r"^V\d{1,2}$")
+
+
+def _canonizar_cilindrada(tok: str) -> Optional[str]:
+    """'1,6'/'1.6' -> '1.6'; '1600'/'1584' -> '1.6'. None se não é cilindrada."""
+    m = _MOTOR_CILINDRADA.match(tok)
+    if m:
+        return f"{m.group(1)}.{m.group(2)}"
+    m = _MOTOR_CC.match(tok)
+    if m:
+        cc = int(m.group(1))
+        # Faixa plausível de motor de carro/moto em cc. Fora disso não é
+        # cilindrada (código de modelo, número solto) e segue o fluxo normal.
+        if 500 <= cc <= 8000:
+            return f"{cc / 1000:.1f}"
+    return None
+
+
+# Sinônimo de trim que o vocabulário do catálogo não alcança sozinho: o
+# catálogo grafa de um jeito e os anúncios de outro, sem relação de prefixo
+# (que é como `canonizar_trim` resolve VILL->VILLAGE e COMOD->COMODORO).
+# Canoniza sempre PRA grafia do catálogo, que é a autoridade — mesma política
+# de `canonizar_modelo`. Manter curto: caso novo só entra depois de conferir
+# que a grafia de destino existe mesmo em base_marcamodelo.csv.
+_VERSAO_SINONIMO: dict[str, str] = {
+    "STANDARD": "STD",   # catálogo: 210 "STD" contra 2 "STANDARD"
+}
+
+# Sinônimo de FRASE, aplicado sobre o texto normalizado antes de tokenizar —
+# pra grafia cujo sentido se perde token a token. Caso que motivou: a
+# nomenclatura "SL/E" do Chevette/Opala. A barra vira espaço na normalização
+# ("SL E") e o "E" solto seria descartado como conectivo (está em
+# _SPEC_OBSERVACAO), sobrando um "SL" que é OUTRA versão. As três grafias da
+# base (SL/E, SL E, SLE) convergem pra "SLE", que é a predominante lá.
+_VERSAO_SINONIMO_FRASE: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\bSL\s+E\b"), "SLE"),
+    # Mesmo caso: "R/T" (Road/Track da Dodge) é UMA versão, não duas. Achado
+    # no smoke test do reprocessamento — o Charger/Dakota "R/T" virava "R T"
+    # e o detector de enumeração lia como duas versões numa lista.
+    (re.compile(r"\bR\s+T\b"), "RT"),
+]
+
+# Sentinela pra versão que a FONTE não sabe qual é: o anúncio veio de uma
+# listagem cujo título enumera todas as versões da linha, não a versão daquele
+# carro (ver `_e_enumeracao_versoes`). Diferente de versão vazia — aqui a
+# fonte tem o dado, só não no nível do anúncio —, e diferente de um trim real,
+# que entraria na média de versão. Facilita achar pra revisão:
+# `WHERE versao = 'VERSAO AGREGADA'`.
+VERSAO_AGREGADA = "VERSAO AGREGADA"
+
+# Versões preservadas por `decompor_versao`: a sentinela acima nunca é
+# reinterpretada (mesma política de `_MARCAS_PRESERVADAS`).
+_VERSOES_PRESERVADAS: frozenset = frozenset({VERSAO_AGREGADA})
 
 # Cilindrada grudada numa letra de trim sem espaço ("1300L", "1600S" — Fusca/
 # Kombi clássicos). \d{4} solto já é cilindrada pura (ver _SPEC_REGEX) e sai
@@ -1453,3 +1574,285 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
     versao = " ".join(versao_limpa)
     obs = " ".join(_limpar_tokens(obs_tokens))
     return (modelo_final, versao or None, obs or None)
+
+
+# ────────────────────────────────────────────────
+# decompor_versao — versão / geração / motor / obs (auditoria 2026-08-04)
+# ────────────────────────────────────────────────
+
+
+def _trim_catalogo(marca_norm: str, modelo_norm: str, token: str) -> Optional[str]:
+    """
+    Trim canônico do catálogo pro token, ou None se o catálogo não conhece
+    aquele trim naquele carro. Import tardio (loader importa este módulo);
+    degrada pra None se o catálogo não carregar.
+    """
+    token = _VERSAO_SINONIMO.get(token, token)
+    try:
+        from src.catalog.loader import canonizar_trim
+
+        return canonizar_trim(marca_norm, modelo_norm, token)
+    except Exception:  # pragma: no cover - catálogo indisponível
+        return None
+
+
+def _canonizar_trim(marca_norm: str, modelo_norm: str, token: str) -> str:
+    """Como `_trim_catalogo`, mas devolve o próprio token quando desconhecido."""
+    return _trim_catalogo(marca_norm, modelo_norm, token) or _VERSAO_SINONIMO.get(
+        token, token
+    )
+
+
+# Par separado por barra no título ("L / SL", "Standard/ Luxo", "GLS/expres").
+# Lookahead no 2º lado pra não consumir e perder o par seguinte da lista.
+_BARRA_PAR = re.compile(
+    r"([A-Za-z][A-Za-z0-9.\-]*)\s*/\s*(?=([A-Za-z][A-Za-z0-9.\-]*))"
+)
+
+
+def _prefixo_alfa(token: str) -> str:
+    """Prefixo alfabético do token ('EXPRES.2.2' -> 'EXPRES', 'SL' -> 'SL')."""
+    m = re.match(r"[A-Z]+(-[A-Z]+)?", token.upper())
+    return m.group(0) if m else ""
+
+
+def _e_enumeracao_versoes(
+    titulo: str, marca_norm: str, modelo_norm: str, versao_tokens: list[str]
+) -> bool:
+    """
+    True quando o título não descreve UM carro, e sim uma linha inteira: o
+    "título" é o rótulo da taxonomia da fonte, que enumera todas as versões
+    daquele modelo separadas por barra.
+
+        "Volkswagen Passat L/ LS/ LSE/ GL/ GLS/ TS/ FLA/ VILL/ PLUS 1984"
+        "Chevrolet Chevette L / SL / Sl/e / DL / SE 1.6 1987"
+        "Volkswagen Kombi Standard/ Luxo/ Serie Prata 1989"
+
+    Achado no estudo de versão de 2026-08-04: 7.823 anúncios da OLX (e alguns
+    do Socarrão, que copia a mesma taxonomia) tinham a enumeração inteira
+    gravada como se fosse a versão daquele carro. A versão real não existe
+    nesses anúncios — a fonte agrupou.
+
+    O teste é ver se dois TRIMS DO CATÁLOGO, diferentes entre si e presentes
+    na versão extraída, aparecem em lados opostos de uma mesma barra. Exigir
+    que os dois lados sejam trim conhecido daquele carro é o que separa a
+    enumeração dos outros usos que a barra tem nessa base (todos vistos no
+    smoke test do reprocessamento):
+
+      - enumeração de versões ("L / SL")                  -> True
+      - barra como "com" ou separador solto ("C/ reboque",
+        "JrP/ restauração")                               -> False, nenhum
+        lado é trim do catálogo
+      - abreviação da MESMA versão ("Diplomata/diplom.")  -> False, os dois
+        lados canonizam pro mesmo trim
+      - marca/modelo ou cilindrada ("Vw/fusca", "4.1/2.5") -> False, os lados
+        não estão na versão
+      - nomenclatura de UMA versão com barra ("SL/E", "R/T") -> False, vira
+        um token só antes daqui (ver _VERSAO_SINONIMO_FRASE)
+    """
+    if len(versao_tokens) < 2 or not titulo:
+        return False
+    alvo = set(versao_tokens)
+
+    def bate(lado: str) -> Optional[str]:
+        pref = _prefixo_alfa(lado)
+        if not pref:
+            return None
+        canon = _trim_catalogo(marca_norm, modelo_norm, pref)
+        return canon if canon in alvo else None
+
+    for m in _BARRA_PAR.finditer(remover_acentos(titulo).upper()):
+        esq, dir_ = bate(m.group(1)), bate(m.group(2))
+        # Dois trims DIFERENTES nos lados da mesma barra = enumeração.
+        if esq and dir_ and esq != dir_:
+            return True
+    return False
+
+
+def decompor_versao(
+    marca: str,
+    modelo: str,
+    versao: Optional[str],
+    obs: Optional[str] = None,
+    titulo: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+    """
+    Separa o campo `versao` nos eixos que ele vinha misturando e devolve
+    (versao, geracao, motor, obs).
+
+    Motivação e desenho: ver o bloco "Decomposição da VERSÃO" acima. Resumo do
+    que cada token vira:
+
+      - geração  -> `geracao`, canonizada em romano ("GERACAO I", "G.III",
+                    "G3" e o apelido "quadrado" do Gol viram "I"/"III")
+      - motorização -> `motor`, na ordem cilindrada/válvulas/combustível
+                    ("1.6 8V GASOLINA"); cc vira litros ("1600" -> "1.6")
+      - carroceria/tração -> `obs` (somada à obs que já vier), incluindo o
+                    vocabulário novo de 2026-08-04 (SW, HATCH, VAN...)
+      - cor, observação de venda, câmbio, portas -> descartados, como já eram
+      - o resto -> `versao`, canonizada contra o vocabulário de trim do
+                    catálogo daquele carro (`canonizar_trim`)
+
+    Recebe `titulo` opcional pra detectar a enumeração de versões da fonte
+    (ver `_e_enumeracao_versoes`): quando é o caso, a versão vira a sentinela
+    VERSAO_AGREGADA e geração/motor saem do que der pra aproveitar — esses
+    dois continuam válidos, porque a enumeração é só do trim (o título
+    "Kombi Standard/ Luxo/ Serie Prata 1989" não diz o trim daquele carro,
+    mas "Gol Geração I CL 1.6" continua sendo geração I e motor 1.6).
+
+    Idempotente: rodar de novo no resultado devolve o mesmo resultado — é o
+    que permite reprocessar o banco em cima do que já foi gravado.
+
+    Exemplos:
+        ('VOLKSWAGEN', 'GOL', 'GERACAO I CL')
+            -> ('CL', 'I', None, None)
+        ('VOLKSWAGEN', 'GOL', '1.6 CL 8V GASOLINA 2P MANUAL')
+            -> ('CL', None, '1.6 8V GASOLINA', None)
+        ('VOLKSWAGEN', 'PASSAT', 'L LS LSE GL GLS TS FLA VILL PLUS',
+         titulo='Volkswagen Passat L/ LS/ LSE/ GL/ GLS/ TS/ FLA/ VILL/ PLUS 1984')
+            -> ('VERSAO AGREGADA', None, None, None)
+        ('FORD', 'ESCORT', 'GL SW') -> ('GL', None, None, 'SW')
+    """
+    marca_norm = normalizar_texto(marca or "")
+    modelo_norm = normalizar_texto(modelo or "")
+    obs_existente = _limpar_tokens(normalizar_texto(obs or "").split())
+
+    bruta = (versao or "").strip()
+    if not bruta:
+        return (None, None, None, " ".join(obs_existente) or None)
+    if normalizar_texto(bruta) in _VERSOES_PRESERVADAS:
+        return (normalizar_texto(bruta), None, None, " ".join(obs_existente) or None)
+
+    # Mesma tokenização do modelo (descola cilindrada/abreviação coladas), mas
+    # sem as tabelas de nome de modelo — aqui o campo já é só a cauda.
+    texto = _ABREVIACAO_COLADA.sub(
+        ". ", _CILINDRADA_COLADA.sub(r" \1", normalizar_texto(bruta))
+    )
+    for padrao, canonico in _VERSAO_SINONIMO_FRASE:
+        texto = padrao.sub(canonico, texto)
+    tokens = [_TOKEN_DUPLICADO.sub(r"\1", t) for t in texto.split()]
+
+    # Tokens que só repetem a marca ou o modelo não são versão ("Blazer Dlx"
+    # no modelo BLAZER, "Jeep" no modelo JEEP) — item 5 do estudo, 193
+    # anúncios tinham versao == modelo.
+    redundante = set(marca_norm.split()) | set(modelo_norm.split())
+
+    geracao_tokens: list[str] = []
+    cilindrada: Optional[str] = None
+    valvulas: list[str] = []
+    combustivel: list[str] = []
+    versao_tokens: list[str] = []
+    obs_tokens: list[str] = list(obs_existente)
+
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        prox = tokens[i + 1] if i + 1 < len(tokens) else ""
+
+        # ── geração ──────────────────────────────────────────────
+        if t in _GERACAO_PALAVRA:
+            if prox in _ROMANOS:
+                geracao_tokens.append(_ROMANOS[prox])
+                i += 2
+                continue
+            if t in _GERACAO_PALAVRA_VAZIA:
+                i += 1  # "GERACAO" solto não informa nada
+                continue
+            # "G"/"G." sem romano depois: não é geração, segue o fluxo.
+        m = _GERACAO_GLUED.match(t)
+        if m:
+            romano = _ROMANOS.get(m.group(1))
+            if romano:
+                geracao_tokens.append(romano)
+                i += 1
+                continue
+        apelido = _GERACAO_APELIDO.get((marca_norm, modelo_norm, t))
+        if apelido:
+            geracao_tokens.append(apelido)
+            i += 1
+            continue
+
+        # ── motorização ──────────────────────────────────────────
+        cc = _canonizar_cilindrada(t)
+        if cc:
+            cilindrada = cilindrada or cc
+            i += 1
+            continue
+        if _MOTOR_VALVULAS.match(t) or _MOTOR_CONFIG.match(t):
+            if t not in valvulas:
+                valvulas.append(t)
+            i += 1
+            continue
+        if t in _SPEC_COMBUSTIVEL:
+            if t not in combustivel:
+                combustivel.append(t)
+            i += 1
+            continue
+        # Cilindrada grudada na letra de trim ("1300L"): cilindrada pro motor,
+        # letra pra versão — mesmo tratamento de `separar_modelo_versao_obs`.
+        glued = _CILINDRADA_TRIM_GLUED.match(t)
+        if glued:
+            cilindrada = cilindrada or _canonizar_cilindrada(glued.group(1))
+            versao_tokens.append(glued.group(2))
+            i += 1
+            continue
+
+        # ── descartes (mesma política de separar_modelo_versao_obs) ──
+        if t in redundante:
+            i += 1
+            continue
+        if t in _CARROCERIA_TRACAO:
+            if t not in obs_tokens:
+                obs_tokens.append(t)
+            i += 1
+            continue
+        if t in _CORES:
+            # "Série Prata"/"Série Ouro" são edições reais da VW, não a cor.
+            if i > 0 and tokens[i - 1] == "SERIE":
+                versao_tokens.append(t)
+            i += 1
+            continue
+        if t in _SPEC_CAMBIO or t in _SPEC_INJECAO or t in _SPEC_PORTAS:
+            i += 1
+            continue
+        if _SPEC_REGEX.match(t) or t in _MODELO_OBSERVACAO or t in _SPEC_OBSERVACAO:
+            i += 1
+            continue
+
+        versao_tokens.append(t)
+        i += 1
+
+    # ── canonização do trim contra o catálogo ────────────────────
+    brutos = _limpar_tokens(versao_tokens)
+    canon: list[str] = []
+    j = 0
+    while j < len(brutos):
+        t = brutos[j]
+        prox = brutos[j + 1] if j + 1 < len(brutos) else ""
+        # Nome de trim que o anúncio escreveu separado e o catálogo grafa
+        # junto ("Hard Top" -> "HARDTOP"): funde os dois. Sem isso a
+        # expansão por prefixo do 1º token duplicava o 2º ("HARD" viraria
+        # "HARDTOP" e o "TOP" seguiria solto — achado no smoke test).
+        if prox and _trim_catalogo(marca_norm, modelo_norm, t + prox) == t + prox:
+            t, j = t + prox, j + 2
+        else:
+            j += 1
+        c = _canonizar_trim(marca_norm, modelo_norm, t)
+        for parte in c.split():
+            if parte not in canon:
+                canon.append(parte)
+
+    motor_partes: list[str] = []
+    if cilindrada:
+        motor_partes.append(cilindrada)
+    motor_partes.extend(valvulas)
+    motor_partes.extend(combustivel)
+
+    geracao = " ".join(_limpar_tokens(geracao_tokens)) or None
+    motor = " ".join(motor_partes) or None
+    obs_final = " ".join(_limpar_tokens(obs_tokens)) or None
+
+    if _e_enumeracao_versoes(titulo or "", marca_norm, modelo_norm, canon):
+        return (VERSAO_AGREGADA, geracao, motor, obs_final)
+
+    return (" ".join(canon) or None, geracao, motor, obs_final)

@@ -278,6 +278,14 @@ def _parsear(items: list[dict], data_coleta: str) -> list[Anuncio]:
 
         # A API tem campo "Version" próprio (mais confiável que o que sobra
         # ao separar o "Model") — só cai pro derivado do modelo na ausência.
+        #
+        # O valor vem CRU da Webmotors, no formato de ficha técnica dela:
+        # "1.6 CL 8V GASOLINA 2P MANUAL", com acento ("ÁLCOOL", "COUPÉ") e
+        # barra ("SL/E"). Até 2026-08-04 era gravado assim, e a Webmotors era
+        # a única fonte da base fora do padrão (5.060 versões, 1.418 com
+        # acento). Quem separa o trim da motorização é `decompor_versao`, no
+        # `upsert_anuncios` — vale pra toda fonte e não depende de o conector
+        # lembrar. Aqui só entregamos o valor da API.
         versao = None
         ver_obj = spec.get("Version") or {}
         if isinstance(ver_obj, dict):

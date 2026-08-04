@@ -352,13 +352,112 @@ def canonizar_modelo(marca_norm: str, modelo_norm: str) -> str:
     return _indice_grafia().get(chave, modelo_norm)
 
 
+# ── Vocabulário de TRIM por marca/modelo (auditoria de versão 2026-08-04) ────
+#
+# O CSV base tem uma coluna `nome_versao` (26.030 linhas, 1.108 pares) no
+# formato da Webmotors: "1.6 CL 8V GASOLINA 2P MANUAL". Tirando a spec
+# (cilindrada, válvulas, combustível, portas, câmbio) e a geração ("G.III"),
+# o que sobra é o trim: "CL". Isso dá um vocabulário canônico de trim POR PAR
+# marca/modelo, que é o que faltava pra unificar as abreviações que os
+# anúncios usam ("VILL" -> VILLAGE, "COMOD" -> COMODORO, "DIPLOM" ->
+# DIPLOMATA) sem manter uma tabela na mão.
+#
+# Até aqui esse dado estava carregado (`_versoes`) mas inerte: só `match_
+# anuncio` o consumia, e essa função nunca entrou no pipeline de produção —
+# só demo e testes a chamam. Note que `_versoes` guarda a versão INTEIRA
+# (com spec) indexada por ano; este índice é outro recorte do mesmo CSV,
+# só do trim e sem o ano (o trim não muda de nome de um ano pro outro, e
+# indexar por ano só criaria buracos onde o catálogo não cobre o ano exato
+# do anúncio).
+
+# Palavras/formas que são spec, não trim — recortadas antes de indexar.
+_SPEC_VERSAO_PALAVRA: frozenset = frozenset({
+    "GASOLINA", "ALCOOL", "DIESEL", "FLEX", "GNV", "ELETRICO", "HIBRIDO",
+    "MANUAL", "AUTOMATICO", "AUTOMATIZADO", "MEC", "AUT", "CVT",
+    "MI", "MPI", "MPFI", "EFI", "TBI", "SFI", "IE", "CILINDROS", "CC",
+})
+_SPEC_VERSAO_RE = re.compile(
+    r"^(\d[.,]\d+|\d{1,2}V|V\d{1,2}|\d{1,2}P|\d{1,4}(CV|HP)|G[.]?([IVX]{1,4}|[1-8]))$"
+)
+
+# (marca_norm, modelo_norm) -> set de tokens de trim canônicos
+_trim_idx: Optional[dict[tuple[str, str], set[str]]] = None
+
+
+def _indice_trim() -> dict[tuple[str, str], set[str]]:
+    """
+    (marca_norm, modelo_norm) -> set de tokens de trim vistos no catálogo.
+
+    Indexado por TOKEN (não pela frase inteira) porque o anúncio raramente
+    repete a combinação exata do catálogo: o catálogo tem "GL SW" e "SW GLX",
+    o anúncio traz só "GL" ou "GLX" — o que interessa é saber que GL, SW e
+    GLX são trims válidos daquele carro.
+    """
+    global _trim_idx
+    if _trim_idx is not None:
+        return _trim_idx
+
+    idx: dict[tuple[str, str], set[str]] = {}
+    try:
+        with open(CSV_PADRAO, encoding="utf-8", newline="") as f:
+            for linha in csv.DictReader(f):
+                marca_raw = linha.get("nome_marca", "").strip()
+                modelo_raw = linha.get("nome_modelo", "").strip()
+                versao_raw = linha.get("nome_versao", "").strip()
+                if not marca_raw or not modelo_raw or not versao_raw:
+                    continue
+                mk = normalizar_texto(marca_raw)
+                md = normalizar_texto(modelo_raw)
+                for t in normalizar_texto(versao_raw).split():
+                    if t in _SPEC_VERSAO_PALAVRA or _SPEC_VERSAO_RE.match(t):
+                        continue
+                    idx.setdefault((mk, md), set()).add(t)
+    except FileNotFoundError:
+        pass
+
+    _trim_idx = idx
+    return _trim_idx
+
+
+def canonizar_trim(marca_norm: str, modelo_norm: str, token: str) -> Optional[str]:
+    """
+    Devolve o trim canônico do catálogo pra `token` naquele (marca, modelo),
+    ou None se o token não é um trim conhecido daquele carro.
+
+    Duas formas de casar, nesta ordem:
+      1. exata — o token está no vocabulário ("GL", "COMODORO");
+      2. prefixo ÚNICO — o token é uma abreviação sem ambiguidade dentro
+         daquele carro ("VILL" -> "VILLAGE", "COMOD" -> "COMODORO",
+         "DIPLOM" -> "DIPLOMATA"). Exige 3+ caracteres e um único candidato:
+         com 2 ("SL") quase todo trim curto viraria prefixo de outro, e com
+         mais de um candidato não há como escolher sem chutar.
+
+    O None é informativo, não um erro: quem chama mantém o token como está e
+    ele cai na quarentena de "anúncios a verificar" do painel, que é onde a
+    usuária tria o que o catálogo não cobre.
+    """
+    if not token:
+        return None
+    vocab = _indice_trim().get((marca_norm, modelo_norm))
+    if not vocab:
+        return None
+    if token in vocab:
+        return token
+    if len(token) >= 3:
+        candidatos = [v for v in vocab if v.startswith(token) and v != token]
+        if len(candidatos) == 1:
+            return candidatos[0]
+    return None
+
+
 def resetar_cache() -> None:
     """Reseta o cache do catálogo (útil para testes)."""
-    global _catalogo, _versoes, _carregado, _grafia_idx
+    global _catalogo, _versoes, _carregado, _grafia_idx, _trim_idx
     _catalogo = {}
     _versoes = {}
     _carregado = False
     _grafia_idx = None
+    _trim_idx = None
 
 
 def match_anuncio(anuncio: Anuncio, caminho: Optional[Path] = None) -> Anuncio:

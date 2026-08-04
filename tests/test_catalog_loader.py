@@ -60,9 +60,13 @@ def test_catalogo_idempotente():
 def test_catalogo_csv_nao_encontrado_retorna_vazio(tmp_path):
     caminho_inexistente = tmp_path / "nao_existe.csv"
     catalogo = carregar_catalogo(caminho_inexistente)
-    # Sem CSV, apenas o suplemento manual é carregado (Idea, Logan, 207, CR-V, SW4)
-    from src.catalog.loader import _SUPLEMENTO
-    assert catalogo.keys() == _SUPLEMENTO.keys()
+    # Sem o CSV base sobram as duas fontes suplementares: o _SUPLEMENTO
+    # hardcoded e o suplemento manual (data/suplemento_manual.csv), que a
+    # usuária alimenta pelo painel — este teste checava só o primeiro e
+    # passou a falhar quando o segundo ganhou linhas de verdade.
+    from src.catalog.loader import _SUPLEMENTO, _carregar_suplemento_manual
+    esperado = _SUPLEMENTO.keys() | _carregar_suplemento_manual().keys()
+    assert catalogo.keys() == esperado
 
 
 # ── Matching ────────────────────────────────────

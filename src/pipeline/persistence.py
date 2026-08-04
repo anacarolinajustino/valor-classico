@@ -94,6 +94,13 @@ _DDL_STATEMENTS = [
     # colunas existentes nem os 28 mil anúncios já gravados.
     "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS versao TEXT",
     "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS obs TEXT",
+    # Geração ("I", "III") e motorização ("1.6 8V GASOLINA") separadas do que
+    # antes era tudo `versao` (auditoria 2026-08-04): o campo misturava trim,
+    # geração, série especial e motor, e cada combinação criava um grupo novo
+    # nas estatísticas — o mesmo trim "CL" do Gol aparecia em quatro grupos.
+    # Aditivo/idempotente, como as duas colunas acima.
+    "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS geracao TEXT",
+    "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS motor TEXT",
 ]
 
 # ── Conexão ───────────────────────────────────────────────────────────────────
@@ -188,13 +195,23 @@ def upsert_anuncios(
     buggy do escopo (2026-07-22), então nem entram no banco — ver `_e_buggy`.
     Idem para HOT ROD (contados em "descartados_hot_rod"; banido em 2026-07-23,
     identificado pelo título/versão/modelo — ver `_e_hot_rod`).
+
+    A versão passa por `decompor_versao` antes de gravar (auditoria
+    2026-08-04): o campo vinha misturando trim, geração, série especial e
+    motorização num string só, e cada combinação criava um grupo novo nas
+    estatísticas. Sai daqui separada em versao/geracao/motor/obs, venha de
+    qual conector vier — mesma razão de o corte de ano morar aqui.
     """
+    # Import tardio, como os demais usos do normalizer neste módulo.
+    from src.pipeline.normalizer import decompor_versao
+
     data = hoje or date.today().isoformat()
     sql_select = "SELECT 1 FROM anuncios WHERE fonte = %s AND url = %s"
     sql_upsert = """
         INSERT INTO anuncios
-            (fonte, url, titulo, marca, modelo, ano, preco, primeira_vista, ultima_vista, versao, obs)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (fonte, url, titulo, marca, modelo, ano, preco, primeira_vista, ultima_vista,
+             versao, obs, geracao, motor)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (fonte, url)
         DO UPDATE SET
             titulo       = EXCLUDED.titulo,
@@ -204,7 +221,9 @@ def upsert_anuncios(
             preco        = EXCLUDED.preco,
             ultima_vista = EXCLUDED.ultima_vista,
             versao       = EXCLUDED.versao,
-            obs          = EXCLUDED.obs
+            obs          = EXCLUDED.obs,
+            geracao      = EXCLUDED.geracao,
+            motor        = EXCLUDED.motor
     """
     novos = 0
     atualizados = 0
@@ -223,15 +242,26 @@ def upsert_anuncios(
                 if _e_hot_rod(a.titulo or "", a.modelo or "", a.versao or ""):
                     descartados_hot_rod += 1
                     continue
+                marca_final = (a.marca or "").upper() or None
+                modelo_final = (a.modelo or "").upper() or None
+                # Decomposição da versão centralizada aqui, e não em cada
+                # conector, pelo mesmo motivo do corte de ano e do descarte de
+                # buggy/hot rod: vale pra toda fonte e não depende de o
+                # conector lembrar de aplicar. A Webmotors é o caso que provou
+                # a necessidade — gravava `Version.Value` cru ("1.6 8V
+                # GASOLINA 2P MANUAL", com acento e barra), sozinha contra o
+                # resto da base (auditoria 2026-08-04).
+                versao_final, geracao_final, motor_final, obs_final = decompor_versao(
+                    marca_final or "", modelo_final or "",
+                    a.versao, a.obs, a.titulo,
+                )
                 cur.execute(sql_select, (a.fonte, a.url))
                 existe = cur.fetchone()
                 cur.execute(sql_upsert, (
                     a.fonte, a.url, a.titulo,
-                    (a.marca or "").upper() or None,
-                    (a.modelo or "").upper() or None,
+                    marca_final, modelo_final,
                     a.ano, a.preco, data, data,
-                    (a.versao or "").upper() or None,
-                    (a.obs or "").upper() or None,
+                    versao_final, obs_final, geracao_final, motor_final,
                 ))
                 if existe:
                     atualizados += 1
@@ -330,7 +360,8 @@ def buscar_anuncios(
     modelo_upper = modelo.strip().upper()
 
     sql = """
-        SELECT fonte, url, titulo, marca, modelo, ano, preco, ultima_vista, versao, obs
+        SELECT fonte, url, titulo, marca, modelo, ano, preco, ultima_vista,
+               versao, obs, geracao, motor
         FROM anuncios
         WHERE UPPER(marca) = %s
           AND (
@@ -366,6 +397,8 @@ def buscar_anuncios(
             ano=r["ano"],
             versao=r["versao"],
             obs=r["obs"],
+            geracao=r["geracao"],
+            motor=r["motor"],
             url=r["url"] or "",
             fonte=r["fonte"] or "",
             data_coleta=r["ultima_vista"] or date.today().isoformat(),
@@ -601,7 +634,12 @@ def get_dashboard_stats(
     }
 
 
-def get_media_modelo(marca: str, modelo: str, versao: str | None = None) -> dict[str, Any]:
+def get_media_modelo(
+    marca: str,
+    modelo: str,
+    versao: str | None = None,
+    geracao: str | None = None,
+) -> dict[str, Any]:
     """
     Estatísticas de preço de um par (marca, modelo) EXATO — pro pequeno
     dashboard da calculadora de média. O destaque é o valor MÉDIO daquele
@@ -614,14 +652,20 @@ def get_media_modelo(marca: str, modelo: str, versao: str | None = None) -> dict
     verdade — um Opala SS não vale o mesmo que um Opala de luxo): None = todas
     as versões, "" = só os anúncios sem versão informada, texto = versão exata.
 
-    `por_versao` é a exceção: sai SEMPRE sobre o par inteiro, ignorando o
-    recorte, porque é o mapa que a calculadora usa pra montar o seletor de
-    versão (e pra comparar as versões entre si). Os demais blocos respeitam o
-    recorte.
+    `geracao` recorta do mesmo jeito e pela mesma razão (um Gol geração I não
+    vale o mesmo que um geração III), agora que a geração saiu do campo de
+    versão pra um campo próprio (auditoria 2026-08-04). Os dois recortes se
+    somam: versão "CL" + geração "I" = Gol CL da primeira geração.
+
+    `por_versao` e `por_geracao` são a exceção: saem SEMPRE sobre o par
+    inteiro, ignorando o recorte, porque são o mapa que a calculadora usa pra
+    montar os seletores (e pra comparar as opções entre si). Os demais blocos
+    respeitam o recorte.
     """
     mk = (marca or "").strip().upper()
     md = (modelo or "").strip().upper()
     vs = versao.strip().upper() if versao is not None else None
+    gr = geracao.strip().upper() if geracao is not None else None
 
     par_where = "UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s"
     par_params: list[Any] = [mk, md]
@@ -630,6 +674,9 @@ def get_media_modelo(marca: str, modelo: str, versao: str | None = None) -> dict
     if vs is not None:
         where += " AND COALESCE(UPPER(versao), '') = %s"
         params.append(vs)
+    if gr is not None:
+        where += " AND COALESCE(UPPER(geracao), '') = %s"
+        params.append(gr)
 
     with _connect() as conn:
         with conn.cursor() as cur:
@@ -687,10 +734,23 @@ def get_media_modelo(marca: str, modelo: str, versao: str | None = None) -> dict
             )
             por_versao = [dict(r) for r in cur.fetchall()]
 
+            cur.execute(
+                f"""
+                SELECT COALESCE(geracao, '') AS geracao, COUNT(*) AS qtd,
+                       AVG(preco) FILTER (WHERE preco > 0) AS preco_medio
+                FROM anuncios
+                WHERE {par_where}
+                GROUP BY 1 ORDER BY 1
+                """,
+                par_params,
+            )
+            por_geracao = [dict(r) for r in cur.fetchall()]
+
     return {
         "marca": mk,
         "modelo": md,
         "versao": vs,
+        "geracao": gr,
         "total": k["total"],
         "com_preco": k["com_preco"],
         "preco_medio": k["preco_medio"],
@@ -700,6 +760,7 @@ def get_media_modelo(marca: str, modelo: str, versao: str | None = None) -> dict
         "ano_min": k["ano_min"],
         "ano_max": k["ano_max"],
         "por_versao": por_versao,
+        "por_geracao": por_geracao,
         "por_ano": por_ano,
         "por_fonte": por_fonte,
     }
@@ -759,7 +820,8 @@ def listar_anuncios(
 
     sql_count = f"SELECT COUNT(*) AS total FROM anuncios WHERE {where}"
     sql_rows  = f"""
-        SELECT id, fonte, url, titulo, marca, modelo, ano, preco, ultima_vista, versao, obs
+        SELECT id, fonte, url, titulo, marca, modelo, ano, preco, ultima_vista,
+               versao, obs, geracao, motor
         FROM anuncios
         WHERE {where}
         ORDER BY {order_by} {direction} NULLS LAST
@@ -972,14 +1034,15 @@ def listar_anuncios_do_par(
     ano: int | None = None,
     fonte: str | None = None,
     limite: int = 300,
+    geracao: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Anúncios de um par (marca, modelo) EXATO — pra inspecionar um item da
     quarentena no painel antes de corrigir/cadastrar, e pra abrir os anúncios
     por trás de cada linha da calculadora de média (daí os recortes opcionais
-    de versão/ano/fonte). Casa modelo vazio/NULL via COALESCE (os pares "sem
-    modelo" também precisam ser inspecionáveis); versão segue a convenção do
-    módulo: None = todas, "" = sem versão informada.
+    de versão/geração/ano/fonte). Casa modelo vazio/NULL via COALESCE (os
+    pares "sem modelo" também precisam ser inspecionáveis); versão e geração
+    seguem a convenção do módulo: None = todas, "" = sem o campo informado.
     Lista enxuta (sem paginação — cortada em `limite`).
     """
     from src.pipeline.normalizer import normalizar_texto
@@ -992,6 +1055,9 @@ def listar_anuncios_do_par(
     if versao is not None:
         conds.append("COALESCE(UPPER(versao), '') = %s")
         params.append(versao.strip().upper())
+    if geracao is not None:
+        conds.append("COALESCE(UPPER(geracao), '') = %s")
+        params.append(geracao.strip().upper())
     if ano:
         conds.append("ano = %s")
         params.append(ano)
@@ -1002,7 +1068,7 @@ def listar_anuncios_do_par(
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, fonte, url, titulo, ano, preco, versao, obs "
+                "SELECT id, fonte, url, titulo, ano, preco, versao, obs, geracao, motor "
                 "FROM anuncios "
                 f"WHERE {' AND '.join(conds)} "
                 "ORDER BY ano NULLS LAST, id "

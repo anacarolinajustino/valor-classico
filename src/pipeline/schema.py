@@ -33,6 +33,12 @@ class Anuncio:
     match_confidence: str = "unmatched"   # high / medium / low / unmatched
     match_strategy: str = "none"          # exact / normalized_exact / fuzzy / manual_review / none
     obs: Optional[str] = None             # residual: carroceria/tração (ex.: "CABINE ESTENDIDA", "PICK-UP")
+    # Eixos separados do que antes era tudo `versao` (auditoria 2026-08-04):
+    # geração em romano ("I", "III") e motorização ("1.6 8V GASOLINA"). Os
+    # conectores não precisam preencher — `upsert_anuncios` deriva os dois de
+    # `versao` via `decompor_versao`, pra valer igual em toda fonte.
+    geracao: Optional[str] = None
+    motor: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.match_confidence not in MATCH_CONFIDENCE_VALUES:

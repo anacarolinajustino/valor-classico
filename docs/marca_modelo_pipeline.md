@@ -149,6 +149,45 @@ pelos conectores sem ficha técnica): devolve modelo, versão (GLX/SS/trim) e ob
 (carroceria/tração: "Cabine Estendida", "4x4", "Sedan") em três campos, pra não poluir nem o
 dropdown de versão nem descartar informação real do carro.
 
+### Decomposição da versão (`decompor_versao`, 2026-08-04)
+
+`separar_modelo_versao_obs` tira a versão de dentro do modelo; `decompor_versao` é o passo
+seguinte, que separa a **própria versão** nos eixos que ela vinha misturando. O estudo da
+variação achou 2.593 versões distintas pra 1.018 pares marca/modelo, com 2.287 dos 3.293 grupos
+(marca, modelo, versão) tendo 1 ou 2 anúncios — inúteis pra média. A causa não era grafia: no Gol
+conviviam trim (`CL`), geração (`GERACAO I`), série especial (`ROLLING STONES`), motorização
+(`1.6 8V GASOLINA 2P MANUAL`) e modificação (`TURBO`) no mesmo campo, e cada combinação criava um
+grupo novo.
+
+| Eixo | Campo | Exemplo |
+|---|---|---|
+| trim/acabamento | `versao` | `CL`, `COMODORO`, `XR3` |
+| geração | `geracao` | `I`, `II`, `III` (de "Geração I", "G.III", "G3", "quadrado") |
+| motorização | `motor` | `1.6 8V GASOLINA` (cc vira litros: `1600` → `1.6`) |
+| carroceria/tração | `obs` | `SW`, `HATCH`, `CABINE ESTENDIDA`, `4X4` |
+| cor, câmbio, portas, venda | (descartado) | como já era |
+
+Roda em `upsert_anuncios`, não nos conectores — pelo mesmo motivo do corte de ano e do descarte de
+buggy/hot rod: vale pra toda fonte e não depende de o conector lembrar. A Webmotors provou a
+necessidade: gravava `Version.Value` cru e era a única fonte da base com acento (1.418) e barra
+(101) no campo.
+
+Duas peças de apoio:
+
+- **Vocabulário de trim do catálogo** (`canonizar_trim`, em `catalog/loader.py`): tira a spec da
+  coluna `nome_versao` do CSV base e indexa o trim que sobra por (marca, modelo). Casa exato ou
+  por prefixo único, o que resolve os truncamentos das fontes (`VILL`→VILLAGE, `COMOD`→COMODORO,
+  `DIPLOM`→DIPLOMATA) sem tabela na mão. O que ele não conhece é preservado e cai na quarentena.
+- **Sentinela `VERSAO_AGREGADA`**: em parte da OLX (e no Socarrão, que copia a taxonomia dela), o
+  "título" não é do anúncio — é o rótulo da linha inteira, enumerando todas as versões
+  (`"Chevrolet Chevette L / SL / Sl/e / DL / SE 1.6 1987"`). A versão real não existe nesses
+  anúncios, então é marcada em vez de fingir que `"L SL"` é um trim. O detector
+  (`_e_enumeracao_versoes`) exige dois trims **do catálogo**, diferentes entre si, em lados opostos
+  da mesma barra — o que separa a enumeração da barra usada como "com" (`"C/ reboque"`), da
+  abreviação da mesma versão (`"Diplomata/diplom."`), de marca/modelo (`"Vw/fusca"`) e da
+  cilindrada (`"4.1/2.5"`). Nomenclatura de uma versão só que usa barra (`SL/E`, `R/T`) vira um
+  token antes disso (`_VERSAO_SINONIMO_FRASE`).
+
 Duas etapas finais do saneamento do modelo, da 2ª passada da auditoria (2026-07-21), tratam a
 fragmentação por grafia:
 
@@ -215,7 +254,7 @@ carros) documentados para rodada seguinte.
 
 Ao mudar `normalizer.py`, rodar `pytest tests/test_normalizer.py` (regra geral do projeto: toda
 correção de padrão vem com teste de regressão, não só o dado corrigido) e o restante da suíte
-(`pytest tests/`, 286 testes em ~23s) antes de reprocessar o banco.
+(`pytest tests/`, 328 testes em ~30s) antes de reprocessar o banco.
 
 ## 8. Linha do tempo (referência rápida)
 
@@ -227,6 +266,7 @@ correção de padrão vem com teste de regressão, não só o dado corrigido) e 
 | 2026-07-20 | `separar_modelo_versao_obs` (versão e obs em campos próprios); correções pontuais (Toyota Bandeirante fragmentado, Mercedes Classe, cores) |
 | 2026-07-21 (1ª passada) | Validação de **existência** contra catálogo real: 432 anúncios corrigidos, 24 no suplemento, causa raiz de marca-composta/eco corrigida no pipeline |
 | 2026-07-21 (2ª passada) | Canonização de grafia (`D-20`→`D20`, raiz + 1076 anúncios), descolar modelo grudado (`Fusca1300`→`Fusca`), typos de Willys; `modelo='0'`/ano-vazado zerados. Pares distintos 1067→963 |
+| 2026-08-04 | Auditoria da **versão**: `decompor_versao` (geração e motor em campos próprios), vocabulário de trim do catálogo, sentinela `VERSAO_AGREGADA`, Webmotors deixa de gravar cru. Versões distintas 2.593→1.339; anúncios em grupo com 3+ amostras 90%→93% |
 
 ## 9. Limitações conhecidas
 

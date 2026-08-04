@@ -46,6 +46,7 @@ const selMin    = document.getElementById("calc-min");
 const selMarca  = document.getElementById("calc-marca");
 const selModelo = document.getElementById("calc-modelo");
 const selVersao = document.getElementById("calc-versao");
+const selGeracao = document.getElementById("calc-geracao");
 const msg       = document.getElementById("calc-msg");
 const resultado = document.getElementById("calc-resultado");
 
@@ -116,6 +117,32 @@ function limparVersoes() {
   selVersao.replaceChildren(new Option("Selecione um modelo", ""));
   selVersao.disabled = true;
   mostrarTodasVersoes = false;   // outro modelo, outra lista de versões
+  selGeracao.replaceChildren(new Option("Selecione um modelo", ""));
+  selGeracao.disabled = true;
+}
+
+// Geração só existe pra parte dos modelos (Gol, Parati, Saveiro...), então o
+// select fica escondido quando o modelo escolhido não tem nenhuma — mostrar
+// um seletor com uma opção só ("sem geração") não ajudaria em nada.
+function popularGeracoes(porGeracao) {
+  const anterior = selGeracao.value;
+  const comGeracao = (porGeracao || []).filter(r => r.geracao);
+  const grupo = selGeracao.closest(".calc-grupo");
+  if (comGeracao.length === 0) {
+    if (grupo) grupo.classList.add("hidden");
+    selGeracao.replaceChildren(new Option("Todas", ""));
+    selGeracao.disabled = true;
+    return;
+  }
+  if (grupo) grupo.classList.remove("hidden");
+  selGeracao.replaceChildren(new Option("Todas as gerações", ""));
+  for (const r of porGeracao) {
+    const valor  = r.geracao ? r.geracao : VERSAO_SEM;
+    const rotulo = r.geracao ? `Geração ${r.geracao}` : "Sem geração informada";
+    selGeracao.add(new Option(`${rotulo} (${FMT_INT.format(r.qtd)})`, valor));
+  }
+  selGeracao.disabled = false;
+  if ([...selGeracao.options].some(o => o.value === anterior)) selGeracao.value = anterior;
 }
 
 // As versões vêm de `por_versao` (sempre o par inteiro, mesmo com recorte
@@ -149,6 +176,7 @@ async function calcular() {
   try {
     const p = new URLSearchParams({ marca, modelo });
     if (selVersao.value) p.set("versao", selVersao.value);
+    if (selGeracao.value) p.set("geracao", selGeracao.value);
     const res = await fetch(`/admin/api/media-modelo?${p.toString()}`);
     const d   = await res.json();
     if (d.erro) throw new Error(d.erro);
@@ -164,7 +192,12 @@ async function calcular() {
 // Recorte ativo (o que os detalhes e o link pra lista completa carregam).
 // `versao`: "" = todas, VERSAO_SEM = sem versão informada, texto = exata.
 function recorteAtual() {
-  return { marca: selMarca.value, modelo: selModelo.value, versao: selVersao.value };
+  return {
+    marca: selMarca.value,
+    modelo: selModelo.value,
+    versao: selVersao.value,
+    geracao: selGeracao.value,
+  };
 }
 
 // Query string de um recorte: o base (marca/modelo/versão) mais o que a
@@ -174,6 +207,8 @@ function qsRecorte(extra = {}) {
   const p = new URLSearchParams({ marca: base.marca, modelo: base.modelo });
   const versao = extra.versao !== undefined ? extra.versao : base.versao;
   if (versao) p.set("versao", versao);
+  const geracao = extra.geracao !== undefined ? extra.geracao : base.geracao;
+  if (geracao) p.set("geracao", geracao);
   if (extra.ano)   p.set("ano",   extra.ano);
   if (extra.fonte) p.set("fonte", extra.fonte);
   return p;
@@ -181,12 +216,17 @@ function qsRecorte(extra = {}) {
 
 function render(d) {
   popularVersoes(d.por_versao);
+  popularGeracoes(d.por_geracao);
 
   const rotuloVersao = selVersao.value
     ? (selVersao.value === VERSAO_SEM ? "sem versão informada" : d.versao)
     : "";
+  const rotuloGeracao = selGeracao.value
+    ? (selGeracao.value === VERSAO_SEM ? "sem geração informada" : `geração ${d.geracao}`)
+    : "";
+  const recorte = [rotuloVersao, rotuloGeracao].filter(Boolean).join(" · ");
   document.getElementById("calc-modelo-nome").textContent =
-    `${d.marca} ${d.modelo}${rotuloVersao ? " · " + rotuloVersao : ""}`;
+    `${d.marca} ${d.modelo}${recorte ? " · " + recorte : ""}`;
 
   const semPreco = !d.com_preco;
   document.getElementById("calc-media").textContent = semPreco ? "sem preço" : fmtBRL(d.preco_medio);
@@ -402,7 +442,8 @@ async function carregarDetalhe(cell, params, total) {
     const trh = document.createElement("tr");
     for (const [rotulo, classe] of [
       ["Fonte", ""], ["Título", ""], ["Ano", "an-th--num"],
-      ["Preço", "an-th--num"], ["Versão", ""], ["Obs", ""],
+      ["Preço", "an-th--num"], ["Versão", ""], ["Geração", ""],
+      ["Motor", ""], ["Obs", ""],
     ]) trh.append(texto("th", rotulo, classe));
     thead.append(trh);
     tabela.append(thead);
@@ -427,6 +468,8 @@ async function carregarDetalhe(cell, params, total) {
       tr.append(texto("td", r.ano || "—", "an-td--num"));
       tr.append(texto("td", fmtBRL(r.preco), "an-td--num"));
       tr.append(texto("td", r.versao || "—"));
+      tr.append(texto("td", r.geracao || "—"));
+      tr.append(texto("td", r.motor || "—"));
       tr.append(texto("td", r.obs || "—"));
       tbody.append(tr);
     }
@@ -459,5 +502,6 @@ selModelo.addEventListener("change", () => {
   calcular();
 });
 selVersao.addEventListener("change", calcular);
+selGeracao.addEventListener("change", calcular);
 
 carregarPares();

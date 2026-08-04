@@ -11,7 +11,9 @@ from src.pipeline.normalizer import (
     sanear_marca_modelo,
     sanear_modelo,
     separar_modelo_versao_obs,
+    decompor_versao,
     MARCA_NAO_IDENTIFICADA,
+    VERSAO_AGREGADA,
 )
 
 
@@ -1003,3 +1005,219 @@ class TestToyotaBandeirante:
         # "Band" só é abreviação de Bandeirante pra Toyota — outra marca
         # com um token "Band" (hipotético) não deve ser reescrita.
         assert separar_modelo_versao_obs("FORD", "Band Custom") == ("BAND", "CUSTOM", None)
+
+
+# ── decompor_versao (auditoria de versão 2026-08-04) ────────────
+
+class TestDecomporVersaoGeracao:
+    def test_geracao_por_extenso_sai_do_campo_versao(self):
+        # O caso que motivou a auditoria: o mesmo trim "CL" do Gol aparecia
+        # em quatro grupos por vir grudado à geração e à motorização.
+        assert decompor_versao("VOLKSWAGEN", "GOL", "GERACAO I CL") == (
+            "CL", "I", None, None
+        )
+        assert decompor_versao("VOLKSWAGEN", "GOL", "GERACAO II CL") == (
+            "CL", "II", None, None
+        )
+
+    def test_geracao_abreviada_e_apelido_convergem_pro_romano(self):
+        # "G.III" é a grafia do catálogo, "G3" a dos anúncios e "quadrado"/
+        # "bola" os apelidos populares — todos viram o mesmo romano.
+        assert decompor_versao("VOLKSWAGEN", "GOL", "G3")[1] == "III"
+        assert decompor_versao("VOLKSWAGEN", "GOL", "G.III")[1] == "III"
+        assert decompor_versao("VOLKSWAGEN", "GOL", "BOLA")[1] == "III"
+        assert decompor_versao("VOLKSWAGEN", "GOL", "QUADRADO")[1] == "I"
+
+    def test_apelido_de_geracao_e_scoped_por_modelo(self):
+        # "Bola"/"quadrado" só são geração no Gol — noutro carro seguem
+        # como texto normal, sem virar geração.
+        assert decompor_versao("FORD", "ESCORT", "BOLA")[1] is None
+
+
+class TestDecomporVersaoMotor:
+    def test_spec_da_webmotors_vira_campo_motor(self):
+        # A Webmotors gravava `Version.Value` cru: era a única fonte da base
+        # com esse formato (5.060 versões). O trim fica na versão e a
+        # motorização vai pro campo próprio; câmbio e portas seguem
+        # descartados, como sempre foram.
+        assert decompor_versao("VOLKSWAGEN", "GOL", "1.6 CL 8V GASOLINA 2P MANUAL") == (
+            "CL", None, "1.6 8V GASOLINA", None
+        )
+
+    def test_acento_e_barra_da_webmotors_normalizam(self):
+        # "ÁLCOOL"/"COUPÉ"/"SL/E" vinham crus e não casavam com nada do
+        # resto da base (1.418 com acento, 101 com barra).
+        assert decompor_versao("VOLKSWAGEN", "GOL", "1.8 GTS 8V ÁLCOOL 2P MANUAL") == (
+            "GTS", None, "1.8 8V ALCOOL", None
+        )
+        # "SL/E" é nomenclatura de UMA versão (Chevette/Opala): a barra vira
+        # espaço e o "E" solto seria descartado como conectivo, sobrando um
+        # "SL" que é outra versão. As três grafias da base convergem.
+        assert decompor_versao("CHEVROLET", "OPALA", "SL/E")[0] == "SLE"
+        assert decompor_versao("CHEVROLET", "OPALA", "SL E")[0] == "SLE"
+        assert decompor_versao("CHEVROLET", "OPALA", "SLE")[0] == "SLE"
+
+    def test_cilindrada_em_cc_vira_litros(self):
+        # O mesmo Fusca aparecia como "1300" e como "1.3" — mesma
+        # informação, unidades diferentes, dois grupos.
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "1300")[2] == "1.3"
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "1.3")[2] == "1.3"
+        # Cilindrada grudada na letra de trim: cada uma pro seu campo.
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "1300L") == (
+            "L", None, "1.3", None
+        )
+
+
+class TestDecomporVersaoTrimCatalogo:
+    def test_abreviacao_canoniza_pela_grafia_do_catalogo(self):
+        # Truncamentos que a OLX/Webmotors produzem e que viravam grupos
+        # órfãos: o vocabulário de trim do catálogo resolve por prefixo.
+        assert decompor_versao("CHEVROLET", "OPALA", "COMOD")[0] == "COMODORO"
+        assert decompor_versao("CHEVROLET", "OPALA", "DIPLOM")[0] == "DIPLOMATA"
+        assert decompor_versao("VOLKSWAGEN", "PASSAT", "VILL")[0] == "VILLAGE"
+
+    def test_sinonimo_sem_relacao_de_prefixo(self):
+        # "STANDARD" x "STD" não é prefixo — precisa da tabela de sinônimo.
+        assert decompor_versao("VOLKSWAGEN", "KOMBI", "STANDARD")[0] == "STD"
+
+    def test_truncamento_da_olx_canoniza_pelo_nome_real(self):
+        # "Vectra GLS/expres.2.2" — o truncamento vira o nome comercial de
+        # verdade (Vectra Expression), que está no catálogo.
+        assert decompor_versao("CHEVROLET", "VECTRA", "EXPRES")[0] == "EXPRESSION"
+
+    def test_trim_que_o_catalogo_grafa_junto_e_fundido(self):
+        # "Hard Top" separado no anúncio, "HARDTOP" no catálogo. Sem a fusão,
+        # o "HARD" expandia por prefixo pra HARDTOP e o "TOP" sobrava
+        # ("K CODE HARDTOP TOP" — achado no smoke test).
+        assert decompor_versao("FORD", "MUSTANG", "K CODE HARD TOP")[0] == (
+            "K CODE HARDTOP"
+        )
+
+    def test_trim_desconhecido_do_catalogo_e_preservado(self):
+        # O catálogo não cobre tudo; o que ele não conhece segue como está
+        # e cai na quarentena do painel, não é apagado nem chutado.
+        assert decompor_versao("CHEVROLET", "OPALA", "ITAMAR")[0] == "ITAMAR"
+
+
+class TestDecomporVersaoSobras:
+    def test_carroceria_vai_pra_obs_e_nao_fragmenta_o_trim(self):
+        # O mesmo "GL" virava "GL", "GL SW" e "GL HATCH" em três grupos.
+        assert decompor_versao("FORD", "ESCORT", "GL SW") == ("GL", None, None, "SW")
+        assert decompor_versao("CHEVROLET", "MONZA", "L HATCH") == (
+            "L", None, None, "HATCH"
+        )
+
+    def test_nome_do_modelo_repetido_na_versao_e_descartado(self):
+        # 193 anúncios tinham versao == modelo.
+        assert decompor_versao("CHEVROLET", "BLAZER", "BLAZER DLX")[0] == "DLX"
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "FUSCA")[0] is None
+
+    def test_cor_continua_descartada_menos_serie_prata(self):
+        # Decisão da usuária de 2026-07-20, preservada aqui.
+        assert decompor_versao("VOLKSWAGEN", "GOL", "VERMELHO")[0] is None
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "SERIE OURO")[0] == "SERIE OURO"
+
+    def test_obs_que_ja_vinha_preenchida_e_mantida(self):
+        versao, _ger, _mot, obs = decompor_versao(
+            "CHEVROLET", "S10", "AMERICANA", "CABINE ESTENDIDA"
+        )
+        assert versao == "AMERICANA"
+        assert obs == "CABINE ESTENDIDA"
+
+
+class TestVersaoAgregada:
+    def test_enumeracao_da_taxonomia_vira_sentinela(self):
+        # O título da OLX não é do anúncio: é o rótulo da linha inteira,
+        # enumerando todas as versões. A versão real não existe (7.823
+        # anúncios) — melhor a sentinela do que fingir que "L SL" é um trim.
+        assert decompor_versao(
+            "VOLKSWAGEN", "PASSAT", "L LS LSE GL GLS TS FLA VILL PLUS",
+            titulo="Volkswagen Passat L/ LS/ LSE/ GL/ GLS/ TS/ FLA/ VILL/ PLUS 1984",
+        )[0] == VERSAO_AGREGADA
+        assert decompor_versao(
+            "CHEVROLET", "CHEVETTE", "L SL",
+            titulo="Chevrolet Chevette L / SL / Sl/e / DL / SE 1.6 1987",
+        )[0] == VERSAO_AGREGADA
+
+    def test_geracao_e_motor_sobrevivem_a_enumeracao(self):
+        # A fonte agrupa o TRIM, não a geração nem o motor — esses dois
+        # continuam válidos e não devem ser perdidos junto.
+        versao, geracao, motor, _obs = decompor_versao(
+            "VOLKSWAGEN", "GOL", "GERACAO I CL GTI 1.6",
+            titulo="Volkswagen Gol Geração I CL/ GTI 1.6 1991",
+        )
+        assert versao == VERSAO_AGREGADA
+        assert (geracao, motor) == ("I", "1.6")
+
+    def test_barra_entre_cilindradas_nao_e_enumeracao(self):
+        # "4.1/2.5" e "1.8i / 1.8" são motorização, não lista de versões.
+        assert decompor_versao(
+            "FORD", "PAMPA", "L", titulo="Ford Pampa L 1.8i / 1.8 1997",
+        )[0] == "L"
+        assert decompor_versao(
+            "CHEVROLET", "CARAVAN", "COMODORO",
+            titulo="Chevrolet Caravan Comodoro 4.1/2.5 1988",
+        )[0] == "COMODORO"
+
+    def test_abreviacao_da_mesma_versao_nao_e_enumeracao(self):
+        # "Diplomata/diplom." é a mesma versão escrita duas vezes — os dois
+        # lados canonizam pro mesmo trim, então não conta como lista.
+        assert decompor_versao(
+            "CHEVROLET", "OPALA", "DIPLOMATA DIPLOM SLE",
+            titulo="Chevrolet Opala Diplomata/diplom. SLE 4.1/2.5 1988",
+        )[0] == "DIPLOMATA SLE"
+
+    def test_barra_como_com_ou_separador_solto_nao_e_enumeracao(self):
+        # Achados no smoke test do reprocessamento: a barra também é usada
+        # como "com" ("C/ reboque") e como separador qualquer ("JrP/
+        # restauração"). Nenhum dos lados é trim do catálogo.
+        assert decompor_versao(
+            "JEEP", "MUTT4CC", "C REBOQUE", titulo="Jeep Mutt4cc - C/ reboque",
+        )[0] == "C REBOQUE"
+        assert decompor_versao(
+            "KAISER", "HENRY", "JRP RESTAURACAO", titulo="Henry  JrP/ restauração",
+        )[0] == "JRP RESTAURACAO"
+
+    def test_nomenclatura_de_uma_versao_com_barra_nao_e_enumeracao(self):
+        # "R/T" (Road/Track da Dodge) é UMA versão, como o "SL/E" — vira um
+        # token só antes de o detector rodar.
+        assert decompor_versao(
+            "DODGE", "CHARGER", "R T", titulo="Dodge Charger R/T 1970",
+        )[0] == "RT"
+
+    def test_marca_barra_modelo_nao_e_enumeracao(self):
+        # "Vw/gol" é a grafia de marca/modelo da OLX, não uma lista.
+        assert decompor_versao(
+            "VOLKSWAGEN", "GOL", "CL", titulo="Vw/gol Cl 1.6 1991",
+        )[0] == "CL"
+
+    def test_sentinela_e_preservada_em_reprocessamento(self):
+        # Idempotência: rodar de novo sobre o que já foi gravado não pode
+        # reinterpretar a sentinela como se fosse um trim chamado "VERSAO".
+        assert decompor_versao("VOLKSWAGEN", "GOL", VERSAO_AGREGADA) == (
+            VERSAO_AGREGADA, None, None, None
+        )
+
+
+class TestDecomporVersaoIdempotente:
+    def test_segunda_passada_devolve_o_mesmo_resultado(self):
+        # O reprocessamento retroativo roda em cima do que já está gravado,
+        # então a função precisa ser estável.
+        casos = [
+            ("VOLKSWAGEN", "GOL", "GERACAO I CL"),
+            ("VOLKSWAGEN", "GOL", "1.6 CL 8V GASOLINA 2P MANUAL"),
+            ("FORD", "ESCORT", "GL SW"),
+            ("CHEVROLET", "OPALA", "COMOD"),
+            ("VOLKSWAGEN", "FUSCA", "1300L"),
+        ]
+        for marca, modelo, versao in casos:
+            v1, g1, m1, o1 = decompor_versao(marca, modelo, versao)
+            v2, g2, m2, o2 = decompor_versao(marca, modelo, v1, o1)
+            assert (v1, o1) == (v2, o2)
+            # geração/motor já saíram no 1º passe e não voltam a aparecer
+            assert (g2, m2) == (None, None)
+
+    def test_versao_vazia_ou_none(self):
+        assert decompor_versao("VOLKSWAGEN", "GOL", None) == (None, None, None, None)
+        assert decompor_versao("VOLKSWAGEN", "GOL", "") == (None, None, None, None)
+        assert decompor_versao("VOLKSWAGEN", "GOL", "  ") == (None, None, None, None)
