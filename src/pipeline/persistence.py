@@ -430,6 +430,7 @@ def get_db_stats() -> dict[str, Any]:
 def _opcoes_marca_modelo_ano(
     cur, fonte: str | None, marca: str | None, modelo: str | None, ano: int | None,
     versao: str | None = None, com_versao: bool = False,
+    geracao: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Opções pros dropdowns de marca/modelo/ano (dashboard e /admin/anuncios),
@@ -438,10 +439,10 @@ def _opcoes_marca_modelo_ano(
     uma cascata de marca (5,5 mil modelos distintos no banco todo — só faz
     sentido listar depois que uma marca reduz o universo).
 
-    `versao` segue a convenção do módulo: None = todas, "" = sem versão
-    informada (COALESCE trata NULL e '' como o mesmo balde). As opções de
-    versão são cascata de modelo (só saem com `com_versao`, pra o dashboard
-    não pagar uma query que não usa).
+    `versao` e `geracao` seguem a convenção do módulo: None = todas, "" = sem
+    o campo informado (COALESCE trata NULL e '' como o mesmo balde). As
+    opções de versão são cascata de modelo (só saem com `com_versao`, pra o
+    dashboard não pagar uma query que não usa).
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -449,15 +450,20 @@ def _opcoes_marca_modelo_ano(
         "modelo": modelo.strip().upper() if modelo else None,
         "ano": ano,
         "versao": versao.strip().upper() if versao is not None else None,
+        "geracao": geracao.strip().upper() if geracao is not None else None,
     }
+    # Campos onde o vazio é um valor legítimo ("sem versão"/"sem geração"):
+    # casam NULL e '' pelo mesmo COALESCE.
+    coalesce_vazio = ("versao", "geracao")
 
     def _where(excluir: tuple[str, ...] = (), *extra: str) -> tuple[str, list]:
         conds, params = [], []
         for campo, valor in filtros.items():
             if valor is None or campo in excluir:
                 continue
-            # Versão vazia é um valor legítimo ("sem versão"): casa NULL e ''.
-            conds.append("COALESCE(versao, '') = %s" if campo == "versao" else f"{campo} = %s")
+            conds.append(
+                f"COALESCE({campo}, '') = %s" if campo in coalesce_vazio else f"{campo} = %s"
+            )
             params.append(valor)
         conds.extend(extra)
         sql = ("WHERE " + " AND ".join(conds)) if conds else ""
@@ -506,11 +512,26 @@ def _opcoes_marca_modelo_ano(
         )
         opcoes_versao = [dict(r) for r in cur.fetchall()]
 
+    # Geração: mesma cascata da versão, e igualmente só faz sentido com um
+    # modelo escolhido (a "geração II" de um carro não tem relação com a de
+    # outro). Sai vazia nos modelos que não têm geração nenhuma — a UI
+    # esconde o seletor nesse caso.
+    opcoes_geracao: list[dict[str, Any]] = []
+    if com_versao and filtros["modelo"]:
+        cond_op_geracao, params_op_geracao = _where(("geracao",), "geracao IS NOT NULL")
+        cur.execute(
+            f"SELECT geracao, COUNT(*) AS qtd FROM anuncios "
+            f"{cond_op_geracao} GROUP BY 1 ORDER BY 1",
+            params_op_geracao,
+        )
+        opcoes_geracao = [dict(r) for r in cur.fetchall()]
+
     return {
         "marca": opcoes_marca,
         "modelo": opcoes_modelo,
         "ano": opcoes_ano,
         "versao": opcoes_versao,
+        "geracao": opcoes_geracao,
     }
 
 
@@ -777,15 +798,17 @@ def listar_anuncios(
     order_dir: str = "desc",
     page: int = 1,
     page_size: int = 50,
+    geracao: str | None = None,
 ) -> dict[str, Any]:
     """
     Retorna anúncios paginados com filtros opcionais.
     Usado pelo painel /admin/anuncios.
 
-    fonte/marca/modelo/ano/versão são dropdowns (valores exatos do catálogo —
-    ver `opcoes` no retorno, no estilo faceta de `_opcoes_marca_modelo_ano`);
-    `q` é a única busca livre (LIKE em título/marca/modelo). Versão segue a
-    convenção do módulo: None = todas, "" = sem versão informada.
+    fonte/marca/modelo/ano/versão/geração são dropdowns (valores exatos do
+    catálogo — ver `opcoes` no retorno, no estilo faceta de
+    `_opcoes_marca_modelo_ano`); `q` é a única busca livre (LIKE em título/
+    marca/modelo). Versão e geração seguem a convenção do módulo: None =
+    todas, "" = sem o campo informado.
     """
     allowed_order = {"ultima_vista", "preco", "ano", "marca", "modelo", "fonte", "titulo"}
     if order_by not in allowed_order:
@@ -810,6 +833,9 @@ def listar_anuncios(
     if versao is not None:
         conditions.append("COALESCE(UPPER(versao), '') = %s")
         params.append(versao.strip().upper())
+    if geracao is not None:
+        conditions.append("COALESCE(UPPER(geracao), '') = %s")
+        params.append(geracao.strip().upper())
     if q:
         conditions.append("(UPPER(titulo) LIKE %s OR UPPER(marca) LIKE %s OR UPPER(modelo) LIKE %s)")
         like = f"%{q.strip().upper()}%"
@@ -840,6 +866,7 @@ def listar_anuncios(
 
             opcoes = _opcoes_marca_modelo_ano(
                 cur, fonte, marca, modelo, ano, versao, com_versao=True,
+                geracao=geracao,
             )
 
     return {
@@ -861,12 +888,20 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
     fragmentadas do mesmo modelo (ex.: "BAND" ao lado de "BANDEIRANTE") que
     a busca em cascata esconde, porque cada marca só mostra os modelos dela
     por vez.
+
+    `versoes` é a contagem de recortes (versão, geração) distintos do par —
+    a mesma revisão de fragmentação um nível abaixo, agora que a versão saiu
+    normalizada da auditoria de 2026-08-04. Um par com muitas versões e
+    poucos anúncios é o sinal de que o campo ainda está fragmentado ali.
     """
     # COALESCE trata modelo NULL e '' como o mesmo balde "sem modelo" — senão
     # os anúncios com modelo NULL some da lista (não apareciam na quarentena
     # nem batiam com o detalhe do par, que casa por COALESCE).
     sql = """
-        SELECT marca, COALESCE(modelo, '') AS modelo, COUNT(*) AS qtd
+        SELECT marca, COALESCE(modelo, '') AS modelo, COUNT(*) AS qtd,
+               COUNT(DISTINCT (COALESCE(versao, ''), COALESCE(geracao, '')))
+                   FILTER (WHERE versao IS NOT NULL OR geracao IS NOT NULL)
+                   AS versoes
         FROM anuncios
         WHERE marca IS NOT NULL
         GROUP BY marca, COALESCE(modelo, '')
@@ -875,6 +910,49 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
     with _connect() as conn:
         with conn.cursor() as cur:
             cur.execute(sql)
+            return [dict(r) for r in cur.fetchall()]
+
+
+def listar_versoes_do_par(marca: str, modelo: str) -> list[dict[str, Any]]:
+    """
+    Versões de um par (marca, modelo) EXATO, com contagem, faixa de ano e
+    preço médio — o nível seguinte da revisão de qualidade de dado da lista
+    "Todas as marcas e modelos" (que para no par).
+
+    Agrupa por (versão, geração) porque é esse o recorte que a calculadora
+    usa: um Gol CL geração I não é o mesmo carro que um CL geração III. O
+    motor fica de fora do agrupamento de propósito — ele multiplicaria as
+    linhas (cada cilindrada vira uma) sem ajudar a achar fragmentação de
+    grafia, que é pra isso que a tela serve; sai só como amostra do que
+    aparece naquele recorte.
+
+    Versão e geração vazias viram '' (não NULL) pra casar com a convenção do
+    módulo nos filtros: '' = "sem o campo informado".
+    """
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    if not mk:
+        raise ValueError("Marca é obrigatória.")
+
+    sql = """
+        SELECT COALESCE(versao, '')  AS versao,
+               COALESCE(geracao, '') AS geracao,
+               COUNT(*)                                  AS qtd,
+               COUNT(preco) FILTER (WHERE preco > 0)      AS com_preco,
+               AVG(preco)   FILTER (WHERE preco > 0)      AS preco_medio,
+               MIN(ano)                                   AS ano_min,
+               MAX(ano)                                   AS ano_max,
+               STRING_AGG(DISTINCT motor, ', ' ORDER BY motor) AS motores
+        FROM anuncios
+        WHERE UPPER(marca) = %s AND COALESCE(UPPER(modelo), '') = %s
+        GROUP BY 1, 2
+        ORDER BY qtd DESC, 1, 2
+    """
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (mk, md))
             return [dict(r) for r in cur.fetchall()]
 
 

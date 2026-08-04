@@ -1282,6 +1282,16 @@ a { color: inherit; text-decoration: none; }
 .qv-detail-table .an-td--num,
 .qv-detail-table .an-th--num { text-align: right; font-variant-numeric: tabular-nums; }
 .qv-detail-table a { color: var(--vc-accent-strong, #B26A00); }
+/* Segundo nível do detalhe: anúncios de UMA versão, abertos de dentro da
+   tabela de versões (par -> versões -> anúncios). Recuo e fundo um pouco
+   mais escuros pra não confundir com o nível de cima. */
+.qv-subdetail > .qv-detail-cell {
+  background: rgba(0, 0, 0, .05);
+  padding-left: 24px;
+  border-left: 3px solid var(--vc-accent-strong, #B26A00);
+}
+/* Campo sem valor, quando "—" precisa ser mais discreto que o conteúdo */
+.an-muted { color: var(--vc-ink-muted, #666); }
 /* Nota do detalhe: aviso de amostra + atalho pra lista completa */
 .qv-detail-nota {
   display: flex;

@@ -14,6 +14,7 @@ Endpoints:
   GET  /admin/api/status                  → status do banco + conectores
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
   GET  /admin/api/marca-modelo            → todos os pares (marca, modelo) distintos, sem cascata
+  GET  /admin/api/versoes-do-par          → versões (com geração) de um par (?marca=&modelo=)
   GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=&versao=)
   GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
@@ -53,6 +54,7 @@ from src.pipeline.persistence import (
     listar_anuncios_a_verificar,
     listar_anuncios_do_par,
     listar_marca_modelo_pares,
+    listar_versoes_do_par,
     upsert_anuncios,
 )
 
@@ -220,6 +222,7 @@ def admin_api_anuncios():
             ano=ano, versao=_arg_versao(), q=q,
             order_by=order_by, order_dir=order_dir,
             page=page, page_size=page_size,
+            geracao=_arg_geracao(),
         )
         return jsonify(result)
     except Exception as exc:
@@ -233,6 +236,25 @@ def admin_api_marca_modelo():
         return jsonify({"pares": listar_marca_modelo_pares()})
     except Exception as exc:
         logger.error("admin_api_marca_modelo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/versoes-do-par")
+def admin_api_versoes_do_par():
+    """
+    Versões (com geração) de um par marca/modelo — o detalhe consultável da
+    lista "Todas as marcas e modelos", um nível abaixo do par.
+    """
+    marca  = request.args.get("marca",  "").strip()
+    modelo = request.args.get("modelo", "").strip()
+    if not marca:
+        return jsonify({"erro": "Marca é obrigatória."}), 400
+    try:
+        return jsonify({"rows": listar_versoes_do_par(marca, modelo)})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_versoes_do_par erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

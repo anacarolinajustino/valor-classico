@@ -60,6 +60,7 @@ function params(page) {
   const modelo = document.getElementById('filter-modelo').value || pend.modelo || '';
   const ano    = document.getElementById('filter-ano').value    || pend.ano    || '';
   const versao = document.getElementById('filter-versao').value || pend.versao || '';
+  const geracao = document.getElementById('filter-geracao').value || pend.geracao || '';
   const ps     = document.getElementById('filter-page-size').value;
 
   if (q)      p.set('q',      q);
@@ -68,6 +69,7 @@ function params(page) {
   if (modelo) p.set('modelo', modelo);
   if (ano)    p.set('ano',    ano);
   if (versao) p.set('versao', versao);
+  if (geracao) p.set('geracao', geracao);
   p.set('order_by',  currentOrder);
   p.set('order_dir', currentDir);
   p.set('page',      page);
@@ -81,6 +83,7 @@ function limparFiltros() {
   document.getElementById('filter-marca').value  = '';
   document.getElementById('filter-modelo').value = '';
   document.getElementById('filter-versao').value = '';
+  document.getElementById('filter-geracao').value = '';
   document.getElementById('filter-ano').value    = '';
   buscar(1);
 }
@@ -117,11 +120,12 @@ function atualizarIconesSort() {
  */
 function aplicarFiltrosPendentes() {
   if (!filtrosPendentesDaUrl) return;
-  const { marca, modelo, ano, versao, fonte } = filtrosPendentesDaUrl;
+  const { marca, modelo, ano, versao, geracao, fonte } = filtrosPendentesDaUrl;
   if (marca)  document.getElementById('filter-marca').value  = marca;
   if (modelo) document.getElementById('filter-modelo').value = modelo;
   if (ano)    document.getElementById('filter-ano').value    = ano;
   if (versao) document.getElementById('filter-versao').value = versao;
+  if (geracao) document.getElementById('filter-geracao').value = geracao;
   if (fonte)  document.getElementById('filter-fonte').value  = fonte;
   filtrosPendentesDaUrl = null;
 }
@@ -205,6 +209,21 @@ async function buscar(page) {
         rotuloFn: (x) => `${x.versao || 'Sem versão informada'} (${x.qtd.toLocaleString('pt-BR')})`,
         placeholder: temModelo ? 'Todas' : 'Selecione um modelo',
       });
+
+      // Geração: mesma cascata da versão, mas o seletor só aparece nos
+      // modelos que TÊM geração (Gol, Parati, Saveiro...) — na maioria dos
+      // clássicos ele seria um dropdown de uma opção só.
+      const filtroGeracao = document.getElementById('filter-geracao');
+      const opcoesGeracao = data.opcoes.geracao || [];
+      const grupoGeracao = document.getElementById('filter-geracao-group');
+      const temGeracao = temModelo && opcoesGeracao.length > 0;
+      grupoGeracao.classList.toggle('hidden', !temGeracao);
+      filtroGeracao.disabled = !temGeracao;
+      popularSelect(filtroGeracao, opcoesGeracao, {
+        valorFn: (x) => x.geracao || VERSAO_SEM,
+        rotuloFn: (x) => `Geração ${x.geracao} (${x.qtd.toLocaleString('pt-BR')})`,
+        placeholder: 'Todas',
+      });
     }
 
     aplicarFiltrosPendentes();
@@ -286,18 +305,18 @@ function toggleMarcaModelo() {
 
 async function carregarMarcaModelo() {
   const tbody = document.getElementById('mm-tbody');
-  tbody.innerHTML = '<tr><td colspan="3" class="an-empty">Carregando…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="4" class="an-empty">Carregando…</td></tr>';
   try {
     const res = await fetch('/admin/api/marca-modelo');
     const data = await res.json();
     if (data.erro) {
-      tbody.innerHTML = `<tr><td colspan="3" class="an-empty an-empty--erro">${escapeHtml(data.erro)}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="4" class="an-empty an-empty--erro">${escapeHtml(data.erro)}</td></tr>`;
       return;
     }
     mmPares = data.pares || [];
     renderMarcaModelo();
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="3" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -306,9 +325,9 @@ function ordenarMarcaModelo(col) {
     mmDir = mmDir === 'asc' ? 'desc' : 'asc';
   } else {
     mmOrder = col;
-    mmDir = col === 'qtd' ? 'desc' : 'asc';
+    mmDir = (col === 'qtd' || col === 'versoes') ? 'desc' : 'asc';
   }
-  ['marca', 'modelo', 'qtd'].forEach(c => {
+  ['marca', 'modelo', 'qtd', 'versoes'].forEach(c => {
     const el = document.getElementById(`mm-sort-${c}`);
     if (el) el.textContent = c === mmOrder ? (mmDir === 'asc' ? '↑' : '↓') : '';
   });
@@ -328,7 +347,8 @@ function renderMarcaModelo() {
 
   linhas.sort((a, b) => {
     const dir = mmDir === 'asc' ? 1 : -1;
-    if (mmOrder === 'qtd') return (a.qtd - b.qtd) * dir;
+    if (mmOrder === 'qtd')     return (a.qtd - b.qtd) * dir;
+    if (mmOrder === 'versoes') return ((a.versoes || 0) - (b.versoes || 0)) * dir;
     return a[mmOrder].localeCompare(b[mmOrder]) * dir;
   });
 
@@ -336,18 +356,153 @@ function renderMarcaModelo() {
     `${linhas.length.toLocaleString('pt-BR')} de ${mmPares.length.toLocaleString('pt-BR')} pares`;
 
   if (!linhas.length) {
-    tbody.innerHTML = '<tr><td colspan="3" class="an-empty">Nenhum par encontrado.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="an-empty">Nenhum par encontrado.</td></tr>';
     return;
   }
-  // A contagem é um botão: abre o grupo de anúncios daquele par logo abaixo
-  // (mesmo detalhe usado na quarentena).
+  // As duas contagens são botões: a de anúncios abre o grupo daquele par
+  // (mesmo detalhe usado na quarentena), a de versões abre os recortes
+  // (versão, geração) — e de lá dá pra descer até os anúncios de cada um.
   tbody.innerHTML = linhas.map(p => `
     <tr data-marca="${escapeAttr(p.marca)}" data-modelo="${escapeAttr(p.modelo || '')}">
       <td class="an-td">${escapeHtml(p.marca)}</td>
       <td class="an-td">${escapeHtml(p.modelo)}</td>
       <td class="an-td an-td--num"><button class="qv-count" onclick="verAnunciosDoPar(this)" title="Ver os anúncios deste par">${p.qtd.toLocaleString('pt-BR')}</button></td>
+      <td class="an-td an-td--num">${
+        p.versoes
+          ? `<button class="qv-count" onclick="verVersoesDoPar(this)" title="Ver as versões deste par">${p.versoes.toLocaleString('pt-BR')}</button>`
+          : '<span class="an-muted">—</span>'
+      }</td>
     </tr>
   `).join('');
+}
+
+// Detalhe de VERSÕES de um par (nível intermediário entre o par e os
+// anúncios): cada linha é um recorte (versão, geração), com a contagem de
+// novo clicável pra abrir os anúncios daquele recorte específico.
+async function verVersoesDoPar(btn) {
+  const tr = btn.closest('tr');
+  const existente = tr.nextElementSibling;
+  if (existente && existente.classList.contains('qv-detail')) {
+    existente.remove();
+    return;
+  }
+  const marca  = tr.dataset.marca;
+  const modelo = tr.dataset.modelo;
+  const detail = document.createElement('tr');
+  detail.className = 'qv-detail';
+  detail.innerHTML = `<td colspan="${tr.children.length}" class="qv-detail-cell">Carregando…</td>`;
+  tr.after(detail);
+  const cell = detail.firstElementChild;
+  try {
+    const url = `/admin/api/versoes-do-par?marca=${encodeURIComponent(marca)}&modelo=${encodeURIComponent(modelo)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.erro) {
+      cell.innerHTML = `<span class="an-empty an-empty--erro">${escapeHtml(data.erro)}</span>`;
+      return;
+    }
+    const rows = data.rows || [];
+    if (!rows.length) {
+      cell.textContent = 'Nenhuma versão.';
+      return;
+    }
+    cell.innerHTML = `
+      <div class="qv-detail-wrap">
+        <table class="qv-detail-table">
+          <thead>
+            <tr>
+              <th>Versão</th><th>Geração</th><th class="an-th--num">Anúncios</th>
+              <th class="an-th--num">Média</th><th class="an-th--num">Anos</th><th>Motor</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr data-marca="${escapeAttr(marca)}" data-modelo="${escapeAttr(modelo)}"
+                  data-versao="${escapeAttr(r.versao)}" data-geracao="${escapeAttr(r.geracao)}">
+                <td>${r.versao ? escapeHtml(r.versao) : '<span class="an-muted">sem versão informada</span>'}</td>
+                <td>${r.geracao ? escapeHtml(r.geracao) : '—'}</td>
+                <td class="an-td--num"><button class="qv-count" onclick="verAnunciosDaVersao(this)" title="Ver os anúncios desta versão">${r.qtd.toLocaleString('pt-BR')}</button></td>
+                <td class="an-td--num">${r.com_preco ? fmtPreco(r.preco_medio) : '—'}</td>
+                <td class="an-td--num">${fmtFaixaAnos(r.ano_min, r.ano_max)}</td>
+                <td>${escapeHtml(r.motores || '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    cell.innerHTML = `<span class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function fmtFaixaAnos(min, max) {
+  if (!min && !max) return '—';
+  return min === max ? String(min) : `${min}–${max}`;
+}
+
+// Anúncios de um recorte (versão, geração) — o nível mais fundo da consulta,
+// aberto a partir da tabela de versões.
+async function verAnunciosDaVersao(btn) {
+  const tr = btn.closest('tr');
+  const existente = tr.nextElementSibling;
+  if (existente && existente.classList.contains('qv-subdetail')) {
+    existente.remove();
+    return;
+  }
+  const { marca, modelo, versao, geracao } = tr.dataset;
+  const detail = document.createElement('tr');
+  detail.className = 'qv-subdetail';
+  detail.innerHTML = `<td colspan="${tr.children.length}" class="qv-detail-cell">Carregando…</td>`;
+  tr.after(detail);
+  const cell = detail.firstElementChild;
+  try {
+    // '' significa "sem o campo informado" na API — o sentinela distingue
+    // isso de "não filtrar" (ver _arg_versao/_arg_geracao no app.py).
+    const p = new URLSearchParams({ marca, modelo });
+    p.set('versao', versao || VERSAO_SEM);
+    p.set('geracao', geracao || VERSAO_SEM);
+    const res = await fetch(`/admin/api/anuncios-do-par?${p.toString()}`);
+    const data = await res.json();
+    if (data.erro) {
+      cell.innerHTML = `<span class="an-empty an-empty--erro">${escapeHtml(data.erro)}</span>`;
+      return;
+    }
+    const rows = data.rows || [];
+    if (!rows.length) {
+      cell.textContent = 'Nenhum anúncio.';
+      return;
+    }
+    const total = parseInt((btn.textContent || '').replace(/\D/g, ''), 10) || rows.length;
+    const parcial = rows.length < total;
+    const link = `/admin/anuncios?${p.toString()}`;
+    cell.innerHTML = `
+      <p class="qv-detail-nota">${
+        parcial
+          ? `Mostrando ${rows.length.toLocaleString('pt-BR')} dos ${total.toLocaleString('pt-BR')} anúncios deste recorte (os de ano mais antigo primeiro). `
+          : ''
+      }<a class="btn btn-outline btn-sm" href="${escapeAttr(link)}">Ver na lista completa</a></p>
+      <div class="qv-detail-wrap">
+        <table class="qv-detail-table">
+          <thead>
+            <tr><th>Fonte</th><th>Título</th><th class="an-th--num">Ano</th><th class="an-th--num">Preço</th><th>Motor</th><th>Obs</th></tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.fonte || '—')}</td>
+                <td>${r.url
+                    ? `<a href="${escapeAttr(r.url)}" target="_blank" rel="noopener">${escapeHtml(r.titulo || '(sem título)')}</a>`
+                    : escapeHtml(r.titulo || '(sem título)')}</td>
+                <td class="an-td--num">${r.ano || '—'}</td>
+                <td class="an-td--num">${fmtPreco(r.preco)}</td>
+                <td>${escapeHtml(r.motor || '—')}</td>
+                <td>${escapeHtml(r.obs || '—')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) {
+    cell.innerHTML = `<span class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</span>`;
+  }
 }
 
 // ── Anúncios a verificar (quarentena: pares fora do catálogo) ───────────
@@ -722,15 +877,17 @@ document.getElementById('filter-marca')?.addEventListener('change', () => {
 });
 document.getElementById('filter-modelo')?.addEventListener('change', () => {
   document.getElementById('filter-versao').value = '';   // versão é cascata de modelo
+  document.getElementById('filter-geracao').value = '';  // geração idem
   document.getElementById('filter-ano').value = '';
   buscar(1);
 });
 document.getElementById('filter-versao')?.addEventListener('change', () => buscar(1));
+document.getElementById('filter-geracao')?.addEventListener('change', () => buscar(1));
 document.getElementById('filter-ano')?.addEventListener('change', () => buscar(1));
 
 // ── Init ───────────────────────────────────────────────────────────────
 /**
- * Lê marca/modelo/versão/ano/fonte da query string (ex.: link "ver anúncios"
+ * Lê marca/modelo/versão/geração/ano/fonte da query string (ex.: link "ver anúncios"
  * do dashboard ou da calculadora de média:
  * /admin/anuncios?marca=Volkswagen&modelo=Fusca&versao=1.6%208V...) — os
  * valores só são aplicados aos selects depois que a 1ª busca traz as opções
@@ -746,9 +903,10 @@ function lerFiltrosDaUrl() {
   const modelo = urlParams.get('modelo');
   const ano = urlParams.get('ano');
   const versao = urlParams.get('versao');
+  const geracao = urlParams.get('geracao');
   const fonte = urlParams.get('fonte');
-  if (marca || modelo || ano || versao || fonte) {
-    filtrosPendentesDaUrl = { marca, modelo, ano, versao, fonte };
+  if (marca || modelo || ano || versao || geracao || fonte) {
+    filtrosPendentesDaUrl = { marca, modelo, ano, versao, geracao, fonte };
   }
 }
 

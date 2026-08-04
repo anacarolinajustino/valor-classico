@@ -1385,8 +1385,12 @@ _ROMANOS: dict[str, str] = {
 _GERACAO_PALAVRA: frozenset = frozenset({"GERACAO", "GER", "GER.", "G", "G."})
 # Destes, os que não informam nada quando o romano não vem depois.
 _GERACAO_PALAVRA_VAZIA: frozenset = frozenset({"GERACAO", "GER", "GER."})
-# "G.III", "G3", "GIII" — a letra G colada ao número/romano.
-_GERACAO_GLUED = re.compile(r"^G[.]?([IVX]{1,4}|[1-8])$")
+# "G.III", "G3", "GIII" — a letra G colada ao número/romano. O romano de UMA
+# letra só vale com o ponto separando ("G.V"), nunca colado: "GV"/"GI"/"GX"
+# são trim de verdade em vários carros (o Nissan Maxima "30GV/GV" virava
+# "geração V" — achado conferindo as gerações gravadas depois do primeiro
+# reprocessamento). Dígito e romano de 2+ letras não têm essa ambiguidade.
+_GERACAO_GLUED = re.compile(r"^G(?:[.]([IVX]{1,4}|[1-8])|([1-8])|([IVX]{2,4}))$")
 # Apelido popular de geração do Gol (a usuária usa os dois no painel): o
 # "quadrado" é a G1/G2 e a "bola" é a G3. Só valem como geração quando a
 # marca/modelo confere — "BOLA" solto em outro carro não é geração.
@@ -1406,7 +1410,13 @@ _MOTOR_CILINDRADA = re.compile(r"^(\d)[.,](\d)$")
 # "1.6"/"1.3" com outra unidade. Convertida pra litros pra não fragmentar o
 # grupo (o Fusca aparecia como 1300 e como 1.3 na mesma base). O ano já foi
 # extraído bem antes daqui, então 4 dígitos nesta altura é cilindrada.
-_MOTOR_CC = re.compile(r"^(\d{3,4})$")
+#
+# Piso de 1000cc: abaixo disso o número quase sempre é NOME, não motor — o
+# "500" do Honda CB 500, o "600" do Yamaha Teneré, o "964" do código de
+# chassi do Porsche 911 viravam motor "0.5"/"0.6"/"1.0" (82 casos achados
+# conferindo o resultado do primeiro reprocessamento). Cilindrada de moto
+# nesse patamar já vem no nome do modelo, ancorada pelo catálogo.
+_MOTOR_CC = re.compile(r"^(\d{4})$")
 _MOTOR_VALVULAS = re.compile(r"^\d{1,2}V$")
 _MOTOR_CONFIG = re.compile(r"^V\d{1,2}$")
 
@@ -1415,13 +1425,20 @@ def _canonizar_cilindrada(tok: str) -> Optional[str]:
     """'1,6'/'1.6' -> '1.6'; '1600'/'1584' -> '1.6'. None se não é cilindrada."""
     m = _MOTOR_CILINDRADA.match(tok)
     if m:
+        # Mesmo piso do _MOTOR_CC, agora na forma decimal: "0.5"/"0.8" não é
+        # cilindrada de carro — é o resto de um número que era nome (o "500"
+        # do Fiat 500 e do Mercedes SL 500, o "800" do Gurgel BR-800). Alguns
+        # acertavam por coincidência, mas nenhum vinha de informação de motor.
+        if m.group(1) == "0":
+            return None
         return f"{m.group(1)}.{m.group(2)}"
     m = _MOTOR_CC.match(tok)
     if m:
         cc = int(m.group(1))
-        # Faixa plausível de motor de carro/moto em cc. Fora disso não é
-        # cilindrada (código de modelo, número solto) e segue o fluxo normal.
-        if 500 <= cc <= 8000:
+        # Faixa plausível de motor de carro em cc (ver comentário de
+        # _MOTOR_CC sobre o piso). Fora disso não é cilindrada — é código de
+        # modelo ou número solto — e segue o fluxo normal.
+        if 1000 <= cc <= 8000:
             return f"{cc / 1000:.1f}"
     return None
 
@@ -1669,12 +1686,59 @@ def _e_enumeracao_versoes(
     return False
 
 
+def _revalidar_motor(motor: Optional[str]) -> Optional[str]:
+    """
+    Passa um `motor` já gravado pelas regras atuais e remonta na forma
+    canônica, descartando o que deixou de valer. Devolve None se não sobrar
+    nada. Idempotente.
+    """
+    if not motor:
+        return None
+    cilindrada: Optional[str] = None
+    valvulas: list[str] = []
+    combustivel: list[str] = []
+    for t in normalizar_texto(motor).split():
+        cc = _canonizar_cilindrada(t)
+        if cc:
+            cilindrada = cilindrada or cc
+        elif (_MOTOR_VALVULAS.match(t) or _MOTOR_CONFIG.match(t)) and t not in valvulas:
+            valvulas.append(t)
+        elif t in _SPEC_COMBUSTIVEL and t not in combustivel:
+            combustivel.append(t)
+    partes = ([cilindrada] if cilindrada else []) + valvulas + combustivel
+    return " ".join(partes) or None
+
+
+def _titulo_tem_geracao(marca_norm: str, modelo_norm: str, titulo: str) -> bool:
+    """
+    True se o TÍTULO traz alguma marca de geração pelas regras atuais
+    ("Geração II", "G.III", "G3", o apelido "quadrado" do Gol).
+
+    Usado pra revalidar uma geração já gravada: se nem o título nem a versão
+    falam de geração, o valor é resíduo de uma regra antiga (o "GV" do Nissan
+    Maxima, que era trim, virava "geração V") e não deve sobreviver ao
+    reprocessamento.
+    """
+    tokens = normalizar_texto(titulo).split()
+    for i, t in enumerate(tokens):
+        prox = tokens[i + 1] if i + 1 < len(tokens) else ""
+        if t in _GERACAO_PALAVRA and prox in _ROMANOS:
+            return True
+        if _GERACAO_GLUED.match(t) and not _trim_catalogo(marca_norm, modelo_norm, t):
+            return True
+        if (marca_norm, modelo_norm, t) in _GERACAO_APELIDO:
+            return True
+    return False
+
+
 def decompor_versao(
     marca: str,
     modelo: str,
     versao: Optional[str],
     obs: Optional[str] = None,
     titulo: Optional[str] = None,
+    geracao: Optional[str] = None,
+    motor: Optional[str] = None,
 ) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """
     Separa o campo `versao` nos eixos que ele vinha misturando e devolve
@@ -1700,8 +1764,15 @@ def decompor_versao(
     "Kombi Standard/ Luxo/ Serie Prata 1989" não diz o trim daquele carro,
     mas "Gol Geração I CL 1.6" continua sendo geração I e motor 1.6).
 
-    Idempotente: rodar de novo no resultado devolve o mesmo resultado — é o
-    que permite reprocessar o banco em cima do que já foi gravado.
+    `geracao`/`motor` são os valores JÁ decompostos, quando existirem: numa
+    segunda passada a versão não os contém mais (eles saíram pra coluna
+    própria), então sem recebê-los de volta a função os devolveria vazios e
+    o reprocessamento apagaria o dado. Quando a versão traz o eixo de novo,
+    o extraído dela vence.
+
+    Idempotente sobre a TUPLA INTEIRA: `decompor_versao(m, md, *resultado)`
+    devolve o mesmo resultado — é o que permite reprocessar o banco em cima
+    do que já foi gravado sem perder nada.
 
     Exemplos:
         ('VOLKSWAGEN', 'GOL', 'GERACAO I CL')
@@ -1717,11 +1788,33 @@ def decompor_versao(
     modelo_norm = normalizar_texto(modelo or "")
     obs_existente = _limpar_tokens(normalizar_texto(obs or "").split())
 
+    # Eixos que já saíram numa passada anterior — preservados quando a versão
+    # não os traz de novo (senão o reprocessamento apagaria o dado). O motor
+    # é REVALIDADO pelas regras atuais em vez de aceito como está: um valor
+    # gravado por uma versão anterior do código pode ter virado inválido
+    # (foi o caso das cilindradas abaixo de 1.0, que vinham de número que era
+    # nome). Assim uma regra nova alcança o que já está no banco, sem
+    # depender de o dado bruto original ainda existir.
+    geracao_previa = normalizar_texto(geracao or "").strip() or None
+    # Mesma revalidação, agora contra o título: uma geração gravada por regra
+    # antiga só sobrevive se o título ainda a sustenta. Sem título não dá pra
+    # revalidar — mantém (não inventar nem apagar às cegas).
+    if geracao_previa and titulo and not _titulo_tem_geracao(
+        marca_norm, modelo_norm, titulo
+    ):
+        geracao_previa = None
+    motor_previo = _revalidar_motor(motor)
+
     bruta = (versao or "").strip()
     if not bruta:
-        return (None, None, None, " ".join(obs_existente) or None)
+        return (None, geracao_previa, motor_previo, " ".join(obs_existente) or None)
     if normalizar_texto(bruta) in _VERSOES_PRESERVADAS:
-        return (normalizar_texto(bruta), None, None, " ".join(obs_existente) or None)
+        return (
+            normalizar_texto(bruta),
+            geracao_previa,
+            motor_previo,
+            " ".join(obs_existente) or None,
+        )
 
     # Mesma tokenização do modelo (descola cilindrada/abreviação coladas), mas
     # sem as tabelas de nome de modelo — aqui o campo já é só a cauda.
@@ -1760,8 +1853,11 @@ def decompor_versao(
                 continue
             # "G"/"G." sem romano depois: não é geração, segue o fluxo.
         m = _GERACAO_GLUED.match(t)
-        if m:
-            romano = _ROMANOS.get(m.group(1))
+        # Segunda guarda além da forma do token (ver _GERACAO_GLUED): se o
+        # token é trim conhecido DAQUELE carro no catálogo, é trim, não
+        # geração.
+        if m and not _trim_catalogo(marca_norm, modelo_norm, t):
+            romano = _ROMANOS.get(m.group(1) or m.group(2) or m.group(3))
             if romano:
                 geracao_tokens.append(romano)
                 i += 1
@@ -1842,17 +1938,30 @@ def decompor_versao(
             if parte not in canon:
                 canon.append(parte)
 
+    # Carroceria só reconhecível DEPOIS de canonizada ("Furg." -> FURGAO,
+    # "conv." -> CONVERSIVEL, expandidos pelo vocabulário do catálogo): a
+    # classificação do loop viu a forma abreviada, que não está em
+    # _CARROCERIA_TRACAO, e mandou pra versão. Sem esta segunda olhada a
+    # função não é idempotente — a passada seguinte, já com o token cheio,
+    # daria um resultado diferente (achado comparando duas passadas do
+    # reprocessamento).
+    for t in list(canon):
+        if t in _CARROCERIA_TRACAO:
+            canon.remove(t)
+            if t not in obs_tokens:
+                obs_tokens.append(t)
+
     motor_partes: list[str] = []
     if cilindrada:
         motor_partes.append(cilindrada)
     motor_partes.extend(valvulas)
     motor_partes.extend(combustivel)
 
-    geracao = " ".join(_limpar_tokens(geracao_tokens)) or None
-    motor = " ".join(motor_partes) or None
+    geracao_final = " ".join(_limpar_tokens(geracao_tokens)) or geracao_previa
+    motor_final = " ".join(motor_partes) or motor_previo
     obs_final = " ".join(_limpar_tokens(obs_tokens)) or None
 
     if _e_enumeracao_versoes(titulo or "", marca_norm, modelo_norm, canon):
-        return (VERSAO_AGREGADA, geracao, motor, obs_final)
+        return (VERSAO_AGREGADA, geracao_final, motor_final, obs_final)
 
-    return (" ".join(canon) or None, geracao, motor, obs_final)
+    return (" ".join(canon) or None, geracao_final, motor_final, obs_final)

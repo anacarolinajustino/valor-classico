@@ -42,7 +42,8 @@
         Todo par marca/modelo distinto do banco, numa lista só — sem a cascata de filtro
         (que só mostra os modelos de uma marca por vez). Útil pra achar grafias fragmentadas
         do mesmo modelo (ex.: "BAND" ao lado de "BANDEIRANTE").
-        Clique no número de anúncios pra consultar o grupo daquele par.
+        Clique no número de anúncios pra consultar o grupo daquele par, ou no número de
+        versões pra ver as versões dele (e, de lá, os anúncios de cada uma).
       </p>
       <div class="an-filters">
         <div class="an-filter-group">
@@ -71,10 +72,12 @@
               <th class="an-th an-th--sortable" data-col="marca" onclick="ordenarMarcaModelo('marca')">Marca <span class="an-sort-icon" id="mm-sort-marca">↑</span></th>
               <th class="an-th an-th--sortable" data-col="modelo" onclick="ordenarMarcaModelo('modelo')">Modelo <span class="an-sort-icon" id="mm-sort-modelo"></span></th>
               <th class="an-th an-th--sortable an-th--num" data-col="qtd" onclick="ordenarMarcaModelo('qtd')">Anúncios <span class="an-sort-icon" id="mm-sort-qtd"></span></th>
+              <th class="an-th an-th--sortable an-th--num" data-col="versoes" onclick="ordenarMarcaModelo('versoes')"
+                  title="Recortes (versão, geração) distintos deste par — clique no número pra consultá-los">Versões <span class="an-sort-icon" id="mm-sort-versoes"></span></th>
             </tr>
           </thead>
           <tbody id="mm-tbody">
-            <tr><td colspan="3" class="an-empty">Carregando…</td></tr>
+            <tr><td colspan="4" class="an-empty">Carregando…</td></tr>
           </tbody>
         </table>
       </div>
@@ -145,6 +148,12 @@
           <label class="an-filter-label" for="filter-versao">Versão</label>
           <select id="filter-versao" class="an-filter-select" disabled>
             <option value="">Selecione um modelo</option>
+          </select>
+        </div>
+        <div class="an-filter-group hidden" id="filter-geracao-group">
+          <label class="an-filter-label" for="filter-geracao">Geração</label>
+          <select id="filter-geracao" class="an-filter-select" disabled>
+            <option value="">Todas</option>
           </select>
         </div>
         <div class="an-filter-group">

@@ -1028,6 +1028,17 @@ class TestDecomporVersaoGeracao:
         assert decompor_versao("VOLKSWAGEN", "GOL", "BOLA")[1] == "III"
         assert decompor_versao("VOLKSWAGEN", "GOL", "QUADRADO")[1] == "I"
 
+    def test_g_mais_romano_de_uma_letra_colado_nao_e_geracao(self):
+        # "GV"/"GI"/"GX" são trim de verdade em vários carros — o Nissan
+        # Maxima "30GV/GV" virava "geração V" (achado conferindo as gerações
+        # gravadas depois do primeiro reprocessamento). Romano de uma letra
+        # só conta com o ponto separando.
+        assert decompor_versao("NISSAN", "MAXIMA", "30GV GV AERO")[1] is None
+        assert decompor_versao("VOLKSWAGEN", "GOL", "GV")[1] is None
+        assert decompor_versao("VOLKSWAGEN", "GOL", "G.V")[1] == "V"
+        # Dígito e romano de 2+ letras não têm essa ambiguidade.
+        assert decompor_versao("VOLKSWAGEN", "GOL", "GII")[1] == "II"
+
     def test_apelido_de_geracao_e_scoped_por_modelo(self):
         # "Bola"/"quadrado" só são geração no Gol — noutro carro seguem
         # como texto normal, sem virar geração.
@@ -1200,22 +1211,62 @@ class TestVersaoAgregada:
 
 
 class TestDecomporVersaoIdempotente:
+    # Casos que exercitam os quatro eixos e as duas rodadas de canonização.
+    CASOS = [
+        ("VOLKSWAGEN", "GOL", "GERACAO I CL", None, None),
+        ("VOLKSWAGEN", "GOL", "1.6 CL 8V GASOLINA 2P MANUAL", None, None),
+        ("FORD", "ESCORT", "GL SW", None, None),
+        ("CHEVROLET", "OPALA", "COMOD", None, None),
+        ("VOLKSWAGEN", "FUSCA", "1300L", None, None),
+        ("FIAT", "FIORINO", "FURG", None, None),
+        ("CHEVROLET", "CAMARO", "Z-28 TARGA CONV", None, None),
+        ("VOLKSWAGEN", "PASSAT", "L LS GL", None,
+         "Volkswagen Passat L/ LS/ GL 1984"),
+    ]
+
     def test_segunda_passada_devolve_o_mesmo_resultado(self):
         # O reprocessamento retroativo roda em cima do que já está gravado,
-        # então a função precisa ser estável.
-        casos = [
-            ("VOLKSWAGEN", "GOL", "GERACAO I CL"),
-            ("VOLKSWAGEN", "GOL", "1.6 CL 8V GASOLINA 2P MANUAL"),
-            ("FORD", "ESCORT", "GL SW"),
-            ("CHEVROLET", "OPALA", "COMOD"),
-            ("VOLKSWAGEN", "FUSCA", "1300L"),
-        ]
-        for marca, modelo, versao in casos:
-            v1, g1, m1, o1 = decompor_versao(marca, modelo, versao)
-            v2, g2, m2, o2 = decompor_versao(marca, modelo, v1, o1)
-            assert (v1, o1) == (v2, o2)
-            # geração/motor já saíram no 1º passe e não voltam a aparecer
-            assert (g2, m2) == (None, None)
+        # realimentando os QUATRO campos — é assim que a estabilidade tem de
+        # ser medida. Comparar só versão/obs escondia dois bugs reais: a
+        # geração e o motor sumiam por não voltarem como entrada, e a
+        # carroceria que só aparece depois de canonizada ("FURG" -> FURGAO,
+        # "CONV" -> CONVERSIVEL) migrava pra obs só na 2ª rodada.
+        for marca, modelo, versao, obs, titulo in self.CASOS:
+            r1 = decompor_versao(marca, modelo, versao, obs, titulo)
+            r2 = decompor_versao(marca, modelo, r1[0], r1[3], titulo, r1[1], r1[2])
+            assert r1 == r2, f"{marca} {modelo} {versao!r}: {r1} != {r2}"
+
+    def test_geracao_e_motor_ja_gravados_sobrevivem(self):
+        # O caso direto do que o reprocessamento faz: a versão já está limpa
+        # e os eixos moram nas colunas próprias.
+        assert decompor_versao(
+            "VOLKSWAGEN", "GOL", "CL", None, None, "I", "1.6 8V GASOLINA"
+        ) == ("CL", "I", "1.6 8V GASOLINA", None)
+
+    def test_eixo_vindo_da_versao_vence_o_ja_gravado(self):
+        # Se a versão traz o eixo de novo (recoleta com dado melhor), o que
+        # sai dela é o que vale.
+        assert decompor_versao(
+            "VOLKSWAGEN", "GOL", "GERACAO II CL", None, None, "I", None
+        ) == ("CL", "II", None, None)
+
+    def test_carroceria_canonizada_sai_da_versao_na_primeira_passada(self):
+        # "Furg."/"conv." são expandidos pelo vocabulário do catálogo; depois
+        # de expandidos são carroceria, e carroceria vai pra obs.
+        assert decompor_versao("FIAT", "FIORINO", "FURG") == (
+            None, None, None, "FURGAO"
+        )
+        assert decompor_versao("CHEVROLET", "CAMARO", "Z-28 TARGA CONV") == (
+            "Z-28 TARGA", None, None, "CONVERSIVEL"
+        )
+
+    def test_numero_baixo_nao_vira_cilindrada(self):
+        # "500"/"600"/"964" são nome de modelo ou código de chassi, não motor
+        # (Honda CB 500, Yamaha Teneré 600, Porsche 911 "964").
+        assert decompor_versao("HONDA", "CB 500", "500 FOUR")[2] is None
+        assert decompor_versao("PORSCHE", "911", "CARRERA 4 964")[2] is None
+        # Quatro dígitos a partir de 1000 continuam sendo cilindrada.
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "1600")[2] == "1.6"
 
     def test_versao_vazia_ou_none(self):
         assert decompor_versao("VOLKSWAGEN", "GOL", None) == (None, None, None, None)

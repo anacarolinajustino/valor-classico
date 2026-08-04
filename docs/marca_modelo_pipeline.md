@@ -172,6 +172,16 @@ buggy/hot rod: vale pra toda fonte e não depende de o conector lembrar. A Webmo
 necessidade: gravava `Version.Value` cru e era a única fonte da base com acento (1.418) e barra
 (101) no campo.
 
+**Idempotência** é requisito, não detalhe: o reprocessamento roda em cima do que já está gravado, e
+os quatro campos precisam ser realimentados (`decompor_versao(marca, modelo, *resultado)` devolve o
+mesmo resultado). Duas armadilhas achadas comparando duas passadas seguidas, ambas cobertas por
+teste: (1) sem receber `geracao`/`motor` de volta, a função os devolvia vazios e o UPDATE apagava a
+coluna; (2) carroceria que só é reconhecível depois de canonizada (`"Furg."`→FURGAO,
+`"conv."`→CONVERSIVEL) ficava na versão na 1ª rodada e migrava pra obs só na 2ª. Os valores
+prévios de `motor` e `geracao` são **revalidados** pelas regras atuais (o motor pelos seus próprios
+tokens, a geração contra o título) em vez de aceitos como estão — assim uma regra nova alcança o
+que já está no banco, mesmo sem o dado bruto original.
+
 Duas peças de apoio:
 
 - **Vocabulário de trim do catálogo** (`canonizar_trim`, em `catalog/loader.py`): tira a spec da
@@ -254,7 +264,7 @@ carros) documentados para rodada seguinte.
 
 Ao mudar `normalizer.py`, rodar `pytest tests/test_normalizer.py` (regra geral do projeto: toda
 correção de padrão vem com teste de regressão, não só o dado corrigido) e o restante da suíte
-(`pytest tests/`, 328 testes em ~30s) antes de reprocessar o banco.
+(`pytest tests/`, 333 testes em ~30s) antes de reprocessar o banco.
 
 ## 8. Linha do tempo (referência rápida)
 

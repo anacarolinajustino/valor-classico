@@ -55,6 +55,21 @@ def _arg_limite() -> int | None:
         sys.exit(1)
 
 
+def _decompor(r) -> tuple:
+    """
+    Decompõe uma linha do banco realimentando os QUATRO campos.
+
+    Passar `geracao`/`motor` de volta é obrigatório: numa segunda rodada a
+    versão já não os contém (saíram pra coluna própria na primeira), e sem
+    eles a função devolveria vazio — o UPDATE apagaria o dado. Foi o que uma
+    segunda passada de dry-run mostrou antes de existir esta função.
+    """
+    return decompor_versao(
+        r["marca"] or "", r["modelo"] or "",
+        r["versao"], r["obs"], r["titulo"], r["geracao"], r["motor"],
+    )
+
+
 def main() -> None:
     aplicar = "--apply" in sys.argv
     limite = _arg_limite()
@@ -76,10 +91,7 @@ def main() -> None:
         mudancas: list[tuple[int, tuple, tuple]] = []
         for r in rows:
             velho = (r["versao"], r["geracao"], r["motor"], r["obs"])
-            novo = decompor_versao(
-                r["marca"] or "", r["modelo"] or "",
-                r["versao"], r["obs"], r["titulo"],
-            )
+            novo = _decompor(r)
             if novo != velho:
                 mudancas.append((r["id"], velho, novo))
 
@@ -98,13 +110,7 @@ def main() -> None:
             (r["marca"] or "", r["modelo"] or "", r["versao"] or "")
             for r in rows
         )
-        depois_map = {
-            r["id"]: decompor_versao(
-                r["marca"] or "", r["modelo"] or "",
-                r["versao"], r["obs"], r["titulo"],
-            )
-            for r in rows
-        }
+        depois_map = {r["id"]: _decompor(r) for r in rows}
         depois = Counter(
             (r["marca"] or "", r["modelo"] or "",
              depois_map[r["id"]][0] or "", depois_map[r["id"]][1] or "")
