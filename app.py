@@ -15,6 +15,7 @@ Endpoints:
   GET  /admin/api/anuncios                → dados paginados de /admin/anuncios
   GET  /admin/api/marca-modelo            → todos os pares (marca, modelo) distintos, sem cascata
   GET  /admin/api/versoes-do-par          → versões (com geração) de um par (?marca=&modelo=)
+  GET  /admin/api/exportar                → baixa snapshot CSV da base (?tipo=anuncios|resumo)
   GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=&versao=)
   GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
@@ -22,16 +23,19 @@ Endpoints:
 """
 from __future__ import annotations
 
+import csv
 import importlib
+import io
 import logging
 import sys
 import threading
 import uuid
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, redirect, request, send_from_directory
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
 # Garante que o diretório raiz do projeto está no path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -56,6 +60,10 @@ from src.pipeline.persistence import (
     listar_marca_modelo_pares,
     listar_versoes_do_par,
     upsert_anuncios,
+    COLUNAS_EXPORT_ANUNCIOS,
+    COLUNAS_EXPORT_RESUMO,
+    exportar_anuncios,
+    exportar_resumo,
 )
 
 logging.basicConfig(
@@ -236,6 +244,83 @@ def admin_api_marca_modelo():
         return jsonify({"pares": listar_marca_modelo_pares()})
     except Exception as exc:
         logger.error("admin_api_marca_modelo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+# ── Exportação CSV (série histórica) ──────────────────────────────────────
+#
+# O CSV sai no padrão brasileiro — separador ";" e vírgula decimal — porque o
+# destino é abrir no Excel em português com um duplo clique. Com "," de
+# separador o Excel pt-BR joga a linha inteira numa coluna só. O BOM
+# (utf-8-sig) é o que faz o Excel reconhecer o acento.
+
+def _fmt_csv(valor: Any) -> str:
+    """Valor de célula no padrão BR: vazio pra None, vírgula decimal."""
+    if valor is None:
+        return ""
+    if isinstance(valor, float):
+        # Preço não tem centavo relevante aqui, mas mantém 2 casas pra não
+        # perder precisão de média/mediana.
+        return f"{valor:.2f}".replace(".", ",")
+    return str(valor)
+
+
+def _csv_streaming(linhas, colunas: list[str], nome_base: str) -> Response:
+    """
+    Monta a resposta CSV escrevendo conforme lê do banco (sem materializar o
+    arquivo inteiro em memória).
+    """
+    hoje = date.today().isoformat()
+
+    def drenar(buffer: io.StringIO) -> str:
+        """Tira o que o writer acabou de escrever e zera o buffer."""
+        conteudo = buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+        return conteudo
+
+    def gerar():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+        yield "﻿"   # BOM: faz o Excel reconhecer o UTF-8
+        writer.writerow(colunas)
+        yield drenar(buffer)
+        for linha in linhas:
+            writer.writerow([_fmt_csv(linha.get(c)) for c in colunas])
+            yield drenar(buffer)
+
+    nome = f"{nome_base}_{hoje}.csv"
+    return Response(
+        gerar(),
+        mimetype="text/csv",   # o Flask acrescenta o charset
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
+
+
+@app.route("/admin/api/exportar")
+def admin_api_exportar():
+    """
+    Baixa um snapshot datado da base em CSV, pra empilhar fora do sistema e
+    formar a série histórica (o banco guarda só o estado atual — ver o
+    comentário em `persistence.exportar_anuncios`).
+
+    ?tipo=anuncios (padrão) — um anúncio por linha, dado granular
+    ?tipo=resumo            — uma linha por (marca, modelo, versão, geração,
+                              ano) com as estatísticas de preço
+    """
+    tipo = request.args.get("tipo", "anuncios").strip().lower()
+    if tipo not in ("anuncios", "resumo"):
+        return jsonify({"erro": "tipo deve ser 'anuncios' ou 'resumo'."}), 400
+    try:
+        if tipo == "resumo":
+            return _csv_streaming(
+                exportar_resumo(), COLUNAS_EXPORT_RESUMO, "valor-classico_resumo"
+            )
+        return _csv_streaming(
+            exportar_anuncios(), COLUNAS_EXPORT_ANUNCIOS, "valor-classico_anuncios"
+        )
+    except Exception as exc:
+        logger.error("admin_api_exportar erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

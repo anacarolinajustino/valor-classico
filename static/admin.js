@@ -226,5 +226,34 @@ async function coletarTodos() {
   document.querySelectorAll('.admin-btn-coletar').forEach(b => b.disabled = false);
 }
 
+// ── Exportação CSV ─────────────────────────────
+/**
+ * Baixa o snapshot da base. O arquivo vem em streaming do servidor (a base
+ * inteira tem dezenas de milhares de linhas), então o clique só navega até a
+ * rota — o navegador cuida do download e do nome do arquivo, que já vem
+ * datado no Content-Disposition.
+ *
+ * Os botões ficam desabilitados por alguns segundos porque o servidor demora
+ * a mandar o primeiro byte (a query agrega a base toda) e, sem isso, um
+ * segundo clique dispararia outra query pesada em paralelo.
+ */
+function exportar(tipo) {
+  const botoes = [
+    document.getElementById('btn-exportar-resumo'),
+    document.getElementById('btn-exportar-anuncios'),
+  ];
+  const status = document.getElementById('export-status');
+  botoes.forEach(b => { if (b) b.disabled = true; });
+  status.textContent = 'Gerando o arquivo… o download começa em instantes.';
+  status.className = 'admin-export-status';
+
+  window.location.href = `/admin/api/exportar?tipo=${encodeURIComponent(tipo)}`;
+
+  setTimeout(() => {
+    botoes.forEach(b => { if (b) b.disabled = false; });
+    status.textContent = 'Se o download não começar, verifique se o navegador bloqueou o arquivo.';
+  }, 5000);
+}
+
 // ── Init ───────────────────────────────────────
 carregarStatus();

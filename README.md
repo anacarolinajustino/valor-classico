@@ -91,6 +91,22 @@ Acesse o painel em: `http://127.0.0.1:5001/` (redireciona para `/admin`)
 | GET | `/admin/api/status` | Total de anúncios por fonte + lista de conectores |
 | POST | `/admin/api/coletar` | Dispara coleta assíncrona de uma fonte (`{"fonte": "..."}`) |
 | GET | `/admin/api/coletar-status/<task_id>` | Consulta status/resultado de uma coleta em andamento |
+| GET | `/admin/api/exportar` | Baixa snapshot CSV da base (`?tipo=anuncios` ou `?tipo=resumo`) |
+
+### Série histórica
+
+O banco guarda só o estado **atual**: o upsert por `(fonte, url)` sobrescreve o anúncio que
+reaparece e move `ultima_vista`, então o preço anterior se perde quando muda. Para acompanhar preço
+ao longo do tempo, use **Exportar base** no painel depois de cada coleta e guarde os arquivos —
+toda linha traz a coluna `data_extracao`, então basta empilhá-los.
+
+- `tipo=resumo` — uma linha por marca/modelo/versão/geração/ano, com quantidade, média, mediana e
+  faixa de preço. É o formato direto para a série (~7 mil linhas).
+- `tipo=anuncios` — a base inteira, um anúncio por linha (~33 mil linhas), para recalcular outros
+  recortes depois.
+
+CSV no padrão brasileiro: separador `;`, vírgula decimal e BOM, para abrir no Excel em português
+com duplo clique.
 
 ## Como rodar os testes
 

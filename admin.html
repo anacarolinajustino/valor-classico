@@ -66,6 +66,33 @@
       </div>
     </section>
 
+    <!-- Exportação: snapshot datado da base, pra montar a série histórica -->
+    <section class="admin-section">
+      <h2 class="admin-section-title">Exportar base</h2>
+      <p class="admin-section-hint">
+        O banco guarda só o estado <strong>atual</strong> da coleta: quando um anúncio muda de
+        preço, o valor anterior é sobrescrito. Baixe um arquivo depois de cada coleta e guarde os
+        arquivos juntos — como toda linha traz a coluna <code>data_extracao</code>, basta empilhá-los
+        para ter a série histórica. CSV no padrão brasileiro (separador <code>;</code> e vírgula
+        decimal), abre no Excel com duplo clique.
+      </p>
+      <div class="admin-export-acoes">
+        <button class="btn btn-primary" id="btn-exportar-resumo" onclick="exportar('resumo')">
+          Exportar resumo por modelo
+        </button>
+        <button class="btn btn-outline" id="btn-exportar-anuncios" onclick="exportar('anuncios')">
+          Exportar anúncios (base completa)
+        </button>
+      </div>
+      <p class="admin-section-hint admin-export-nota">
+        O <strong>resumo</strong> traz uma linha por marca/modelo/versão/geração/ano com quantidade,
+        média, mediana e faixa de preço — é o formato direto para a série. Os
+        <strong>anúncios</strong> trazem a base inteira, um anúncio por linha, para quando você
+        quiser recalcular algo diferente depois.
+      </p>
+      <p class="admin-export-status" id="export-status"></p>
+    </section>
+
     <!-- Coleta por fonte -->
     <section class="admin-section">
       <h2 class="admin-section-title">Coleta por fonte</h2>

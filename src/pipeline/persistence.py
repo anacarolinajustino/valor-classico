@@ -913,6 +913,108 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
             return [dict(r) for r in cur.fetchall()]
 
 
+# ── Exportação (série histórica) ─────────────────────────────────────────────
+#
+# O banco guarda o estado ATUAL da coleta: o upsert por (fonte, url) sobrescreve
+# o anúncio que reaparece e só move `ultima_vista`. Isso é o certo pra não
+# duplicar anúncio, mas quer dizer que o histórico de preço não se acumula
+# sozinho — quando um anúncio muda de preço, o valor anterior some.
+#
+# A exportação existe pra isso (pedido da usuária 2026-08-04): baixar um
+# snapshot datado a cada coleta e empilhar os arquivos fora do sistema, o que
+# monta a série histórica. Toda linha leva `data_extracao` justamente pra que
+# os arquivos possam ser concatenados sem perder de qual dia é cada uma.
+#
+# (Existe uma tabela `historico_precos` no schema, com `upsert_preco`, que
+# guardaria isso no próprio banco — mas nunca foi ligada ao pipeline e está
+# vazia. A exportação não depende dela.)
+
+# Colunas do snapshot de anúncios, na ordem do arquivo.
+COLUNAS_EXPORT_ANUNCIOS = [
+    "data_extracao", "fonte", "marca", "modelo", "versao", "geracao", "motor",
+    "obs", "ano", "preco", "titulo", "url", "primeira_vista", "ultima_vista",
+]
+
+# Colunas do resumo por grupo — o formato mais direto pra série histórica:
+# uma linha por (marca, modelo, versão, geração, ano) por data.
+COLUNAS_EXPORT_RESUMO = [
+    "data_extracao", "marca", "modelo", "versao", "geracao", "ano",
+    "anuncios", "com_preco", "preco_medio", "preco_mediano",
+    "preco_min", "preco_max",
+]
+
+
+def exportar_anuncios(data_extracao: str | None = None):
+    """
+    Gera (em streaming) todos os anúncios do banco como dicts, na ordem de
+    `COLUNAS_EXPORT_ANUNCIOS`, com a data do snapshot em cada linha.
+
+    Cursor nomeado (server-side) pra não carregar as 33 mil linhas inteiras na
+    memória do processo — a rota escreve o CSV conforme lê.
+    """
+    data = data_extracao or date.today().isoformat()
+    with _connect() as conn:
+        # Cursor nomeado = server-side: o psycopg2 busca por lotes.
+        with conn.cursor(name="export_anuncios") as cur:
+            cur.itersize = 2000
+            cur.execute(
+                """
+                SELECT fonte, marca, modelo, versao, geracao, motor, obs, ano,
+                       preco, titulo, url, primeira_vista, ultima_vista
+                FROM anuncios
+                ORDER BY marca, modelo, ano, id
+                """
+            )
+            for r in cur:
+                linha = dict(r)
+                linha["data_extracao"] = data
+                yield linha
+
+
+def exportar_resumo(data_extracao: str | None = None):
+    """
+    Gera (em streaming) o resumo por (marca, modelo, versão, geração, ano) com
+    contagem e estatísticas de preço — uma linha por grupo, carimbada com a
+    data do snapshot.
+
+    É o recorte que a calculadora usa, no formato que empilha direto numa
+    série histórica: concatenando os arquivos de vários dias, cada grupo vira
+    uma série de preço médio ao longo do tempo.
+
+    Anúncios sem preço (ou "sob consulta") contam em `anuncios` mas ficam fora
+    das estatísticas — mesma regra da calculadora, pra que os dois números
+    batam.
+    """
+    data = data_extracao or date.today().isoformat()
+    with _connect() as conn:
+        with conn.cursor(name="export_resumo") as cur:
+            cur.itersize = 2000
+            cur.execute(
+                """
+                SELECT marca,
+                       COALESCE(modelo, '')  AS modelo,
+                       COALESCE(versao, '')  AS versao,
+                       COALESCE(geracao, '') AS geracao,
+                       ano,
+                       COUNT(*)                              AS anuncios,
+                       COUNT(preco) FILTER (WHERE preco > 0) AS com_preco,
+                       AVG(preco)   FILTER (WHERE preco > 0) AS preco_medio,
+                       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco)
+                           FILTER (WHERE preco > 0)          AS preco_mediano,
+                       MIN(preco)   FILTER (WHERE preco > 0) AS preco_min,
+                       MAX(preco)   FILTER (WHERE preco > 0) AS preco_max
+                FROM anuncios
+                WHERE marca IS NOT NULL
+                GROUP BY 1, 2, 3, 4, 5
+                ORDER BY 1, 2, 3, 4, 5
+                """
+            )
+            for r in cur:
+                linha = dict(r)
+                linha["data_extracao"] = data
+                yield linha
+
+
 def listar_versoes_do_par(marca: str, modelo: str) -> list[dict[str, Any]]:
     """
     Versões de um par (marca, modelo) EXATO, com contagem, faixa de ano e

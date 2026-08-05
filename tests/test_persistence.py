@@ -13,6 +13,10 @@ import pytest
 from src.pipeline.persistence import (
     ANO_CORTE_CLASSICO,
     CHART_MIN_DIAS,
+    COLUNAS_EXPORT_ANUNCIOS,
+    COLUNAS_EXPORT_RESUMO,
+    exportar_anuncios,
+    exportar_resumo,
     excluir_marca_modelo,
     get_dashboard_stats,
     get_media_modelo,
@@ -571,3 +575,85 @@ class TestGetMaisPesquisados:
     def test_retorna_vazio_sem_dados(self):
         resultado = get_mais_pesquisados()
         assert resultado["ranking"] == []
+
+
+# ── Exportação CSV (snapshot pra série histórica) ─────────────────────────────
+
+class TestExportacao:
+    def _semear(self):
+        upsert_anuncios([
+            _anuncio("http://x/1", 1985, marca="VOLKSWAGEN", modelo="GOL",
+                     versao="GERACAO I CL"),
+            _anuncio("http://x/2", 1985, marca="VOLKSWAGEN", modelo="GOL",
+                     versao="GERACAO I CL"),
+            _anuncio("http://x/3", 1990, marca="CHEVROLET", modelo="OPALA",
+                     versao="COMODORO"),
+        ])
+
+    def test_anuncios_saem_com_a_data_do_snapshot(self):
+        # `data_extracao` em toda linha é o que permite empilhar os arquivos
+        # de vários dias e formar a série histórica.
+        self._semear()
+        linhas = list(exportar_anuncios("2026-08-04"))
+        assert len(linhas) == 3
+        assert {l["data_extracao"] for l in linhas} == {"2026-08-04"}
+        assert set(COLUNAS_EXPORT_ANUNCIOS) <= set(linhas[0])
+
+    def test_anuncios_trazem_os_eixos_da_versao_separados(self):
+        self._semear()
+        gol = [l for l in exportar_anuncios("2026-08-04") if l["modelo"] == "GOL"][0]
+        assert (gol["versao"], gol["geracao"]) == ("CL", "I")
+
+    def test_resumo_agrupa_por_recorte_e_conta(self):
+        # Uma linha por (marca, modelo, versão, geração, ano) — o formato que
+        # empilha direto numa série de preço médio.
+        self._semear()
+        linhas = list(exportar_resumo("2026-08-04"))
+        assert set(COLUNAS_EXPORT_RESUMO) <= set(linhas[0])
+        gol = [l for l in linhas if l["modelo"] == "GOL"]
+        assert len(gol) == 1
+        assert gol[0]["anuncios"] == 2
+        assert gol[0]["com_preco"] == 2
+        assert float(gol[0]["preco_medio"]) == 50000.0
+        assert gol[0]["data_extracao"] == "2026-08-04"
+
+    def test_resumo_nao_conta_sem_preco_nas_estatisticas(self):
+        # Anúncio "sob consulta" entra na contagem, não na média — mesma
+        # regra da calculadora, pra que os dois números batam.
+        a = _anuncio("http://x/9", 1985, marca="FIAT", modelo="UNO")
+        a.preco = None
+        upsert_anuncios([a, _anuncio("http://x/10", 1985, marca="FIAT", modelo="UNO")])
+        uno = [l for l in exportar_resumo() if l["modelo"] == "UNO"][0]
+        assert uno["anuncios"] == 2
+        assert uno["com_preco"] == 1
+
+    def test_base_vazia_nao_quebra(self):
+        assert list(exportar_anuncios()) == []
+        assert list(exportar_resumo()) == []
+
+
+class TestRotaExportar:
+    def test_csv_sai_no_padrao_brasileiro(self, client):
+        # Separador ";", vírgula decimal e BOM — é o que o Excel em português
+        # abre com duplo clique sem embaralhar colunas nem acento.
+        upsert_anuncios([_anuncio("http://x/1", 1985, marca="VOLKSWAGEN", modelo="GOL")])
+        resp = client.get("/admin/api/exportar?tipo=resumo")
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/csv"
+        assert "attachment" in resp.headers["Content-Disposition"]
+        assert ".csv" in resp.headers["Content-Disposition"]
+        corpo = resp.get_data()
+        assert corpo.startswith("﻿".encode("utf-8"))
+        texto = corpo.decode("utf-8-sig")
+        assert texto.splitlines()[0].startswith("data_extracao;marca;modelo")
+        assert "50000,00" in texto
+
+    def test_tipo_invalido_da_400(self, client):
+        resp = client.get("/admin/api/exportar?tipo=xpto")
+        assert resp.status_code == 400
+
+    def test_tipo_padrao_e_anuncios(self, client):
+        upsert_anuncios([_anuncio("http://x/1", 1985)])
+        resp = client.get("/admin/api/exportar")
+        cabecalho = resp.get_data().decode("utf-8-sig").splitlines()[0]
+        assert cabecalho.startswith("data_extracao;fonte;marca")
