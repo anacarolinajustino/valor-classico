@@ -375,5 +375,37 @@ perdido" inflava a conta de 3.284 pra 5.122 — quase o dobro. A primeira mediç
 
 Virou a aba **"Sem versão"** de `/admin/pendencias`, agrupada por marca/modelo — 14 mil linhas
 não se tria à mão, e a pergunta que interessa ("onde há dado sendo perdido?") só aparece no
-agregado. A aba é diagnóstica; a correção do corte de spec é código, não curadoria, e **ainda
-não foi feita**.
+agregado.
+
+### A correção: pescar o trim na cauda
+
+`_trims_na_cauda` varre o que ficou DEPOIS do corte e recupera o que o catálogo avaliza como
+trim daquele carro exato. A exigência do catálogo é o que permite pescar ali sem trazer junto o
+resto da cauda, que é feita de spec e texto de venda ("aceito troca", "ótimo estado").
+
+A correção mora em `separar_modelo_versao_obs`, que roda nos CONECTORES — então
+`reprocessar_decomposicao_versao.py` não a alcança (ele parte do campo `versao`, que nesses
+anúncios está vazio). Daí `scripts/reprocessar_trim_da_cauda.py`, que parte do TÍTULO, com duas
+travas: só mexe onde `versao` está vazia, e só quando a marca/modelo re-inferidos BATEM com os
+gravados. A segunda trava pulou 80 anúncios e evitou estragos reais —
+`KARMANN-GHIA`→`KARMANN`, `380 SEC`→`380`, `E 320`→`BENZ`.
+
+Dois ajustes que o dry-run exigiu:
+
+- **Cilindrada casando com trim por prefixo.** O catálogo tem o trim `1.8S` no Gol, e a expansão
+  por prefixo de `canonizar_trim` casava a cilindrada `1.8` com ele: "Gol 1.8 Mi Gl" virava
+  versão `1.8 GL`. A cauda passou a descartar token de spec antes de consultar o catálogo.
+- **Cor que é edição, não pintura.** "Gol Geração III **Ouro**" e "Tempra **Ouro**" perdiam o
+  nome porque OURO está na lista de cores, cuja única exceção era vir depois de "Série". Agora
+  a cor sobrevive também quando o catálogo a lista como trim daquele carro. A exceção é estreita:
+  vale para 11 pares no catálogo inteiro (OURO, METAL, PRATA, PRETO). `PRATA` numa Caravan e
+  `VERDE` num Fusca continuam descartados.
+
+**Resultado.** Anúncios com versão: 19.425 → **22.570** (58% → 68% da base). Recuperáveis
+pendentes na aba: 3.284 → **445** (86% resolvidos). Conformidade dos que têm versão: 70,8% →
+**72,1%**.
+
+O resíduo de 445 é o que a trava de par divergente pulou, mais casos onde o trim recuperado é
+carroceria (vai pra `obs`) ou não está no catálogo — esses últimos dependem da curadoria da aba
+"Versões a conferir"; assim que o trim entra no suplemento de versão, `_trims_na_cauda` passa a
+pescá-lo sem mudança de código.

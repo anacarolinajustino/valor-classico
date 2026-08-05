@@ -1580,12 +1580,31 @@ def separar_modelo_versao_obs(marca: str, modelo: str) -> tuple[str, Optional[st
             obs_tokens.append(t)
         elif t in _CORES:
             # Cor nunca é informação de versão (usuária pediu 2026-07-20) —
-            # descartada, nem versão nem obs. Exceção: "Série Prata"/"Série
-            # Ouro" são edições reais da VW, não a cor da pintura; só
-            # protegida quando vem logo depois de "Série".
-            if i > 0 and tokens[i - 1] == "SERIE":
+            # descartada, nem versão nem obs. Duas exceções, ambas de edição
+            # que leva nome de cor:
+            #   - "Série Prata"/"Série Ouro", reconhecidas pela palavra antes;
+            #   - a cor É trim daquele carro no catálogo ("Gol Ouro",
+            #     "Chevette Ouro"). Sem esta, "Gol Geração III Ouro" perdia o
+            #     OURO em 456 anúncios (auditoria 2026-08-05). Vale pra 11
+            #     pares no catálogo inteiro — OURO, METAL, PRATA, PRETO —,
+            #     então não é porta aberta pra cor virar versão em geral.
+            if (i > 0 and tokens[i - 1] == "SERIE") or _trim_catalogo(
+                marca_norm, modelo_final, t
+            ):
                 versao_tokens.append(t)
         else:
+            versao_tokens.append(t)
+
+    # Pesca na cauda (depois do corte de spec) o trim que o catálogo avaliza:
+    # em muitos títulos ele vem DEPOIS da cilindrada e ficava perdido — ver
+    # `_trims_na_cauda`. Carroceria recuperada vai pra obs, como no laço acima.
+    for t in _trims_na_cauda(marca_norm, modelo_final, tokens, corte):
+        if t in modelo_tokens_set:
+            continue
+        if t in _CARROCERIA_TRACAO:
+            if t not in obs_tokens:
+                obs_tokens.append(t)
+        elif t not in versao_tokens:
             versao_tokens.append(t)
 
     versao_limpa = _limpar_tokens(versao_tokens)
@@ -1697,6 +1716,52 @@ def _e_enumeracao_versoes(
         if esq and dir_ and esq != dir_:
             return True
     return False
+
+
+def _trims_na_cauda(
+    marca_norm: str, modelo_norm: str, tokens: list[str], corte: int
+) -> list[str]:
+    """
+    Trims que ficaram DEPOIS do corte de spec e que o catálogo reconhece como
+    versão daquele carro exato.
+
+    O corte de spec (`_indice_corte_spec`) para no primeiro token de spec,
+    porque é ali que o NOME do modelo acaba. Mas em muitos títulos o trim vem
+    depois da cilindrada, e aí ele nunca era visto:
+
+        Chevrolet Blazer 1997 4.3 V6 Dlx 5p   -> corta em "4.3", perde o DLX
+        Volkswagen Gol 1.8 Mi Gl 8v Gasolina  -> corta em "1.8", perde o GL
+
+    Medido em 2026-08-05: 3.284 anúncios (23% dos que estavam sem versão)
+    tinham o trim ali na cauda.
+
+    Por que só o que o CATÁLOGO avaliza, em vez de varrer a cauda inteira: a
+    cauda é onde mora todo o lixo (spec, texto de venda, contato, estado de
+    conservação), e `separar_modelo_versao_obs` não tem filtro de spec — o
+    corte É o filtro dela. Exigir que o token seja trim conhecido daquele par
+    é o que permite pescar na cauda sem trazer o resto junto.
+
+    Consequência aceita: trim que o catálogo não lista (Corcel II "L", S10
+    "Luxe") continua não sendo recuperado aqui. Esses são a fila de curadoria
+    da aba "Versões a conferir" — depois de cadastrados no suplemento de
+    versão, passam a ser pescados por esta função sem mudança de código.
+    """
+    if not modelo_norm:
+        return []
+    achados: list[str] = []
+    for tok in tokens[corte:]:
+        limpo = tok.strip(".-")
+        if not limpo or limpo in achados:
+            continue
+        # Spec nunca é trim, mesmo quando o catálogo tem um trim parecido: a
+        # expansão por prefixo de `canonizar_trim` casava a cilindrada "1.8"
+        # com o trim "1.8S" do Gol e devolvia versão "1.8 GL". Na cauda esse
+        # risco é maior que no miolo, porque a cauda é feita de spec.
+        if _e_token_spec(limpo):
+            continue
+        if _trim_catalogo(marca_norm, modelo_norm, limpo):
+            achados.append(limpo)
+    return achados
 
 
 def _aparar_conectivos(tokens: list[str]) -> list[str]:
@@ -1996,8 +2061,12 @@ def decompor_versao(
             i += 1
             continue
         if t in _CORES:
-            # "Série Prata"/"Série Ouro" são edições reais da VW, não a cor.
-            if i > 0 and tokens[i - 1] == "SERIE":
+            # "Série Prata"/"Série Ouro" são edições reais da VW, não a cor —
+            # e o mesmo vale pra cor que o catálogo lista como trim daquele
+            # carro ("Gol Ouro"). Mesma regra de `separar_modelo_versao_obs`.
+            if (i > 0 and tokens[i - 1] == "SERIE") or _trim_catalogo(
+                marca_norm, modelo_norm, t
+            ):
                 versao_tokens.append(t)
             i += 1
             continue

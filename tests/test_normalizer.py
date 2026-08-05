@@ -720,8 +720,14 @@ class TestSepararModeloVersaoObs:
         assert separar_modelo_versao_obs("CHEVROLET", "Vectra Gsi 2.0 16V (modelo antigo)") == (
             "VECTRA", "GSI", None
         )
+
+    def test_carroceria_depois_da_spec_vai_pra_obs(self):
+        # Mudou em 2026-08-05: antes o CONVERSIVEL era descartado só por vir
+        # DEPOIS da cilindrada — o corte de spec parava ali e a cauda inteira
+        # sumia. Agora a cauda é pescada pelo vocabulário do catálogo (ver
+        # `_trims_na_cauda`) e a carroceria vai pro campo que sempre foi dela.
         assert separar_modelo_versao_obs("FORD", "Escort Xr3 1.8 Conversivel") == (
-            "ESCORT", "XR3", None
+            "ESCORT", "XR3", "CONVERSIVEL"
         )
 
     def test_bate_com_sanear_modelo_quando_nao_ha_obs(self):
@@ -770,8 +776,19 @@ class TestSepararModeloVersaoObs:
         assert separar_modelo_versao_obs("CHEVROLET", "Caravan Comodoro Prata") == (
             "CARAVAN", "COMODORO", None
         )
-        assert separar_modelo_versao_obs("FIAT", "Tempra Ouro") == ("TEMPRA", None, None)
         assert separar_modelo_versao_obs("VOLKSWAGEN", "Fusca Verde") == ("FUSCA", None, None)
+
+    def test_cor_que_e_trim_do_catalogo_e_edicao_nao_pintura(self):
+        # Mudou em 2026-08-05: "Tempra Ouro" e "Gol Ouro" são edições reais de
+        # fábrica, e o catálogo lista OURO como trim desses carros — antes o
+        # nome caía na regra geral de cor e sumia (456 anúncios). A exceção é
+        # estreita de propósito: vale só pros 11 pares do catálogo em que uma
+        # cor é trim (OURO, METAL, PRATA, PRETO). PRATA na Caravan e VERDE no
+        # Fusca, acima, continuam descartados — não são trim desses carros.
+        assert separar_modelo_versao_obs("FIAT", "Tempra Ouro") == ("TEMPRA", "OURO", None)
+        assert separar_modelo_versao_obs("VOLKSWAGEN", "Gol Geracao III Ouro") == (
+            "GOL", "GERACAO III OURO", None
+        )
 
     def test_serie_prata_ouro_sao_edicao_protegida(self):
         # "Série Prata"/"Série Ouro" são edições reais da VW (Fusca/Kombi),
@@ -1394,3 +1411,57 @@ class TestVersaoRegrasNovasIdempotentes:
             r1 = decompor_versao(marca, modelo, versao)
             r2 = decompor_versao(marca, modelo, r1[0], r1[3], None, r1[1], r1[2])
             assert r1 == r2, f"{marca} {modelo} {versao!r}: {r1} != {r2}"
+
+
+class TestTrimNaCaudaDaSpec:
+    """
+    O corte de spec para no primeiro token de spec, porque é ali que o NOME
+    do modelo acaba. Mas em muitos títulos o trim vem DEPOIS da cilindrada e
+    ficava perdido — 3.284 anúncios (23% dos que estavam sem versão) na
+    medição de 2026-08-05. `_trims_na_cauda` pesca esses de volta.
+    """
+
+    def test_trim_depois_da_cilindrada_e_recuperado(self):
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Chevrolet Blazer 1997 4.3 V6 Dlx 5p")[2] == "DLX"
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Volkswagen Gol 1.8 Mi Gl 8v Gasolina 2p Manual")[2] == "GL"
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Honda Civic 1.6 Lx 16v Gasolina 4p Automatico")[2] == "LX"
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Chevrolet Opala 4.1 Diplomata 12v Gasolina 4p")[2] == "DIPLOMATA"
+
+    def test_trim_antes_da_spec_segue_funcionando(self):
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Ford Escort Xr3 1.6 Alcool")[2] == "XR3"
+
+    def test_titulo_so_com_spec_nao_ganha_versao(self):
+        """A regra não pode INVENTAR versão onde a fonte não deu nenhuma."""
+        for titulo in (
+            "Volkswagen Fusca 1.3 8V Gasolina 2P Manual 1981",
+            "VOLKSWAGEN FUSCA 1.6 8V GASOLINA 2P MANUAL 1986",
+            "Toyota Paseo 1994 1.5 16v",
+            "Volkswagen Fusca 1300 1970",
+        ):
+            assert inferir_marca_modelo_versao_obs_ano(titulo)[2] is None, titulo
+
+    def test_lixo_da_cauda_nao_entra(self):
+        """
+        A cauda é onde mora o texto de venda. Só entra o que o catálogo
+        avaliza como trim daquele carro — é essa exigência que permite
+        pescar ali sem trazer o resto.
+        """
+        for titulo in (
+            "Chevrolet Opala 4.1 Aceito troca parcelo entrada",
+            "Ford Corcel II 1.6 Otimo estado documentado 1980",
+        ):
+            assert inferir_marca_modelo_versao_obs_ano(titulo)[2] is None, titulo
+
+    def test_cilindrada_nao_casa_por_prefixo_com_trim(self):
+        """
+        Regressão: o catálogo tem o trim '1.8S' no Gol, e a expansão por
+        prefixo de `canonizar_trim` casava a cilindrada '1.8' com ele,
+        devolvendo versão '1.8 GL'.
+        """
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Volkswagen Gol 1.8 Mi Gl 8v Gasolina 2p Manual")[2] == "GL"
