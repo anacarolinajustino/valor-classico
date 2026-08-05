@@ -58,6 +58,10 @@
           <span class="pd-tab-nome">Versões a conferir</span>
           <span class="pd-tab-contador" id="pd-cont-versao">—</span>
         </button>
+        <button class="pd-tab" data-tipo="sem_versao" onclick="trocarAba('sem_versao')">
+          <span class="pd-tab-nome">Sem versão</span>
+          <span class="pd-tab-contador" id="pd-cont-sem_versao">—</span>
+        </button>
         <button class="pd-tab" data-tipo="alias" onclick="trocarAba('alias')">
           <span class="pd-tab-nome">Aliases a conferir</span>
           <span class="pd-tab-contador" id="pd-cont-alias">—</span>
@@ -133,6 +137,41 @@
             </tr>
           </thead>
           <tbody id="pd-versao-tbody">
+            <tr><td colspan="6" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Sem versão: diagnóstico agregado, não fila de cliques -->
+    <section class="admin-section hidden" id="pd-sv-section">
+      <div class="an-filters">
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="pd-sv-busca">Buscar</label>
+          <input type="text" id="pd-sv-busca" class="an-filter-input" placeholder="filtrar marca ou modelo…" oninput="renderSemVersao()" />
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="pd-sv-so-recup">Mostrar</label>
+          <select id="pd-sv-so-recup" class="an-filter-select" onchange="renderSemVersao()">
+            <option value="1">Só com trim recuperável</option>
+            <option value="">Todos os grupos</option>
+          </select>
+        </div>
+        <span class="an-total" id="pd-sv-total">—</span>
+      </div>
+      <div class="an-table-wrap">
+        <table class="an-table" id="pd-sv-table">
+          <thead>
+            <tr>
+              <th class="an-th">Marca</th>
+              <th class="an-th">Modelo</th>
+              <th class="an-th an-th--num">Sem versão</th>
+              <th class="an-th an-th--num" title="O título traz um trim conhecido que não foi capturado">Recuperável</th>
+              <th class="an-th">Composição</th>
+              <th class="an-th">Fontes</th>
+            </tr>
+          </thead>
+          <tbody id="pd-sv-tbody">
             <tr><td colspan="6" class="an-empty">Carregando…</td></tr>
           </tbody>
         </table>

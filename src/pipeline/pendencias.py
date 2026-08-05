@@ -270,6 +270,114 @@ def listar_versoes_pendentes(limite: int = 400) -> dict[str, Any]:
     }
 
 
+def listar_sem_versao(limite: int = 300) -> dict[str, Any]:
+    """
+    Anúncios SEM versão nenhuma, agrupados por (marca, modelo).
+
+    Diferente das outras abas, esta é DIAGNÓSTICA e não uma fila de cliques:
+    são 14.213 anúncios (42% da base), volume que ninguém tria à mão. O que
+    ela responde é "onde há versão sendo perdida, e onde a fonte simplesmente
+    não tem o dado" — a diferença entre um bug de extração e um limite da
+    fonte, que olhando anúncio a anúncio não dá pra ver.
+
+    Cada anúncio cai em uma de quatro classes (auditoria 2026-08-05):
+
+      recuperavel     o TÍTULO traz um trim conhecido daquele carro que não
+                      foi capturado. "Volkswagen Gol 1.8 Mi Gl 8v" com versão
+                      vazia — o GL está ali. É bug de extração, não curadoria.
+      enumeracao      o título lista a linha inteira ("Kadett Gl/sl/lite/
+                      turim"); o certo é a sentinela VERSAO_AGREGADA.
+      fonte_nao_diz   o título só tem spec ("Fusca 1.3 8V Gasolina 2P"). Não
+                      há versão a extrair; é limite da fonte.
+      sem_vocabulario o par não tem vocabulário de trim no catálogo, então não
+                      dá pra afirmar nada.
+
+    Carroceria/tração (PICK-UP, FURGÃO, 4X4, COUPÉ) NÃO conta como trim
+    perdido: o pipeline manda esses pra `obs` de propósito. Sem essa exclusão
+    a conta de "recuperável" inflava de 3.284 pra 5.122 — quase o dobro.
+    """
+    from src.catalog.loader import _indice_trim, carregar_catalogo
+    from src.pipeline.normalizer import (
+        _CARROCERIA_TRACAO,
+        _e_enumeracao_versoes,
+        normalizar_texto,
+    )
+    from src.pipeline.persistence import _connect
+
+    carregar_catalogo()
+    trim_idx = _indice_trim()
+    dispensadas = carregar_dispensadas()
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT marca, modelo, titulo, fonte
+                FROM anuncios
+                WHERE versao IS NULL OR versao = ''
+                """
+            )
+            rows = cur.fetchall()
+
+    grupos: dict[tuple[str, str], dict] = {}
+    totais: dict[str, int] = defaultdict(int)
+
+    for r in rows:
+        mk = normalizar_texto(r["marca"] or "")
+        md = normalizar_texto(r["modelo"] or "")
+        titulo = r["titulo"] or ""
+        vocab = trim_idx.get((mk, md))
+
+        if not vocab:
+            classe, achados = "sem_vocabulario", []
+        else:
+            nome = set(mk.replace("-", " ").split()) | set(md.replace("-", " ").split())
+            achados = [
+                t for t in normalizar_texto(titulo).split()
+                if t in vocab and t not in nome and t not in _CARROCERIA_TRACAO
+            ]
+            if len(achados) >= 2 and _e_enumeracao_versoes(titulo, mk, md, achados):
+                classe = "enumeracao"
+            elif achados:
+                classe = "recuperavel"
+            else:
+                classe = "fonte_nao_diz"
+
+        totais[classe] += 1
+        g = grupos.setdefault(
+            (mk, md),
+            {
+                "marca": mk, "modelo": md, "qtd": 0,
+                "recuperavel": 0, "enumeracao": 0,
+                "fonte_nao_diz": 0, "sem_vocabulario": 0,
+                "fontes": set(), "amostras": [],
+            },
+        )
+        g["qtd"] += 1
+        g[classe] += 1
+        g["fontes"].add(r["fonte"])
+        # Amostra só do que é recuperável: é o que a usuária precisa ver pra
+        # confirmar que o trim está mesmo no título.
+        if classe == "recuperavel" and len(g["amostras"]) < 3:
+            g["amostras"].append({"titulo": titulo, "trim": achados[0], "fonte": r["fonte"]})
+
+    lista = [
+        {**g, "fontes": sorted(g["fontes"]),
+         "dispensada": (g["marca"], g["modelo"]) in dispensadas}
+        for g in grupos.values()
+    ]
+    # Mais recuperável primeiro: é onde um ajuste rende mais anúncios.
+    lista.sort(key=lambda g: (-g["recuperavel"], -g["qtd"]))
+
+    return {
+        "grupos": lista[:limite],
+        "total_grupos": len(lista),
+        "total_anuncios": len(rows),
+        "totais": dict(totais),
+        "truncado": len(lista) > limite,
+    }
+
+
 def listar_aliases_pendentes(incluir_decididos: bool = False) -> dict[str, Any]:
     """
     Aliases PT-BR <-> EN que ainda precisam de conferência.

@@ -51,6 +51,7 @@ from src.pipeline.pendencias import (
     dispensar as dispensar_pendencia,
     listar_aliases_pendentes,
     listar_pendencias,
+    listar_sem_versao,
     listar_versoes_pendentes,
     restaurar as restaurar_pendencia,
 )
@@ -571,6 +572,20 @@ def admin_api_decidir_versao():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_decidir_versao erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/sem-versao")
+def admin_api_sem_versao():
+    """
+    Anúncios sem versão, agrupados por marca/modelo e classificados entre o
+    que é bug de extração e o que é limite da fonte. Aba diagnóstica — ver
+    `listar_sem_versao`.
+    """
+    try:
+        return jsonify(listar_sem_versao())
+    except Exception as exc:
+        logger.error("admin_api_sem_versao erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

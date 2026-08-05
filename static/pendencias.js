@@ -9,6 +9,7 @@
 let pdDados = null;      // resposta de /admin/api/pendencias
 let pdAliases = null;    // resposta de /admin/api/aliases-pendentes
 let pdVersoes = null;    // resposta de /admin/api/versoes-pendentes
+let pdSemVersao = null;  // resposta de /admin/api/sem-versao
 let pdAba = 'corrigir_nome';
 let pdOrder = 'qtd';
 let pdDir = 'desc';
@@ -31,6 +32,12 @@ const AJUDA = {
     'banco: o catálogo da Webmotors não lista trim nacional real (Corcel II "L", Belina "L", ' +
     'S10 "Luxe"). "É trim real" cadastra no suplemento de versão e some daqui; "Não é versão" ' +
     'limpa o campo nos anúncios do par, sem apagar o anúncio.',
+  sem_versao:
+    'Anúncios sem versão nenhuma — 42% da base. Aba de DIAGNÓSTICO, não fila de cliques: o '
+    + 'volume não se tria à mão. O que ela mostra é onde há versão sendo PERDIDA (o título traz '
+    + 'um trim que não foi capturado) e onde a fonte simplesmente não tem o dado ("Fusca 1.3 8V '
+    + 'Gasolina 2P" não tem trim nenhum). A coluna "Recuperável" é a que importa: é bug de '
+    + 'extração, sai com ajuste no código, não com curadoria.',
   alias:
     'Palpites de tradução entre a grafia do banco e a das fontes em inglês, gerados por ' +
     'semelhança de texto. Só os incertos aparecem aqui — as traduções de regra fixa ' +
@@ -55,15 +62,19 @@ function trocarAba(tipo) {
 
   const ehAlias = tipo === 'alias';
   const ehVersao = tipo === 'versao';
-  const ehPar = !ehAlias && !ehVersao;
+  const ehSemVersao = tipo === 'sem_versao';
+  const ehPar = !ehAlias && !ehVersao && !ehSemVersao;
   document.getElementById('pd-pares-section').classList.toggle('hidden', !ehPar);
   document.getElementById('pd-alias-section').classList.toggle('hidden', !ehAlias);
   document.getElementById('pd-versao-section').classList.toggle('hidden', !ehVersao);
+  document.getElementById('pd-sv-section').classList.toggle('hidden', !ehSemVersao);
 
   if (ehAlias) {
     if (pdAliases === null) carregarAliases(); else renderAliases();
   } else if (ehVersao) {
     if (pdVersoes === null) carregarVersoes(); else renderVersoes();
+  } else if (ehSemVersao) {
+    if (pdSemVersao === null) carregarSemVersao(); else renderSemVersao();
   } else {
     renderPares();
   }
@@ -531,6 +542,141 @@ async function decidirVersao(btn, acao) {
   setTimeout(renderVersoes, 700);
 }
 
+// ── Sem versão (diagnóstico) ────────────────────────────────────────────
+async function carregarSemVersao() {
+  const tbody = document.getElementById('pd-sv-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="an-empty">Carregando…</td></tr>';
+  try {
+    const res = await fetch('/admin/api/sem-versao');
+    const data = await res.json();
+    if (data.erro) {
+      tbody.innerHTML = `<tr><td colspan="6" class="an-empty an-empty--erro">${escapeHtml(data.erro)}</td></tr>`;
+      return;
+    }
+    pdSemVersao = data;
+    const el = document.getElementById('pd-cont-sem_versao');
+    if (el) el.textContent = (data.total_anuncios || 0).toLocaleString('pt-BR');
+    renderSemVersao();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+// Barra proporcional das quatro classes: ler quatro números lado a lado é
+// mais lento do que ver a composição de uma vez.
+function barraComposicao(g) {
+  const partes = [
+    ['recuperavel',     g.recuperavel,     'trim no título, não capturado'],
+    ['enumeracao',      g.enumeracao,      'título enumera a linha inteira'],
+    ['fonte_nao_diz',   g.fonte_nao_diz,   'a fonte não informa versão'],
+    ['sem_vocabulario', g.sem_vocabulario, 'sem vocabulário no catálogo'],
+  ].filter(function (x) { return x[1] > 0; });
+
+  const barras = partes.map(function (x) {
+    return '<span class="pd-barra pd-barra--' + x[0] + '" style="flex:' + x[1] + '"' +
+           ' title="' + escapeAttr(x[1] + ' — ' + x[2]) + '"></span>';
+  }).join('');
+  const legenda = partes.map(function (x) {
+    return '<span class="pd-leg"><i class="pd-barra pd-barra--' + x[0] + '"></i>' +
+           x[1].toLocaleString('pt-BR') + '</span>';
+  }).join('');
+  return '<div class="pd-barra-wrap">' + barras + '</div>' +
+         '<div class="pd-legenda">' + legenda + '</div>';
+}
+
+// Um par popular vem de 7+ fontes e a lista inteira estoura a coluna. As
+// três primeiras já dizem se o problema é de uma fonte só ou geral, que é a
+// pergunta que essa coluna responde; o resto vai no title.
+function listaFontes(fontes) {
+  const mostra = fontes.slice(0, 3).map(f =>
+    `<span class="pd-ev-fonte">${escapeHtml(f)}</span>`).join(' ');
+  const resto = fontes.length - 3;
+  return mostra + (resto > 0
+    ? ` <span class="pd-ev pd-ev--nada" title="${escapeAttr(fontes.join(', '))}">+${resto}</span>`
+    : '');
+}
+
+function renderSemVersao() {
+  const tbody = document.getElementById('pd-sv-tbody');
+  if (pdSemVersao === null) return;
+
+  const termo = document.getElementById('pd-sv-busca').value.trim().toUpperCase();
+  const soRecup = document.getElementById('pd-sv-so-recup').value === '1';
+  let linhas = pdSemVersao.grupos;
+  if (soRecup) linhas = linhas.filter(g => g.recuperavel > 0);
+  if (termo) linhas = linhas.filter(g => g.marca.includes(termo) || (g.modelo || '').includes(termo));
+
+  const totais = pdSemVersao.totais || {};
+  const recup = linhas.reduce((s, g) => s + g.recuperavel, 0);
+  document.getElementById('pd-sv-total').textContent =
+    `${linhas.length.toLocaleString('pt-BR')} grupos · ` +
+    `${recup.toLocaleString('pt-BR')} recuperáveis de ` +
+    `${(totais.recuperavel || 0).toLocaleString('pt-BR')} no total` +
+    (pdSemVersao.truncado ? ' (lista cortada nos maiores)' : '');
+
+  if (!linhas.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="an-empty">Nenhum grupo nesta seleção.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = linhas.map(g => `
+    <tr data-marca="${escapeAttr(g.marca)}" data-modelo="${escapeAttr(g.modelo || '')}">
+      <td class="an-td">${escapeHtml(g.marca)}</td>
+      <td class="an-td">${escapeHtml(g.modelo || '—')}</td>
+      <td class="an-td an-td--num">${g.qtd.toLocaleString('pt-BR')}</td>
+      <td class="an-td an-td--num">${
+        g.recuperavel
+          ? `<button class="qv-count" onclick="verAmostrasSemVersao(this)"
+                     title="Ver títulos onde o trim aparece">${g.recuperavel.toLocaleString('pt-BR')}</button>`
+          : '<span class="an-muted">—</span>'
+      }</td>
+      <td class="an-td">${barraComposicao(g)}</td>
+      <td class="an-td">${listaFontes(g.fontes)}</td>
+    </tr>
+  `).join('');
+}
+
+// Destaca o trim dentro do título. Split em vez de regex: o token vem do
+// banco e pode conter caractere especial ('1.6-S', 'HI-TECH') que quebraria
+// um padrão montado por concatenação.
+function destacarTrim(titulo, trim) {
+  const alvo = trim.toUpperCase();
+  const partes = titulo.split(/(\s+)/);
+  return partes.map(function (p) {
+    const limpo = p.toUpperCase().replace(/[^A-Z0-9.\-]/g, '');
+    return limpo === alvo ? '<mark>' + escapeHtml(p) + '</mark>' : escapeHtml(p);
+  }).join('');
+}
+
+// Mostra os títulos com o trim achado destacado — é a prova de que o dado
+// está na origem e foi perdido na extração.
+function verAmostrasSemVersao(btn) {
+  const tr = btn.closest('tr');
+  const existente = tr.nextElementSibling;
+  if (existente && existente.classList.contains('qv-detail')) { existente.remove(); return; }
+
+  const g = pdSemVersao.grupos.find(
+    x => x.marca === tr.dataset.marca && (x.modelo || '') === tr.dataset.modelo);
+  if (!g || !g.amostras.length) return;
+
+  const linhas = g.amostras.map(a =>
+    `<tr><td>${escapeHtml(a.fonte)}</td><td>${destacarTrim(a.titulo, a.trim)}</td>
+         <td><strong>${escapeHtml(a.trim)}</strong></td></tr>`).join('');
+
+  const detail = document.createElement('tr');
+  detail.className = 'qv-detail';
+  detail.innerHTML = `<td colspan="${tr.children.length}" class="qv-detail-cell">
+    <p class="qv-detail-nota">Nestes títulos o trim está presente e a versão ficou vazia —
+       é bug de extração, não falta de dado na fonte.</p>
+    <div class="qv-detail-wrap">
+      <table class="qv-detail-table">
+        <thead><tr><th>Fonte</th><th>Título</th><th>Trim perdido</th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div></td>`;
+  tr.after(detail);
+}
+
 // ── Aliases ─────────────────────────────────────────────────────────────
 async function carregarAliases() {
   const tbody = document.getElementById('pd-alias-tbody');
@@ -631,3 +777,4 @@ document.getElementById('pd-tab-ajuda').textContent = AJUDA[pdAba];
 carregarPendencias();
 carregarAliases();
 carregarVersoes();
+carregarSemVersao();

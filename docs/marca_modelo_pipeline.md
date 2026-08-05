@@ -345,8 +345,35 @@ incompleto. Viraram a aba **"Versões a conferir"** de `/admin/pendencias`, clas
 `data/suplemento_versao.csv`, que `_indice_trim` lê junto com o CSV base — o mesmo desenho do
 `suplemento_manual.csv` pro eixo marca/modelo.
 
-### Achado colateral: 42% dos anúncios não têm versão nenhuma
+### Os 42% sem versão nenhuma
 
-E é concentrado por fonte: **Mercado Livre 77%**, iCarros 41%, OLX 35%, Webmotors 30%. O ML
-destoa muito dos outros. Não investigado nesta rodada — vale checar se a ficha técnica de lá traz
-o dado num campo que o conector não lê.
+14.213 anúncios (42% da base). Investigados na sequência, e a suspeita inicial (o ML esconder o
+dado na ficha técnica) estava errada — o problema é de extração e vale para todas as fontes.
+A classe de cada um:
+
+| Classe | Anúncios | O que é |
+|---|---|---|
+| `fonte_nao_diz` | 9.367 (66%) | o título só tem spec: "Fusca 1.3 8V Gasolina 2P". Não há trim a extrair |
+| `recuperavel` | **3.284 (23%)** | o trim ESTÁ no título e não foi capturado: "Gol 1.8 Mi **Gl** 8v", "Civic 1.6 **Lx** 16v" |
+| `sem_vocabulario` | 1.089 (8%) | o par não tem vocabulário de trim no catálogo |
+| `enumeracao` | 473 (3%) | o título lista a linha inteira; deveria virar `VERSAO AGREGADA` |
+
+**A causa dos recuperáveis é o corte de spec.** `_indice_corte_spec` interrompe a varredura no
+primeiro token de spec, e nesses títulos o trim vem DEPOIS da cilindrada:
+
+```
+Chevrolet Blazer 1997 4.3 V6 Dlx 5p   ->  corta em "4.3", o DLX nunca é visto
+Fiat Tempra 1994 Tempra Ouro 16v 2.0  ->  corta em "16v", perde o OURO
+```
+
+Não é o ano no meio do título (testado: mover o ano pro fim não muda nada) nem particularidade
+do ML — é geral, e o ML só aparece mais por causa do formato de título dele.
+
+**Cuidado ao medir isto de novo:** carroceria/tração (PICK-UP, FURGÃO, 4X4, COUPÉ) está no
+vocabulário do catálogo mas o pipeline manda pra `obs` de propósito. Contá-la como "trim
+perdido" inflava a conta de 3.284 pra 5.122 — quase o dobro. A primeira medição errou nisso.
+
+Virou a aba **"Sem versão"** de `/admin/pendencias`, agrupada por marca/modelo — 14 mil linhas
+não se tria à mão, e a pergunta que interessa ("onde há dado sendo perdido?") só aparece no
+agregado. A aba é diagnóstica; a correção do corte de spec é código, não curadoria, e **ainda
+não foi feita**.

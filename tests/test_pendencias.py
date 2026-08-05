@@ -288,3 +288,89 @@ class TestVersoesPendentes:
         assert d["total"] == 3                      # GOL CL ficou de fora
         assert d["total_anuncios"] == 141 + 6 + 24
         assert d["totais"] == {"trim_provavel": 1, "geracao": 1, "sem_referencia": 1}
+
+
+class TestSemVersao:
+    """
+    Aba diagnóstica: separa bug de extração ("o trim está no título e ficou
+    de fora") de limite da fonte ("o título só tem spec"). A distinção é o
+    ponto todo — sem ela os 14.213 anúncios sem versão são só um número.
+    """
+
+    LINHAS = [
+        # trim GL está no título e a versão ficou vazia -> recuperável
+        {"marca": "VOLKSWAGEN", "modelo": "GOL", "fonte": "mercadolivre",
+         "titulo": "Volkswagen Gol 1.8 Mi Gl 8v Gasolina 2p Manual"},
+        # só spec, nenhum trim -> a fonte não informa
+        {"marca": "VOLKSWAGEN", "modelo": "GOL", "fonte": "webmotors",
+         "titulo": "VOLKSWAGEN GOL 1.0 8V GASOLINA 2P MANUAL 1996"},
+        # carroceria NÃO conta como trim perdido: vai pra obs por desenho
+        {"marca": "VOLKSWAGEN", "modelo": "KOMBI", "fonte": "olx",
+         "titulo": "Volkswagen Kombi 1.6 Pick-up Cs 8v Gasolina"},
+        # par sem vocabulário no catálogo
+        {"marca": "GURGEL", "modelo": "XEF", "fonte": "olx",
+         "titulo": "Gurgel Xef 1980"},
+    ]
+
+    def _montar(self, monkeypatch, tmp_path):
+        import src.catalog.loader as loader
+        import src.pipeline.persistence as persistence
+
+        monkeypatch.setattr(pendencias, "DISPENSADAS_CSV", tmp_path / "d.csv")
+        monkeypatch.setattr(loader, "carregar_catalogo", lambda *a, **k: {})
+        monkeypatch.setattr(loader, "_indice_trim", lambda: {
+            ("VOLKSWAGEN", "GOL"): {"GL", "GLI", "PLUS"},
+            ("VOLKSWAGEN", "KOMBI"): {"PICK-UP", "STD"},
+        })
+
+        class _Cur:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def execute(self, *a, **k): pass
+            def fetchall(self): return TestSemVersao.LINHAS
+
+        class _Conn:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def cursor(self): return _Cur()
+
+        monkeypatch.setattr(persistence, "_connect", lambda: _Conn())
+
+    def test_classifica_as_quatro_causas(self, monkeypatch, tmp_path):
+        self._montar(monkeypatch, tmp_path)
+        d = pendencias.listar_sem_versao()
+        assert d["totais"] == {
+            "recuperavel": 1, "fonte_nao_diz": 2, "sem_vocabulario": 1,
+        }
+
+    def test_carroceria_nao_conta_como_trim_perdido(self, monkeypatch, tmp_path):
+        """PICK-UP está no vocabulário mas vai pra `obs` — não é versão perdida."""
+        self._montar(monkeypatch, tmp_path)
+        d = pendencias.listar_sem_versao()
+        kombi = next(g for g in d["grupos"] if g["modelo"] == "KOMBI")
+        assert kombi["recuperavel"] == 0
+        assert kombi["fonte_nao_diz"] == 1
+
+    def test_amostra_so_do_recuperavel(self, monkeypatch, tmp_path):
+        """A amostra é a prova de que o trim está no título; só ela importa."""
+        self._montar(monkeypatch, tmp_path)
+        d = pendencias.listar_sem_versao()
+        gol = next(g for g in d["grupos"] if g["modelo"] == "GOL")
+        assert len(gol["amostras"]) == 1
+        assert gol["amostras"][0]["trim"] == "GL"
+        assert "Gl" in gol["amostras"][0]["titulo"]
+
+    def test_ordena_por_recuperavel(self, monkeypatch, tmp_path):
+        """Mais recuperável primeiro: é onde um ajuste rende mais anúncios."""
+        self._montar(monkeypatch, tmp_path)
+        d = pendencias.listar_sem_versao()
+        assert d["grupos"][0]["modelo"] == "GOL"
+
+    def test_agrupa_por_par(self, monkeypatch, tmp_path):
+        self._montar(monkeypatch, tmp_path)
+        d = pendencias.listar_sem_versao()
+        gol = next(g for g in d["grupos"] if g["modelo"] == "GOL")
+        assert gol["qtd"] == 2
+        assert gol["fontes"] == ["mercadolivre", "webmotors"]
+        assert d["total_grupos"] == 3
+        assert d["total_anuncios"] == 4

@@ -1944,3 +1944,54 @@ a { color: inherit; text-decoration: none; }
    duas linhas e a altura de cada linha dobra — com 250+ linhas isso é muita
    rolagem. Modificador local pra não mexer nas outras telas do painel. */
 .admin-main--largo { max-width: 1400px; }
+
+/* Barra de composição da aba "Sem versão": mostra de uma vez a proporção
+   entre o que é bug de extração e o que é limite da fonte. Quatro números
+   lado a lado obrigam a comparar de cabeça; a barra dispensa isso. */
+.pd-barra-wrap {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--vc-surface-warm);
+  min-width: 120px;
+}
+.pd-barra { display: block; height: 100%; }
+.pd-barra--recuperavel     { background: var(--vc-accent-strong); }
+.pd-barra--enumeracao      { background: var(--vc-accent); }
+.pd-barra--fonte_nao_diz   { background: var(--vc-border); }
+.pd-barra--sem_vocabulario { background: #B8AFA0; }
+
+.pd-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--vc-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pd-leg { display: inline-flex; align-items: center; gap: 4px; }
+/* O quadradinho da legenda reusa a cor da barra correspondente. */
+.pd-leg .pd-barra { width: 8px; height: 8px; border-radius: 2px; }
+
+/* Trim destacado dentro do título, na amostra do detalhe */
+.qv-detail-table mark {
+  background: var(--vc-accent);
+  color: var(--vc-ink);
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+/* A aba "Sem versão" tem 6 colunas e uma delas é a barra — precisa de menos
+   espaço pras numéricas e mais pra composição. */
+#pd-sv-table { table-layout: fixed; }
+#pd-sv-table th:nth-child(1) { width: 13%; }
+#pd-sv-table th:nth-child(2) { width: 16%; }
+#pd-sv-table th:nth-child(3) { width: 10%; }
+#pd-sv-table th:nth-child(4) { width: 11%; }
+#pd-sv-table th:nth-child(5) { width: 30%; }
+#pd-sv-table th:nth-child(6) { width: 20%; }
+#pd-sv-table td { overflow-wrap: anywhere; vertical-align: middle; }
+#pd-sv-table td .pd-ev-fonte { display: inline-block; margin: 1px 0; }

@@ -197,6 +197,7 @@ parsing. Agora **a evidência externa classifica a pendência**, e cada aba tem 
 | Confirmados pela fonte | a fonte confirma o par, muitas vezes com faixa de ano | "Ao catálogo" |
 | Sem evidência | nenhuma fonte conhece | triagem manual — é onde cai o carro nacional |
 | Versões a conferir | o vocabulário de trim não reconhece a versão | "É trim real" / "Não é versão" |
+| Sem versão | anúncios sem versão nenhuma, agrupados por par | diagnóstica: separa bug de extração de limite da fonte |
 | Aliases a conferir | palpites `fuzzy` de tradução | "É o mesmo carro" / "São diferentes" |
 
 A aba de versão (auditoria 2026-08-05, ver seção 8) usa a coluna `geracoes` do
