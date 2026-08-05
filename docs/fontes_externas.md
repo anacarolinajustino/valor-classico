@@ -17,7 +17,7 @@ Esses 314 se dividem em três grupos, e só um deles é resolvível por fonte es
 1. **Importado legítimo ausente do catálogo** — Ferrari Mondial, Porsche 912, Oldsmobile 442,
    Triumph TR7. É o alvo.
 2. **Carro nacional** — Fiat Prêmio, DKW Vemaguet, CBT Javali, Engesa 4x4, Asia Motors Topic.
-   Nenhuma fonte estrangeira tem, e nunca vai ter (ver seção 5).
+   Nenhuma fonte estrangeira tem, e nunca vai ter (ver seção 6).
 3. **Lixo de extração** — `FORD COUPE`, `FORD MAO`, `CHEVROLET IMP`, `FIAT I`. Não é lacuna de
    catálogo, é bug de parsing do título.
 
@@ -182,7 +182,39 @@ Esses **não** devem ir pro suplemento — cimentariam o bug. O certo é corrigi
 A fonte externa aqui não está preenchendo lacuna de catálogo, está funcionando como detector de
 bug de parsing.
 
-## 5. O teto: 75% da lacuna é carro nacional
+## 5. Onde isso aparece no painel
+
+`/admin/pendencias` — "Pendências de verificação". É a fila única de decisões manuais, e
+substituiu a seção "Anúncios a verificar" que ficava escondida dentro da página de anúncios.
+
+A diferença não é só de lugar. Antes a quarentena era uma lista chapada de pares órfãos e a
+usuária tinha que pesquisar cada um pra saber se era carro de verdade, nome truncado ou lixo de
+parsing. Agora **a evidência externa classifica a pendência**, e cada aba tem uma ação distinta:
+
+| Aba | O que é | Ação sugerida |
+|---|---|---|
+| Nome incompleto | a fonte tem o nome MAIS longo | corrigir no banco (sugestão pré-preenchida) |
+| Confirmados pela fonte | a fonte confirma o par, muitas vezes com faixa de ano | "Ao catálogo" |
+| Sem evidência | nenhuma fonte conhece | triagem manual — é onde cai o carro nacional |
+| Aliases a conferir | palpites `fuzzy` de tradução | "É o mesmo carro" / "São diferentes" |
+
+Na aba de nome incompleto o botão "Ao catálogo" é **omitido de propósito**: cadastrar `RANGE`
+cimentaria o erro em vez de corrigi-lo.
+
+Estado que a tela grava, ambos append-only (a última linha vence, e o histórico fica):
+
+- `data/pendencias_dispensadas.csv` — pares que a usuária analisou e decidiu deixar como estão.
+  A chave é (marca, modelo) **sem** o tipo: se uma fonte nova reclassificar o par, a decisão
+  continua valendo.
+- `data/aliases_decisoes.csv` — separado de `aliases_intl.csv` porque aquele é regenerado
+  inteiro pelo script, e uma coluna de status lá dentro seria apagada na próxima rodada. Um
+  alias **rejeitado sai de `carregar_aliases()`** e deixa de produzir evidência.
+
+O cruzamento em si mora em `externo.evidencia_externa()` — a mesma função que
+`scripts/auditar_cobertura_externa.py` usa, pra auditoria e tela nunca divergirem sobre o mesmo
+par.
+
+## 6. O teto: 75% da lacuna é carro nacional
 
 Os 236 pares sem cobertura não são falha das duas fontes, são limite estrutural delas. Testadas
 marca a marca, **nenhuma** das marcas nacionais existe em nenhuma das duas:
@@ -194,7 +226,7 @@ Fiat Prêmio, DKW Vemaguet, DKW Belcar, CBT Javali e Asia Motors Topic vão cont
 esse caminho. Para eles, o suplemento manual curado à mão continua sendo a única via — não
 adianta procurar outra base estrangeira.
 
-## 6. Reprodução
+## 7. Reprodução
 
 ```bash
 python scripts/ingest_oldtimers.py --limite 300 --dry-run   # smoke test

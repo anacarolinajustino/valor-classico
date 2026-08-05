@@ -1258,7 +1258,12 @@ def listar_anuncios_do_par(
             return [dict(r) for r in cur.fetchall()]
 
 
-def adicionar_ao_catalogo(marca: str, modelo: str) -> dict[str, Any]:
+def adicionar_ao_catalogo(
+    marca: str,
+    modelo: str,
+    ano_min: Optional[int] = None,
+    ano_max: Optional[int] = None,
+) -> dict[str, Any]:
     """
     Adiciona um par (marca, modelo) ao catálogo, pro caso em que o anúncio já
     está com marca/modelo corretos e o que faltava era cadastrar o modelo
@@ -1266,10 +1271,15 @@ def adicionar_ao_catalogo(marca: str, modelo: str) -> dict[str, Any]:
     suplemento manual (data/suplemento_manual.csv), que o loader lê junto com
     o CSV base — persiste entre reinícios sem mexer no código.
 
-    A faixa de anos é derivada dos próprios anúncios desse par (min/max do ano
-    presente no banco); sem ano, fica vazia (a chave existe mesmo assim, que é
-    o que tira o par da quarentena). Reseta o cache do catálogo pra a mudança
-    valer já na próxima consulta.
+    Faixa de anos: por padrão vem dos próprios anúncios do par (min/max do ano
+    no banco); sem ano, fica vazia (a chave existe mesmo assim, que é o que
+    tira o par da quarentena). `ano_min`/`ano_max` explícitos SUBSTITUEM esse
+    cálculo — é como a tela de pendências passa a faixa de produção que a
+    fonte externa conhece, que costuma ser mais confiável que o min/max de dois
+    ou três anúncios soltos. Quando só um dos limites vem preenchido, o outro
+    cai de volta pro valor do banco.
+
+    Reseta o cache do catálogo pra a mudança valer já na próxima consulta.
 
     Retorna {ja_existia, marca, modelo, ano_min, ano_max}.
     """
@@ -1287,6 +1297,9 @@ def adicionar_ao_catalogo(marca: str, modelo: str) -> dict[str, Any]:
     if not mk or not md:
         raise ValueError("Marca e modelo são obrigatórios pra adicionar ao catálogo.")
 
+    if ano_min is not None and ano_max is not None and ano_min > ano_max:
+        raise ValueError("ano_min não pode ser maior que ano_max.")
+
     if (mk, md) in carregar_catalogo():
         return {"ja_existia": True, "marca": mk, "modelo": md, "ano_min": None, "ano_max": None}
 
@@ -1298,7 +1311,9 @@ def adicionar_ao_catalogo(marca: str, modelo: str) -> dict[str, Any]:
                 (mk, md),
             )
             r = cur.fetchone()
-    ano_min, ano_max = (r["mn"], r["mx"]) if r else (None, None)
+    do_banco = (r["mn"], r["mx"]) if r else (None, None)
+    ano_min = ano_min if ano_min is not None else do_banco[0]
+    ano_max = ano_max if ano_max is not None else do_banco[1]
 
     novo = not SUPLEMENTO_MANUAL_CSV.exists()
     SUPLEMENTO_MANUAL_CSV.parent.mkdir(parents=True, exist_ok=True)

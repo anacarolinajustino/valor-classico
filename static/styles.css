@@ -1793,3 +1793,154 @@ a { color: inherit; text-decoration: none; }
   .an-filter-input--short, .an-filter-select--sm { max-width: 100%; }
   .an-td--titulo { max-width: 200px; }
 }
+
+/* ══════════════════════════════════════════════
+   PENDÊNCIAS DE VERIFICAÇÃO
+   Fila única de decisões manuais (/admin/pendencias).
+   Reaproveita .an-table, .admin-section e os .btn — só o que é próprio
+   da tela (abas, selo de evidência) mora aqui.
+   ══════════════════════════════════════════════ */
+
+/* Ação neutra: "Dispensar" não é destrutiva nem primária, e .btn-ghost é
+   branco-sobre-escuro (feito pro header), ilegível em tabela clara. */
+.btn-neutro {
+  background: transparent;
+  color: var(--vc-ink-muted);
+  border: 1px solid var(--vc-border);
+}
+.btn-neutro:hover { background: var(--vc-surface-warm); color: var(--vc-ink); }
+.btn-neutro:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── Abas por tipo de pendência ─────────────── */
+.pd-tabs-section { padding-bottom: 12px; }
+
+.pd-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pd-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: transparent;
+  border: 1px solid var(--vc-border);
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  color: var(--vc-ink-soft);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.pd-tab:hover { border-color: var(--vc-accent); color: var(--vc-ink); }
+
+.pd-tab--ativa {
+  background: var(--vc-accent);
+  border-color: var(--vc-accent);
+  color: var(--vc-ink);
+}
+
+.pd-tab-contador {
+  min-width: 26px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--vc-surface-warm);
+  color: var(--vc-ink-soft);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.pd-tab--ativa .pd-tab-contador {
+  background: rgba(0, 0, 0, .18);
+  color: var(--vc-ink);
+}
+
+/* Texto de ajuda da aba: explica o que a evidência significa e por que a
+   ação sugerida é aquela — é o que evita a usuária tratar "nome truncado"
+   como "modelo faltando no catálogo". */
+.pd-tab-ajuda {
+  margin-top: 12px;
+  max-width: 82ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--vc-ink-muted);
+}
+
+/* ── Selo de evidência externa ──────────────── */
+.pd-ev {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.pd-ev--ok     { color: var(--vc-ink-soft); }
+.pd-ev--alerta { color: #B26A00; }
+.pd-ev--nada   { color: var(--vc-ink-muted); font-style: italic; }
+
+.pd-ev-fonte {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--vc-surface-warm);
+  color: var(--vc-ink-muted);
+  font-size: 11px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+/* ── Ações inline da linha ──────────────────── */
+.pd-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* Campos de correcao: escondidos por padrao fora da aba de nome incompleto,
+   abertos pelo botao "Corrigir..." (ver alternarEdicao em pendencias.js). */
+.pd-edicao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--vc-border);
+}
+.pd-edicao .an-filter-input { width: 148px; min-width: 90px; }
+.pd-edicao .pd-sel-modelo   { width: 168px; min-width: 110px; }
+.pd-edicao.hidden { display: none; }
+
+.pd-msg { font-size: 13px; font-weight: 600; }
+.pd-msg--ok    { color: #2E7D32; }
+.pd-msg--aviso { color: #B26A00; }
+.pd-msg--erro  { color: #C0392B; }
+
+/* Linha já dispensada, visível só quando a usuária pede pra mostrar */
+.pd-row--dispensada { opacity: .55; }
+.pd-row--dispensada td { font-style: italic; }
+
+@media (max-width: 720px) {
+  .pd-tab { flex: 1 1 auto; justify-content: space-between; }
+  .pd-acoes .an-filter-input,
+  .pd-acoes .pd-sel-modelo { width: 100%; }
+}
+
+/* Distribuição das colunas: sem isto o navegador dá espaço demais pro texto
+   de evidência e a coluna de decisão fica estreita, quebrando os 4 botões em
+   duas linhas — o que dobra a altura de uma tabela de 250+ linhas. */
+#pd-table { table-layout: fixed; }
+#pd-table th:nth-child(1) { width: 13%; }
+#pd-table th:nth-child(2) { width: 15%; }
+#pd-table th:nth-child(3) { width: 8%;  }
+#pd-table th:nth-child(4) { width: 26%; }
+#pd-table th:nth-child(5) { width: 38%; }
+#pd-table td { overflow-wrap: anywhere; }
+
+/* A fila de pendências é uma tabela de triagem com 5 colunas, sendo uma delas
+   uma barra de 4 ações. Nos 960px padrão do .admin-main os botões quebram em
+   duas linhas e a altura de cada linha dobra — com 250+ linhas isso é muita
+   rolagem. Modificador local pra não mexer nas outras telas do painel. */
+.admin-main--largo { max-width: 1400px; }

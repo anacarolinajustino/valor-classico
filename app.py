@@ -32,7 +32,7 @@ import threading
 import uuid
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory
@@ -45,7 +45,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 # precedência — load_dotenv não sobrescreve.
 load_dotenv(Path(__file__).parent / ".env")
 
+from src.catalog.externo import registrar_decisao_alias
 from src.pipeline.backup import fazer_backup
+from src.pipeline.pendencias import (
+    dispensar as dispensar_pendencia,
+    listar_aliases_pendentes,
+    listar_pendencias,
+    restaurar as restaurar_pendencia,
+)
 from src.pipeline.persistence import (
     adicionar_ao_catalogo,
     corrigir_marca_modelo,
@@ -158,6 +165,11 @@ def admin_dashboard():
 @app.route("/admin/calculadora")
 def admin_calculadora():
     return send_from_directory(".", "calculadora.html")
+
+
+@app.route("/admin/pendencias")
+def admin_pendencias():
+    return send_from_directory(".", "pendencias.html")
 
 
 # ──────────────────────────────────────────────────────
@@ -438,16 +450,36 @@ def admin_api_excluir_marca_modelo():
         return jsonify({"erro": str(exc)}), 500
 
 
+def _arg_ano_opcional(data: dict, chave: str) -> Optional[int]:
+    """Lê um ano opcional do corpo JSON; '' e ausente viram None."""
+    bruto = data.get(chave)
+    if bruto in (None, ""):
+        return None
+    try:
+        return int(bruto)
+    except (TypeError, ValueError):
+        raise ValueError(f"{chave} deve ser um ano válido.")
+
+
 @app.route("/admin/api/adicionar-ao-catalogo", methods=["POST"])
 def admin_api_adicionar_ao_catalogo():
-    """Cadastra um par (marca, modelo) já correto no catálogo (suplemento manual)."""
+    """
+    Cadastra um par (marca, modelo) já correto no catálogo (suplemento manual).
+
+    `ano_min`/`ano_max` são opcionais: a tela de pendências manda a faixa que a
+    fonte externa conhece; sem eles, a faixa sai dos próprios anúncios do par.
+    """
     data = request.get_json(silent=True) or {}
     marca  = (data.get("marca")  or "").strip()
     modelo = (data.get("modelo") or "").strip()
     if not marca or not modelo:
         return jsonify({"erro": "Marca e modelo são obrigatórios."}), 400
     try:
-        res = adicionar_ao_catalogo(marca, modelo)
+        res = adicionar_ao_catalogo(
+            marca, modelo,
+            _arg_ano_opcional(data, "ano_min"),
+            _arg_ano_opcional(data, "ano_max"),
+        )
         logger.info(
             "adicionar-ao-catalogo: %r/%r (ja_existia=%s, anos=%s-%s)",
             res["marca"], res["modelo"], res["ja_existia"], res["ano_min"], res["ano_max"],
@@ -457,6 +489,73 @@ def admin_api_adicionar_ao_catalogo():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_adicionar_ao_catalogo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/pendencias")
+def admin_api_pendencias():
+    """
+    Fila de decisões manuais: pares fora do catálogo, já classificados pela
+    evidência das fontes externas (ver src/pipeline/pendencias.py).
+    """
+    incluir = request.args.get("incluir_dispensadas", "").strip() == "1"
+    try:
+        return jsonify(listar_pendencias(incluir_dispensadas=incluir))
+    except Exception as exc:
+        logger.error("admin_api_pendencias erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/dispensar-pendencia", methods=["POST"])
+def admin_api_dispensar_pendencia():
+    """Tira um par da fila sem alterar anúncio nem catálogo (ou devolve, com restaurar=1)."""
+    data = request.get_json(silent=True) or {}
+    marca  = (data.get("marca")  or "").strip()
+    modelo = (data.get("modelo") or "").strip()
+    motivo = (data.get("motivo") or "").strip()
+    try:
+        if data.get("restaurar"):
+            res = restaurar_pendencia(marca, modelo)
+            logger.info("restaurar-pendencia: %r/%r", marca, modelo)
+        else:
+            res = dispensar_pendencia(marca, modelo, motivo)
+            logger.info("dispensar-pendencia: %r/%r (motivo=%r)", marca, modelo, motivo)
+        return jsonify({"ok": True, **res})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_dispensar_pendencia erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/aliases-pendentes")
+def admin_api_aliases_pendentes():
+    """Aliases PT-BR <-> EN de regra fuzzy que ainda precisam de conferência."""
+    incluir = request.args.get("incluir_decididos", "").strip() == "1"
+    try:
+        return jsonify(listar_aliases_pendentes(incluir_decididos=incluir))
+    except Exception as exc:
+        logger.error("admin_api_aliases_pendentes erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/decidir-alias", methods=["POST"])
+def admin_api_decidir_alias():
+    """Aprova ou rejeita um alias. Rejeitado deixa de valer como evidência externa."""
+    data = request.get_json(silent=True) or {}
+    marca  = (data.get("marca")       or "").strip()
+    ptbr   = (data.get("modelo_ptbr") or "").strip()
+    decisao = (data.get("decisao")    or "").strip().lower()
+    if not marca or not ptbr:
+        return jsonify({"erro": "Marca e modelo são obrigatórios."}), 400
+    try:
+        registrar_decisao_alias(marca, ptbr, decisao)
+        logger.info("decidir-alias: %r/%r -> %s", marca, ptbr, decisao)
+        return jsonify({"ok": True, "marca": marca, "modelo_ptbr": ptbr, "decisao": decisao})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_decidir_alias erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

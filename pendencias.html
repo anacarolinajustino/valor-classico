@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Pendências de verificação</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="/static/LogoValorClassico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <span class="admin-badge-header">Painel Administrativo</span>
+      <nav class="header-nav">
+        <a href="/admin">Painel</a>
+        <a href="/admin/anuncios">Anúncios</a>
+        <a href="/admin/dashboard">Dashboard</a>
+        <a href="/admin/calculadora">Calculadora</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main admin-main--largo container">
+
+    <div class="admin-page-header">
+      <h1 class="admin-title">Pendências de verificação</h1>
+      <p class="admin-sub">
+        Tudo que depende de uma decisão sua, num lugar só. Cada par marca/modelo que está
+        <strong>fora do catálogo consagrado</strong> aparece aqui já cruzado com as fontes de
+        referência estrangeiras — a evidência delas define a ação sugerida.
+      </p>
+    </div>
+
+    <!-- Abas por tipo de pendência: cada uma tem uma ação diferente, então
+         separá-las evita que a usuária trate igual o que não é igual. -->
+    <section class="admin-section pd-tabs-section">
+      <div class="pd-tabs" id="pd-tabs">
+        <button class="pd-tab pd-tab--ativa" data-tipo="corrigir_nome" onclick="trocarAba('corrigir_nome')">
+          <span class="pd-tab-nome">Nome incompleto</span>
+          <span class="pd-tab-contador" id="pd-cont-corrigir_nome">—</span>
+        </button>
+        <button class="pd-tab" data-tipo="confirmado" onclick="trocarAba('confirmado')">
+          <span class="pd-tab-nome">Confirmados pela fonte</span>
+          <span class="pd-tab-contador" id="pd-cont-confirmado">—</span>
+        </button>
+        <button class="pd-tab" data-tipo="sem_evidencia" onclick="trocarAba('sem_evidencia')">
+          <span class="pd-tab-nome">Sem evidência</span>
+          <span class="pd-tab-contador" id="pd-cont-sem_evidencia">—</span>
+        </button>
+        <button class="pd-tab" data-tipo="alias" onclick="trocarAba('alias')">
+          <span class="pd-tab-nome">Aliases a conferir</span>
+          <span class="pd-tab-contador" id="pd-cont-alias">—</span>
+        </button>
+      </div>
+      <p class="pd-tab-ajuda" id="pd-tab-ajuda"></p>
+    </section>
+
+    <!-- Pares (3 primeiras abas) -->
+    <section class="admin-section" id="pd-pares-section">
+      <div class="an-filters">
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="pd-busca">Buscar</label>
+          <input type="text" id="pd-busca" class="an-filter-input" placeholder="filtrar marca ou modelo…" oninput="renderPares()" />
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="pd-dispensadas">Dispensadas</label>
+          <select id="pd-dispensadas" class="an-filter-select" onchange="carregarPendencias()"
+                  title="Pares que você já analisou e decidiu deixar como estão">
+            <option value="">Esconder</option>
+            <option value="1">Mostrar também</option>
+          </select>
+        </div>
+        <span class="an-total" id="pd-total">—</span>
+      </div>
+      <div class="an-table-wrap">
+        <table class="an-table" id="pd-table">
+          <thead>
+            <tr>
+              <th class="an-th an-th--sortable" data-col="marca" onclick="ordenarPares('marca')">Marca <span class="an-sort-icon" id="pd-sort-marca"></span></th>
+              <th class="an-th an-th--sortable" data-col="modelo" onclick="ordenarPares('modelo')">Modelo <span class="an-sort-icon" id="pd-sort-modelo"></span></th>
+              <th class="an-th an-th--sortable an-th--num" data-col="qtd" onclick="ordenarPares('qtd')">Anúncios <span class="an-sort-icon" id="pd-sort-qtd">↓</span></th>
+              <th class="an-th">O que as fontes dizem</th>
+              <th class="an-th">Decisão</th>
+            </tr>
+          </thead>
+          <tbody id="pd-tbody">
+            <tr><td colspan="5" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <datalist id="pd-marcas"></datalist>
+    </section>
+
+    <!-- Aliases (4ª aba) -->
+    <section class="admin-section hidden" id="pd-alias-section">
+      <p class="admin-sub" id="pd-alias-nota"></p>
+      <div class="an-table-wrap">
+        <table class="an-table" id="pd-alias-table">
+          <thead>
+            <tr>
+              <th class="an-th">Marca</th>
+              <th class="an-th">Como está no banco</th>
+              <th class="an-th">Nome na fonte</th>
+              <th class="an-th an-th--num">Semelhança</th>
+              <th class="an-th an-th--num">Anúncios</th>
+              <th class="an-th">Decisão</th>
+            </tr>
+          </thead>
+          <tbody id="pd-alias-tbody">
+            <tr><td colspan="6" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer id="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-vc">VC</span>
+        <p>Valor Clássico · Painel interno</p>
+      </div>
+      <div class="footer-links">
+        <p>© 2026 Valor Clássico</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/pendencias.js"></script>
+</body>
+</html>

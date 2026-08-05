@@ -35,19 +35,10 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-from src.catalog.externo import (
-    BASE_INTL_CSV,
-    VOCABULARIO_CSV,
-    carregar_aliases,
-    carregar_base_intl,
-)
+from src.catalog.externo import evidencia_externa
 from src.catalog.loader import carregar_catalogo
 from src.pipeline.normalizer import normalizar_texto
 from src.pipeline.persistence import _connect
-
-# Prefixo com menos de 3 caracteres casa quase tudo ('C' casaria com toda a
-# linha C da Mercedes), então não conta como evidência.
-MIN_PREFIXO = 3
 
 
 def _pares_orfaos() -> list[tuple[str, str, int]]:
@@ -76,110 +67,31 @@ def _pares_orfaos() -> list[tuple[str, str, int]]:
     return orfaos
 
 
-def _modelos_classic() -> dict[str, set[str]]:
-    """marca -> modelos vistos na taxonomia do classic.com."""
-    por_marca: dict[str, set[str]] = defaultdict(set)
-    try:
-        with open(VOCABULARIO_CSV, encoding="utf-8", newline="") as f:
-            for linha in csv.DictReader(f):
-                marca = (linha.get("marca") or "").strip()
-                modelo = (linha.get("modelo") or "").strip()
-                if marca and modelo:
-                    por_marca[marca].add(modelo)
-    except FileNotFoundError:
-        print(f"AVISO: {VOCABULARIO_CSV.name} não existe.", file=sys.stderr)
-    return por_marca
-
-
-def _casa_prefixo(modelo: str, candidatos: set[str]) -> str | None:
-    """
-    Modelo do banco e da fonte compartilham o nome-base.
-    'GALAXIE 500' casa com 'GALAXIE'; 'DEFENDER' casa com 'DEFENDER 110'.
-    """
-    if len(modelo) < MIN_PREFIXO:
-        return None
-    for c in sorted(candidatos):
-        if len(c) < MIN_PREFIXO:
-            continue
-        if modelo.startswith(c + " ") or c.startswith(modelo + " "):
-            return c
-    return None
-
-
-def _suspeita(modelo: str, alvo: str) -> str:
-    """
-    Marca o candidato cujo modelo do BANCO parece truncado, não alternativo.
-
-    Casar por prefixo é uma faca de dois gumes. 'GALAXIE 500' -> 'GALAXIE' é
-    legítimo (o banco tem o trim junto, a fonte não). Mas 'MODEL' -> 'MODEL T',
-    'RANGE' -> 'RANGE ROVER' e 'MARK' -> 'MARK 7' são o contrário: o banco
-    perdeu metade do nome numa extração ruim, e a fonte externa está
-    completando o que faltou. Promover esses pares pro suplemento cimentaria
-    o bug em vez de corrigi-lo — o certo é consertar o modelo no banco.
-
-    Sinal usado: o nome da FONTE é mais longo e começa com o do banco.
-    """
-    if alvo.startswith(modelo + " "):
-        return "modelo_truncado"
-    if len(modelo) <= 2:
-        return "modelo_curto"
-    return ""
-
-
 def auditar() -> tuple[list[dict], list[tuple[str, str, int]]]:
-    base_intl = carregar_base_intl()
-    classic = _modelos_classic()
-    aliases = carregar_aliases()
-
-    intl_por_marca: dict[str, set[str]] = defaultdict(set)
-    for marca, modelo in base_intl:
-        intl_por_marca[marca].add(modelo)
-
+    """
+    O cruzamento em si mora em `externo.evidencia_externa` — a mesma função
+    que o painel de pendências usa, pra auditoria e tela nunca divergirem
+    sobre o mesmo par.
+    """
     cobertos: list[dict] = []
     descobertos: list[tuple[str, str, int]] = []
 
     for marca, modelo, n in _pares_orfaos():
-        candidatos_oldtimers = intl_por_marca.get(marca, set())
-        candidatos_classic = classic.get(marca, set())
-
-        alvo, estrategia, fonte = None, None, None
-
-        if modelo in candidatos_oldtimers:
-            alvo, estrategia, fonte = modelo, "literal", "the-oldtimers.com"
-        elif modelo in candidatos_classic:
-            alvo, estrategia, fonte = modelo, "literal", "classic.com"
-        elif (marca, modelo) in aliases:
-            traduzido = aliases[(marca, modelo)]
-            if traduzido in candidatos_oldtimers:
-                alvo, estrategia, fonte = traduzido, "alias", "the-oldtimers.com"
-            elif traduzido in candidatos_classic:
-                alvo, estrategia, fonte = traduzido, "alias", "classic.com"
-
-        if not alvo:
-            achado = _casa_prefixo(modelo, candidatos_oldtimers)
-            if achado:
-                alvo, estrategia, fonte = achado, "prefixo", "the-oldtimers.com"
-            else:
-                achado = _casa_prefixo(modelo, candidatos_classic)
-                if achado:
-                    alvo, estrategia, fonte = achado, "prefixo", "classic.com"
-
-        if not alvo:
+        ev = evidencia_externa(marca, modelo)
+        if not ev:
             descobertos.append((marca, modelo, n))
             continue
-
-        faixa = base_intl.get((marca, alvo))
         cobertos.append(
             {
                 "marca": marca,
                 "modelo": modelo,
-                "modelo_fonte": alvo,
-                "estrategia": estrategia,
-                "fonte": fonte,
-                "ano_min": faixa[0] if faixa else "",
-                "ano_max": faixa[1] if faixa else "",
+                "modelo_fonte": ev["modelo_fonte"],
+                "estrategia": ev["estrategia"],
+                "fonte": ev["fonte"],
+                "ano_min": ev["ano_min"] if ev["ano_min"] is not None else "",
+                "ano_max": ev["ano_max"] if ev["ano_max"] is not None else "",
                 "n_anuncios": n,
-                "suspeita": _suspeita(modelo, alvo),
+                "suspeita": ev["suspeita"],
             }
         )
 
