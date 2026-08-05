@@ -1,0 +1,40 @@
+marca,modelo_ptbr,modelo_intl,regra,fonte,n_anuncios,similaridade
+BMW,SERIE 3,3 SERIES,serie_n,the-oldtimers.com,10,0.667
+BMW,SERIE 5,5 SERIES,serie_n,the-oldtimers.com,1,0.667
+MERCEDES-BENZ,CLASSE A,A CLASS,classe_x,classic.com,28,0.667
+MERCEDES-BENZ,CLASSE SLK,SLK,classe_x,the-oldtimers.com,3,0.462
+MERCEDES-BENZ,CLASSE CLK,CLK,classe_x,classic.com,2,0.462
+MERCEDES-BENZ,CLASSE C,C,classe_x,the-oldtimers.com,13,0.222
+MERCEDES-BENZ,CLASSE E,E,classe_x,the-oldtimers.com,11,0.222
+MERCEDES-BENZ,CLASSE S,S,classe_x,the-oldtimers.com,1,0.222
+CADILLAC,DE VILLE,DEVILLE,espacamento,the-oldtimers.com,13,0.933
+MITSUBISHI,3000 GT,3000GT,espacamento,the-oldtimers.com,12,0.923
+CHEVROLET,DE LUXE,DELUXE,espacamento,the-oldtimers.com,5,0.923
+PONTIAC,LE MANS,LEMANS,espacamento,the-oldtimers.com,2,0.923
+OLDSMOBILE,NINETY EIGHT,NINETY-EIGHT,espacamento,the-oldtimers.com,1,0.917
+JAGUAR,XK 120,XK120,espacamento,classic.com,5,0.909
+MERCEDES-BENZ,300 D,300D,espacamento,the-oldtimers.com,5,0.889
+MERCEDES-BENZ,170 S,170S,espacamento,the-oldtimers.com,1,0.889
+CHEVROLET,S10,S-10,espacamento,the-oldtimers.com,392,0.857
+CHEVROLET,C10,C-10,espacamento,the-oldtimers.com,205,0.857
+JEEP,CJ 5,CJ5,espacamento,the-oldtimers.com,10,0.857
+HONDA,CRV,CR V,espacamento,classic.com,5,0.857
+CORD,L29,L 29,espacamento,classic.com,1,0.857
+CITROEN,2 CV,2CV,espacamento,the-oldtimers.com,1,0.857
+JAGUAR,MKV,MK V,espacamento,the-oldtimers.com,1,0.857
+BENTLEY,R-TYPE,R TYPE,espacamento,classic.com,1,0.833
+JAGUAR,X-TYPE,X TYPE,espacamento,classic.com,1,0.833
+CROSLEY,FARM-O-ROAD,FARM O ROAD,espacamento,classic.com,1,0.818
+LAND ROVER,SERIES III,SERIE III,fuzzy,the-oldtimers.com,1,0.947
+PORSCHE,REPLICA,REPLICAS,fuzzy,classic.com,2,0.933
+CORD,REPLICA,REPLICAS,fuzzy,classic.com,1,0.933
+MERCEDES-BENZ,300 SE,300 SEL,fuzzy,the-oldtimers.com,8,0.923
+HYUNDAI,ELANTRA,LANTRA,fuzzy,the-oldtimers.com,2,0.923
+LAND ROVER,SERIE,SERIES,fuzzy,classic.com,3,0.909
+ALFA ROMEO,GIULI,GIULIA,fuzzy,the-oldtimers.com,1,0.909
+HYUNDAI,COUPE,SCOUPE,fuzzy,the-oldtimers.com,1,0.909
+LAND ROVER,DISCOVERY 1,DISCOVERY,fuzzy,the-oldtimers.com,2,0.9
+LAND ROVER,DISCOVERY 2,DISCOVERY,fuzzy,the-oldtimers.com,1,0.9
+CHEVROLET,FLEEASTER,FLEETMASTER,fuzzy,classic.com,1,0.9
+FORD,CRISTLINE,CRESTLINE,fuzzy,the-oldtimers.com,1,0.889
+MERCEDES-BENZ,500 SEL,300 SEL,fuzzy,the-oldtimers.com,6,0.857

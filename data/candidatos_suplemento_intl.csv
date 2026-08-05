@@ -1,0 +1,45 @@
+marca,modelo,ano_min,ano_max,modelo_fonte,estrategia,fonte,n_anuncios,suspeita
+TRIUMPH,TR7,1975,1981,TR7,literal,the-oldtimers.com,3,
+AUDI,QUATTRO,1980,1991,QUATTRO,literal,the-oldtimers.com,2,
+MERCEDES-BENZ,280,1968,1993,280,literal,the-oldtimers.com,2,
+OLDSMOBILE,442,1968,1971,442,literal,the-oldtimers.com,2,
+PLYMOUTH,SUNDANCE,1985,1990,SUNDANCE,literal,the-oldtimers.com,2,
+PORSCHE,550,1955,1958,550,literal,the-oldtimers.com,2,
+LINCOLN,ZEPHYR,1941,1942,ZEPHYR,literal,the-oldtimers.com,1,
+FORD,CRISTLINE,1952,1955,CRESTLINE,alias,the-oldtimers.com,1,
+FORD,CRESTLINE,1952,1955,CRESTLINE,literal,the-oldtimers.com,1,
+MERCEDES-BENZ,240,1973,1978,240,literal,the-oldtimers.com,1,
+FERRARI,246,1957,1974,246,literal,the-oldtimers.com,1,
+MERCEDES-BENZ,500,1941,1992,500,literal,the-oldtimers.com,1,
+MERCEDES-BENZ,SLK,1995,1995,SLK,literal,the-oldtimers.com,1,
+DE SOTO,FIREDOME,1952,1959,FIREDOME,literal,the-oldtimers.com,1,
+DE SOTO,AIRFLOW,1934,1936,AIRFLOW,literal,the-oldtimers.com,1,
+CORD,812,1936,1937,812,literal,the-oldtimers.com,1,
+CORD,810,1936,1937,810,literal,the-oldtimers.com,1,
+NASH,AMBASSADOR,1948,1956,AMBASSADOR,literal,the-oldtimers.com,1,
+AMC,PACER,1975,1979,PACER,literal,the-oldtimers.com,1,
+CHRYSLER,300,1955,1970,300,literal,the-oldtimers.com,1,
+PLYMOUTH,BELVEDERE,1954,1955,BELVEDERE,literal,the-oldtimers.com,1,
+PLYMOUTH,FURY,1967,1972,FURY,literal,the-oldtimers.com,1,
+ALFA ROMEO,GTV,1967,1995,GTV,literal,the-oldtimers.com,1,
+PLYMOUTH,VOYAGER,1983,1995,VOYAGER,literal,the-oldtimers.com,1,
+ALFA ROMEO,GIULI,1962,1977,GIULIA,alias,the-oldtimers.com,1,
+CHEVROLET,BISCAYNE,1972,1972,BISCAYNE,literal,the-oldtimers.com,1,
+BMW,328,1936,1940,328,literal,the-oldtimers.com,1,
+VOLKSWAGEN,1500,1961,1965,1500,literal,the-oldtimers.com,1,
+JAGUAR,C-TYPE,1951,1953,C-TYPE,literal,the-oldtimers.com,1,
+JAGUAR,MKV,1949,1951,MK V,alias,the-oldtimers.com,1,
+LAND ROVER,RANGE,1970,1996,RANGE ROVER,prefixo,the-oldtimers.com,5,modelo_truncado
+CHRYSLER,DODGE,1977,1977,DODGE 3700,prefixo,the-oldtimers.com,2,modelo_truncado
+FORD,MODEL,1908,1927,MODEL T,prefixo,the-oldtimers.com,2,modelo_truncado
+OLDSMOBILE,88,1954,1992,88,literal,the-oldtimers.com,2,modelo_curto
+FORD,GT,1983,1984,GT,literal,the-oldtimers.com,1,modelo_curto
+LINCOLN,MARK,1987,1988,MARK 7,prefixo,the-oldtimers.com,1,modelo_truncado
+FORD,F,1948,1956,F,literal,the-oldtimers.com,1,modelo_curto
+MERCEDES-BENZ,G,1980,1994,G,literal,the-oldtimers.com,1,modelo_curto
+MERCEDES-BENZ,SL,1963,1995,SL,literal,the-oldtimers.com,1,modelo_curto
+MITSUBISHI,SPACE,1992,1995,SPACE RUNNER,prefixo,the-oldtimers.com,1,modelo_truncado
+CHRYSLER,NEW,1951,1992,NEW YORKER,prefixo,the-oldtimers.com,1,modelo_truncado
+PONTIAC,TRANS,1975,1990,TRANS AM,prefixo,the-oldtimers.com,1,modelo_truncado
+JAGUAR,XJ,1972,1994,XJ,literal,the-oldtimers.com,1,modelo_curto
+JAGUAR,XK,1948,1960,XK,literal,the-oldtimers.com,1,modelo_curto
