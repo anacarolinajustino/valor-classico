@@ -8,6 +8,7 @@
 
 let pdDados = null;      // resposta de /admin/api/pendencias
 let pdAliases = null;    // resposta de /admin/api/aliases-pendentes
+let pdVersoes = null;    // resposta de /admin/api/versoes-pendentes
 let pdAba = 'corrigir_nome';
 let pdOrder = 'qtd';
 let pdDir = 'desc';
@@ -25,11 +26,23 @@ const AJUDA = {
     'Nenhuma fonte conhece esse par. Para carro NACIONAL isso é o esperado — as duas fontes são ' +
     'europeias e americanas, e nenhuma marca brasileira existe nelas. Então "sem evidência" não ' +
     'quer dizer errado: quer dizer que só você pode decidir se é carro de verdade ou lixo de parsing.',
+  versao:
+    'Versões que o vocabulário de trim do catálogo não reconhece. Boa parte NÃO é erro do ' +
+    'banco: o catálogo da Webmotors não lista trim nacional real (Corcel II "L", Belina "L", ' +
+    'S10 "Luxe"). "É trim real" cadastra no suplemento de versão e some daqui; "Não é versão" ' +
+    'limpa o campo nos anúncios do par, sem apagar o anúncio.',
   alias:
     'Palpites de tradução entre a grafia do banco e a das fontes em inglês, gerados por ' +
     'semelhança de texto. Só os incertos aparecem aqui — as traduções de regra fixa ' +
     '(Série 3 → 3 Series, espaçamento) não precisam de conferência. Um alias rejeitado deixa ' +
     'de valer como evidência nas outras abas.',
+};
+
+// Rótulo e explicação de cada sugestão da aba de versões.
+const SUGESTAO_VERSAO = {
+  trim_provavel:  ['trim provável', 'o par tem vocabulário no catálogo e este token não está lá'],
+  geracao:        ['é geração',     'as fontes externas conhecem este código como GERAÇÃO deste carro — valor certo, campo errado'],
+  sem_referencia: ['sem referência', 'o par não tem vocabulário de versão no catálogo; nada a comparar'],
 };
 
 // ── Abas ────────────────────────────────────────────────────────────────
@@ -41,11 +54,16 @@ function trocarAba(tipo) {
   document.getElementById('pd-tab-ajuda').textContent = AJUDA[tipo] || '';
 
   const ehAlias = tipo === 'alias';
-  document.getElementById('pd-pares-section').classList.toggle('hidden', ehAlias);
+  const ehVersao = tipo === 'versao';
+  const ehPar = !ehAlias && !ehVersao;
+  document.getElementById('pd-pares-section').classList.toggle('hidden', !ehPar);
   document.getElementById('pd-alias-section').classList.toggle('hidden', !ehAlias);
+  document.getElementById('pd-versao-section').classList.toggle('hidden', !ehVersao);
 
   if (ehAlias) {
     if (pdAliases === null) carregarAliases(); else renderAliases();
+  } else if (ehVersao) {
+    if (pdVersoes === null) carregarVersoes(); else renderVersoes();
   } else {
     renderPares();
   }
@@ -411,6 +429,108 @@ async function verAnunciosDoPar(btn) {
   }
 }
 
+// ── Versões a conferir ──────────────────────────────────────────────────
+async function carregarVersoes() {
+  const tbody = document.getElementById('pd-versao-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="an-empty">Carregando…</td></tr>';
+  try {
+    const res = await fetch('/admin/api/versoes-pendentes');
+    const data = await res.json();
+    if (data.erro) {
+      tbody.innerHTML = `<tr><td colspan="6" class="an-empty an-empty--erro">${escapeHtml(data.erro)}</td></tr>`;
+      return;
+    }
+    pdVersoes = data;
+    const el = document.getElementById('pd-cont-versao');
+    if (el) el.textContent = (data.total || 0).toLocaleString('pt-BR');
+    renderVersoes();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="an-empty an-empty--erro">Erro: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderVersoes() {
+  const tbody = document.getElementById('pd-versao-tbody');
+  if (pdVersoes === null) return;
+
+  const termo = document.getElementById('pd-versao-busca').value.trim().toUpperCase();
+  const sug = document.getElementById('pd-versao-sugestao').value;
+  let linhas = pdVersoes.versoes;
+  if (sug) linhas = linhas.filter(v => v.sugestao === sug);
+  if (termo) {
+    linhas = linhas.filter(v =>
+      v.marca.includes(termo) || v.modelo.includes(termo) || v.versao.includes(termo));
+  }
+
+  const anuncios = linhas.reduce((s, v) => s + v.qtd, 0);
+  document.getElementById('pd-versao-total').textContent =
+    `${linhas.length.toLocaleString('pt-BR')} de ${pdVersoes.total.toLocaleString('pt-BR')} · ` +
+    `${anuncios.toLocaleString('pt-BR')} anúncios` +
+    (pdVersoes.truncado ? ' (lista cortada nos maiores)' : '');
+
+  if (!linhas.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="an-empty">Nada pendente nesta aba.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = linhas.map(v => {
+    const [rotulo, ajuda] = SUGESTAO_VERSAO[v.sugestao] || [v.sugestao, ''];
+    const classe = v.sugestao === 'geracao' ? 'pd-ev--alerta' : 'pd-ev--ok';
+    return `
+    <tr data-marca="${escapeAttr(v.marca)}" data-modelo="${escapeAttr(v.modelo)}"
+        data-versao="${escapeAttr(v.versao)}">
+      <td class="an-td">${escapeHtml(v.marca)}</td>
+      <td class="an-td">${escapeHtml(v.modelo || '—')}</td>
+      <td class="an-td">
+        <strong>${escapeHtml(v.versao)}</strong>
+        <span class="pd-ev ${classe}" title="${escapeAttr(ajuda)}">${escapeHtml(rotulo)}</span>
+      </td>
+      <td class="an-td an-td--num">${v.qtd.toLocaleString('pt-BR')}</td>
+      <td class="an-td"><span class="pd-ev pd-ev--nada">${
+        v.vocabulario.length ? escapeHtml(v.vocabulario.join(', ')) : 'nenhum'
+      }</span></td>
+      <td class="an-td">
+        <div class="pd-acoes">
+          <button class="btn btn-primary btn-sm" onclick="decidirVersao(this,'manter')"
+                  title="Cadastra no suplemento de versão — o catálogo passa a reconhecer">É trim real</button>
+          <button class="btn btn-danger btn-sm" onclick="decidirVersao(this,'limpar')"
+                  title="Limpa o campo versão nos anúncios deste par (não apaga o anúncio)">Não é versão</button>
+          <span class="pd-msg"></span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function decidirVersao(btn, acao) {
+  const tr = btn.closest('tr');
+  const msg = tr.querySelector('.pd-msg');
+  if (acao === 'limpar' &&
+      !confirm(`Limpar a versão "${tr.dataset.versao}" de ${tr.dataset.marca} ${tr.dataset.modelo}?\n\nO campo fica vazio nos anúncios desse par. Os anúncios continuam no banco.`)) {
+    return;
+  }
+  const data = await postar('/admin/api/decidir-versao', {
+    marca: tr.dataset.marca,
+    modelo: tr.dataset.modelo,
+    versao: tr.dataset.versao,
+    acao,
+  }, btn, msg);
+  if (!data) return;
+
+  msg.className = 'pd-msg pd-msg--ok';
+  msg.textContent = acao === 'manter'
+    ? (data.ja_existia ? '✓ já no catálogo' : '✓ cadastrada')
+    : `✓ ${data.atualizados} limpos`;
+
+  pdVersoes.versoes = pdVersoes.versoes.filter(
+    v => !(v.marca === tr.dataset.marca && v.modelo === tr.dataset.modelo
+           && v.versao === tr.dataset.versao));
+  pdVersoes.total = Math.max(0, pdVersoes.total - 1);
+  const el = document.getElementById('pd-cont-versao');
+  if (el) el.textContent = pdVersoes.total.toLocaleString('pt-BR');
+  setTimeout(renderVersoes, 700);
+}
+
 // ── Aliases ─────────────────────────────────────────────────────────────
 async function carregarAliases() {
   const tbody = document.getElementById('pd-alias-tbody');
@@ -510,3 +630,4 @@ function escapeAttr(str) {
 document.getElementById('pd-tab-ajuda').textContent = AJUDA[pdAba];
 carregarPendencias();
 carregarAliases();
+carregarVersoes();

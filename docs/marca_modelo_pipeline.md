@@ -295,3 +295,58 @@ correção de padrão vem com teste de regressão, não só o dado corrigido) e 
 - O suplemento manual (`_SUPLEMENTO`) é código, não dado — cresce a cada rodada de auditoria e não
   tem mecanismo de expiração/revisão automática. Se o CSV base for atualizado no futuro, vale
   checar quais entradas do suplemento já passaram a existir lá (duplicata inofensiva, mas evitável).
+
+## Auditoria da VERSÃO (2026-08-05)
+
+Cruzamento do campo `versao` do banco com o vocabulário de trim do catálogo
+(`_indice_trim`, extraído da coluna `nome_versao` do CSV base). Primeira vez que esse eixo foi
+medido — as rodadas anteriores só olharam marca/modelo.
+
+**Ponto de partida:** dos 33.351 anúncios, 19.425 (58%) têm versão. Desses, só **67,7%** tinham
+todos os tokens reconhecidos pelo catálogo.
+
+**O número engana nos dois sentidos.** O teste é contra um vocabulário derivado da Webmotors,
+que cobre 869 dos 1.018 pares do banco e não lista trim nacional real. Conferindo os títulos
+originais, o balde "não bate" tinha três causas bem diferentes:
+
+1. **Banco certo, catálogo incompleto** — Corcel II "L", Belina "L", S10 "Luxe" são trims de
+   fábrica. O título prova (`"Corcel II L 1979 com 55.000 km originais"`). Não é erro.
+2. **Erro de extração** — corrigidos nesta rodada, ver abaixo.
+3. **Valor certo, campo errado** — `C1`/`C4` da Corvette, `MK1` do Golf, `E34` do M5 são
+   geração, não trim.
+
+### O que foi corrigido no código
+
+| Bug | Origem | Correção |
+|---|---|---|
+| versão `"DE"` (83 anúncios) | `"Band.Jipe Cap.de Aço"` — preposição de "capota **de** aço" | `_aparar_conectivos`: nenhum trim começa ou termina com preposição |
+| versão `"VW"` (8) | `"Vw Fusca 1200"` — alias de marca vazou | `_tokens_redundantes` passou a incluir os aliases de `_ALIASES_MARCA` |
+| versão `"AERO"` (30) | modelo `AERO-WILLYS` era um token só | `_tokens_redundantes` passou a quebrar no hífen |
+| versão `"S-10"` em Blazer (36 no total) | nome de outro carro da marca | `_versao_e_so_outro_modelo` |
+| versão `"IA"` (16) | `"328I /IA"` — sufixo de câmbio da forma agregada da OLX | entrou em `_SPEC_INJECAO` |
+| `RT`/`SLE` não casavam (112) | o CSV grafa `R/T` e `SL/E`; a barra virava espaço e o vocabulário ficava com `R`+`T` | `_indice_trim` aplica `_VERSAO_SINONIMO_FRASE`, a mesma canonização do lado do anúncio |
+
+**Duas armadilhas que o dry-run pegou** (e viraram teste de regressão):
+
+- A regra de "modelo vazou" testava token a token e comia o `CHEYENNE` de
+  `"Suburban Cheyenne Super 20"` — Cheyenne é modelo Chevrolet **e** trim de Suburban. Passou a
+  exigir que a versão INTEIRA seja o nome do outro carro; nos 36 casos medidos era sempre assim.
+- A poda de preposição rodava antes da checagem de modelo e transformava `"DE VILLE"` em
+  `"VILLE"`, um trim que nunca existiu. A ordem foi invertida: modelo vazado primeiro.
+
+Reprocessamento: 432 linhas alteradas, conformidade **67,7% → 70,8%**, combinações
+(marca, modelo, versão) distintas 2.079 → 1.979.
+
+### O que sobrou é curadoria, não código
+
+637 combinações (1.334 anúncios) seguem sem reconhecimento, e a maior parte é catálogo
+incompleto. Viraram a aba **"Versões a conferir"** de `/admin/pendencias`, classificadas em
+`trim_provavel` (356), `sem_referencia` (275) e `geracao` (6). Decidir "É trim real" grava em
+`data/suplemento_versao.csv`, que `_indice_trim` lê junto com o CSV base — o mesmo desenho do
+`suplemento_manual.csv` pro eixo marca/modelo.
+
+### Achado colateral: 42% dos anúncios não têm versão nenhuma
+
+E é concentrado por fonte: **Mercado Livre 77%**, iCarros 41%, OLX 35%, Webmotors 30%. O ML
+destoa muito dos outros. Não investigado nesta rodada — vale checar se a ficha técnica de lá traz
+o dado num campo que o conector não lê.

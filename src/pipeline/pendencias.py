@@ -29,6 +29,7 @@ já existiam (`corrigir_marca_modelo`, `adicionar_ao_catalogo`,
 from __future__ import annotations
 
 import csv
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -172,6 +173,100 @@ def listar_pendencias(incluir_dispensadas: bool = False) -> dict[str, Any]:
         "total_dispensadas": len(dispensadas),
         "marcas_catalogo": base["marcas_catalogo"],
         "modelos_catalogo": base["modelos_catalogo"],
+    }
+
+
+def listar_versoes_pendentes(limite: int = 400) -> dict[str, Any]:
+    """
+    Versões do banco que o vocabulário de trim não reconhece.
+
+    Sai da auditoria de 2026-08-05: só 70,8% dos anúncios com versão batiam
+    com o catálogo, e o grosso do resto NÃO é erro do banco — é o catálogo da
+    Webmotors que não lista trim nacional real (Corcel II "L", Belina "L",
+    S10 "Luxe"). Sem uma fila de curadoria esses ficam órfãos pra sempre.
+
+    Cada linha traz uma `sugestao` pra orientar a decisão:
+
+      trim_provavel  — o par tem vocabulário no catálogo e este token não
+                       está lá; é candidato a trim faltando
+      geracao        — as fontes externas conhecem o token como GERAÇÃO
+                       daquele carro ('C1' da Corvette, 'E34' do M5, 'MK1'
+                       do Golf). Valor certo, campo errado.
+      sem_referencia — o par nem tem vocabulário; nada a comparar
+
+    A pista de geração vem de `vocabulario_geracao_trim.csv` e é usada só
+    como SUGESTÃO na tela, nunca como regra automática do pipeline — a fonte
+    externa segue isolada, como combinado (ver docs/fontes_externas.md).
+    """
+    from src.catalog.externo import carregar_vocabulario, evidencia_externa
+    from src.catalog.loader import _indice_trim, carregar_catalogo
+    from src.pipeline.normalizer import VERSAO_AGREGADA, normalizar_texto
+    from src.pipeline.persistence import _connect
+
+    carregar_catalogo()
+    trim_idx = _indice_trim()
+    vocab_externo = carregar_vocabulario()
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT marca, modelo, versao, COUNT(*) AS n
+                FROM anuncios
+                WHERE versao IS NOT NULL AND versao <> '' AND versao <> %s
+                GROUP BY marca, modelo, versao
+                ORDER BY COUNT(*) DESC
+                """,
+                (VERSAO_AGREGADA,),
+            )
+            rows = cur.fetchall()
+
+    pendentes: list[dict] = []
+    for r in rows:
+        mk = normalizar_texto(r["marca"] or "")
+        md = normalizar_texto(r["modelo"] or "")
+        vs = r["versao"]
+        vocab = trim_idx.get((mk, md), set())
+        if vocab and any(t in vocab for t in vs.split()):
+            continue  # já reconhecida
+
+        geracoes: set[str] = set(vocab_externo.get((mk, md), {}).get("geracoes", []))
+        ev = evidencia_externa(mk, md)
+        if ev:
+            geracoes |= set(
+                vocab_externo.get((mk, ev["modelo_fonte"]), {}).get("geracoes", [])
+            )
+
+        if vs in geracoes:
+            sugestao = "geracao"
+        elif vocab:
+            sugestao = "trim_provavel"
+        else:
+            sugestao = "sem_referencia"
+
+        pendentes.append(
+            {
+                "marca": mk,
+                "modelo": md,
+                "versao": vs,
+                "qtd": r["n"],
+                "sugestao": sugestao,
+                # Amostra do vocabulário conhecido, pra usuária comparar sem
+                # sair da tela.
+                "vocabulario": sorted(vocab)[:10],
+            }
+        )
+
+    totais: dict[str, int] = defaultdict(int)
+    for p in pendentes:
+        totais[p["sugestao"]] += 1
+
+    return {
+        "versoes": pendentes[:limite],
+        "total": len(pendentes),
+        "total_anuncios": sum(p["qtd"] for p in pendentes),
+        "totais": dict(totais),
+        "truncado": len(pendentes) > limite,
     }
 
 

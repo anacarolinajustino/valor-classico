@@ -51,11 +51,14 @@ from src.pipeline.pendencias import (
     dispensar as dispensar_pendencia,
     listar_aliases_pendentes,
     listar_pendencias,
+    listar_versoes_pendentes,
     restaurar as restaurar_pendencia,
 )
 from src.pipeline.persistence import (
     adicionar_ao_catalogo,
+    adicionar_versao_ao_catalogo,
     corrigir_marca_modelo,
+    limpar_versao_do_par,
     excluir_marca_modelo,
     get_dashboard_stats,
     get_db_stats,
@@ -525,6 +528,49 @@ def admin_api_dispensar_pendencia():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_dispensar_pendencia erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/versoes-pendentes")
+def admin_api_versoes_pendentes():
+    """Versões do banco que o vocabulário de trim do catálogo não reconhece."""
+    try:
+        return jsonify(listar_versoes_pendentes())
+    except Exception as exc:
+        logger.error("admin_api_versoes_pendentes erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/decidir-versao", methods=["POST"])
+def admin_api_decidir_versao():
+    """
+    Decide uma versão pendente. `acao`:
+      manter  — é trim real; cadastra no suplemento de versão
+      limpar  — não é versão nenhuma; apaga o campo nos anúncios do par
+    """
+    data = request.get_json(silent=True) or {}
+    marca  = (data.get("marca")  or "").strip()
+    modelo = (data.get("modelo") or "").strip()
+    versao = (data.get("versao") or "").strip()
+    acao   = (data.get("acao")   or "").strip().lower()
+    if not marca or not versao:
+        return jsonify({"erro": "Marca e versão são obrigatórias."}), 400
+    try:
+        if acao == "manter":
+            res = adicionar_versao_ao_catalogo(marca, modelo, versao)
+            logger.info("decidir-versao manter: %r/%r/%r (ja_existia=%s)",
+                        marca, modelo, versao, res["ja_existia"])
+        elif acao == "limpar":
+            res = limpar_versao_do_par(marca, modelo, versao)
+            logger.info("decidir-versao limpar: %r/%r/%r (%d anúncios)",
+                        marca, modelo, versao, res["atualizados"])
+        else:
+            return jsonify({"erro": "Ação deve ser 'manter' ou 'limpar'."}), 400
+        return jsonify({"ok": True, "acao": acao, **res})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_decidir_versao erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

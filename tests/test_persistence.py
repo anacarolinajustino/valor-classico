@@ -418,6 +418,10 @@ class TestGetMediaModelo:
         upsert_anuncios([
             self._anuncio_preco("http://v/1", 100000.0, versao="SS"),
             self._anuncio_preco("http://v/2", 140000.0, versao="SS", ano=1976),
+            # Gravada como "DE LUXO"; o upsert apara a preposição da ponta e
+            # persiste "LUXO" (ver `_aparar_conectivos` — auditoria de versão
+            # 2026-08-05). Mantida assim de propósito: é o caso que prova que
+            # a normalização acontece na escrita, não só na leitura.
             self._anuncio_preco("http://v/3", 40000.0, versao="DE LUXO"),
             # Sem versão: balde próprio, não some da conta.
             self._anuncio_preco("http://v/4", 60000.0),
@@ -428,7 +432,7 @@ class TestGetMediaModelo:
         d = get_media_modelo("volkswagen", "fusca")
         por_versao = {r["versao"]: (r["qtd"], r["preco_medio"]) for r in d["por_versao"]}
         assert por_versao["SS"] == (2, 120000.0)      # (100k+140k)/2
-        assert por_versao["DE LUXO"] == (1, 40000.0)
+        assert por_versao["LUXO"] == (1, 40000.0)   # semeado como "DE LUXO"
         assert por_versao[""] == (1, 60000.0)         # sem versão informada
         assert d["versao"] is None
 

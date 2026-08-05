@@ -54,6 +54,10 @@
           <span class="pd-tab-nome">Sem evidência</span>
           <span class="pd-tab-contador" id="pd-cont-sem_evidencia">—</span>
         </button>
+        <button class="pd-tab" data-tipo="versao" onclick="trocarAba('versao')">
+          <span class="pd-tab-nome">Versões a conferir</span>
+          <span class="pd-tab-contador" id="pd-cont-versao">—</span>
+        </button>
         <button class="pd-tab" data-tipo="alias" onclick="trocarAba('alias')">
           <span class="pd-tab-nome">Aliases a conferir</span>
           <span class="pd-tab-contador" id="pd-cont-alias">—</span>
@@ -98,7 +102,44 @@
       <datalist id="pd-marcas"></datalist>
     </section>
 
-    <!-- Aliases (4ª aba) -->
+    <!-- Versões a conferir -->
+    <section class="admin-section hidden" id="pd-versao-section">
+      <div class="an-filters">
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="pd-versao-busca">Buscar</label>
+          <input type="text" id="pd-versao-busca" class="an-filter-input" placeholder="filtrar marca, modelo ou versão…" oninput="renderVersoes()" />
+        </div>
+        <div class="an-filter-group">
+          <label class="an-filter-label" for="pd-versao-sugestao">Sugestão</label>
+          <select id="pd-versao-sugestao" class="an-filter-select" onchange="renderVersoes()">
+            <option value="">Todas</option>
+            <option value="trim_provavel">Trim provável</option>
+            <option value="geracao">É geração</option>
+            <option value="sem_referencia">Sem referência</option>
+          </select>
+        </div>
+        <span class="an-total" id="pd-versao-total">—</span>
+      </div>
+      <div class="an-table-wrap">
+        <table class="an-table" id="pd-versao-table">
+          <thead>
+            <tr>
+              <th class="an-th">Marca</th>
+              <th class="an-th">Modelo</th>
+              <th class="an-th">Versão no banco</th>
+              <th class="an-th an-th--num">Anúncios</th>
+              <th class="an-th">Trims que o catálogo conhece</th>
+              <th class="an-th">Decisão</th>
+            </tr>
+          </thead>
+          <tbody id="pd-versao-tbody">
+            <tr><td colspan="6" class="an-empty">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Aliases (última aba) -->
     <section class="admin-section hidden" id="pd-alias-section">
       <p class="admin-sub" id="pd-alias-nota"></p>
       <div class="an-table-wrap">

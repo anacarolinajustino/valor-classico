@@ -1272,3 +1272,125 @@ class TestDecomporVersaoIdempotente:
         assert decompor_versao("VOLKSWAGEN", "GOL", None) == (None, None, None, None)
         assert decompor_versao("VOLKSWAGEN", "GOL", "") == (None, None, None, None)
         assert decompor_versao("VOLKSWAGEN", "GOL", "  ") == (None, None, None, None)
+
+
+# ── auditoria de versão 2026-08-05: bugs achados cruzando o campo `versao`
+#    do banco com o vocabulário de trim do catálogo ────────────────────────
+
+class TestVersaoConectivoSolto:
+    """
+    "Toyota Band.Jipe Cap.de Aço Chas. Curto Diesel" gravava versão "DE" em
+    83 anúncios: o corte de spec comia CAPOTA e AÇO e sobrava a preposição.
+    Nenhum trim começa ou termina com preposição.
+    """
+
+    def test_preposicao_sozinha_nao_e_versao(self):
+        assert decompor_versao("TOYOTA", "BANDEIRANTE", "DE")[0] is None
+
+    def test_preposicao_na_ponta_e_aparada(self):
+        assert decompor_versao("DODGE", "DART", "DE LUXO")[0] == "LUXO"
+
+    def test_preposicao_no_meio_fica(self):
+        # Só as pontas são aparadas — frase composta continua inteira.
+        assert decompor_versao("FORD", "GALAXIE", "LTD LANDAU")[0] == "LTD LANDAU"
+
+    def test_nome_de_carro_com_preposicao_nao_vira_trim_inventado(self):
+        # "Cadillac Sedan de Ville": podar o DE primeiro criaria o trim
+        # 'VILLE', que nunca existiu. A checagem de modelo vazado roda antes
+        # justamente por isso (dry-run 2026-08-05).
+        assert decompor_versao("CADILLAC", "SEDAN", "DE VILLE")[0] is None
+        assert decompor_versao("CADILLAC", "COUPE", "DE VILLE")[0] is None
+
+
+class TestVersaoMarcaOuModeloVazando:
+    def test_alias_de_marca_nao_e_versao(self):
+        # "Volkswagen Fusca 1965 Vw Fusca 1200": a marca gravada é
+        # VOLKSWAGEN, o título escreve "Vw" — sem o alias, virava versão.
+        assert decompor_versao("VOLKSWAGEN", "FUSCA", "VW")[0] is None
+
+    def test_modelo_com_hifen_nao_e_versao(self):
+        # 'AERO-WILLYS' era um token só; 'AERO' não era visto como repetição.
+        assert decompor_versao("WILLYS", "AERO-WILLYS", "AERO")[0] is None
+
+    def test_outro_modelo_da_marca_nao_e_versao(self):
+        assert decompor_versao("CHEVROLET", "BLAZER", "S-10")[0] is None
+
+    def test_mas_nome_que_e_trim_legitimo_sobrevive(self):
+        # Guarda contra a regra acima virar destruidora: o catálogo lista
+        # BLAZER como trim real da F-1000 (existiu uma F-1000 Blazer).
+        assert decompor_versao("FORD", "F-1000", "BLAZER")[0] == "BLAZER"
+
+    def test_nome_de_modelo_dentro_de_frase_maior_sobrevive(self):
+        # Achado no smoke test: a 1ª versão da regra testava token a token e
+        # comia o CHEYENNE de "Suburban Cheyenne Super 20" (Cheyenne é
+        # modelo Chevrolet E trim de Suburban). Só a versão INTEIRA conta.
+        assert (decompor_versao("CHEVROLET", "SUBURBAN", "CHEYENNE SUPER 20V8")[0]
+                == "CHEYENNE SUPER 20V8")
+        assert (decompor_versao("CHEVROLET", "VERANEIO", "CUSTOM DELUXE")[0]
+                == "CUSTOM DELUXE")
+
+    def test_vazamento_de_duas_palavras(self):
+        assert decompor_versao("FORD", "BELINA", "DEL REY")[0] is None
+        assert decompor_versao("VOLKSWAGEN", "SANTANA", "QUANTUM")[0] is None
+
+
+class TestVersaoSeparadorNoCatalogo:
+    """
+    O CSV do catálogo grafa "R/T" e "SL/E"; a barra virava espaço e o
+    vocabulário ficava com 'R'+'T' e 'SL'+'E' soltos, enquanto o anúncio
+    chegava como 'RT'/'SLE' e não casava com nada (112 anúncios).
+    """
+
+    def test_rt_casa_no_catalogo(self):
+        assert decompor_versao("DODGE", "CHARGER", "R/T")[0] == "RT"
+        assert decompor_versao("DODGE", "CHARGER", "RT")[0] == "RT"
+
+    def test_sle_casa_no_catalogo(self):
+        assert decompor_versao("CHEVROLET", "MONZA", "SL/E")[0] == "SLE"
+        assert decompor_versao("CHEVROLET", "MONZA", "SLE")[0] == "SLE"
+
+    def test_frase_composta_com_separador(self):
+        assert decompor_versao("CHEVROLET", "OPALA", "COMODORO SL/E")[0] == "COMODORO SLE"
+
+
+class TestVersaoInjecaoAgregada:
+    def test_ia_e_spec_nao_trim(self):
+        # "BMW 328I /IA (modelo Antigo)" — forma agregada da OLX pro câmbio.
+        assert decompor_versao("BMW", "328I", "IA")[0] is None
+
+
+class TestVersaoTrimForaDoCatalogoPreservado:
+    """
+    O catálogo da Webmotors é incompleto: Corcel II L, Belina L e S10 Luxe
+    são trims reais de fábrica que ele não lista. Nenhuma das regras novas
+    pode apagá-los — não casar com o catálogo não é motivo pra descartar.
+    """
+
+    def test_corcel_ii_l(self):
+        assert decompor_versao("FORD", "CORCEL II", "L")[0] == "L"
+
+    def test_belina_l(self):
+        assert decompor_versao("FORD", "BELINA", "L")[0] == "L"
+
+    def test_s10_luxe(self):
+        assert decompor_versao("CHEVROLET", "S10", "LUXE")[0] == "LUXE"
+
+
+class TestVersaoRegrasNovasIdempotentes:
+    CASOS = [
+        ("TOYOTA", "BANDEIRANTE", "DE"),
+        ("DODGE", "DART", "DE LUXO"),
+        ("VOLKSWAGEN", "FUSCA", "VW"),
+        ("WILLYS", "AERO-WILLYS", "AERO"),
+        ("CHEVROLET", "BLAZER", "S-10"),
+        ("DODGE", "CHARGER", "R/T"),
+        ("CHEVROLET", "MONZA", "SL/E"),
+        ("FORD", "F-1000", "BLAZER"),
+        ("FORD", "CORCEL II", "L"),
+    ]
+
+    def test_segunda_passada_devolve_o_mesmo(self):
+        for marca, modelo, versao in self.CASOS:
+            r1 = decompor_versao(marca, modelo, versao)
+            r2 = decompor_versao(marca, modelo, r1[0], r1[3], None, r1[1], r1[2])
+            assert r1 == r2, f"{marca} {modelo} {versao!r}: {r1} != {r2}"

@@ -1327,6 +1327,76 @@ def adicionar_ao_catalogo(
     return {"ja_existia": False, "marca": mk, "modelo": md, "ano_min": ano_min, "ano_max": ano_max}
 
 
+def adicionar_versao_ao_catalogo(marca: str, modelo: str, versao: str) -> dict[str, Any]:
+    """
+    Cadastra um trim no vocabulário de versão (data/suplemento_versao.csv),
+    pro caso em que a versão do anúncio está certa e o que falta é o catálogo
+    da Webmotors conhecê-la — Corcel II "L", Belina "L", S10 "Luxe" e afins.
+
+    Simétrico a `adicionar_ao_catalogo`, mas pro eixo da versão: grava no CSV
+    curado que `_indice_trim` lê junto com o CSV base, e reseta o cache pra
+    valer na próxima consulta.
+
+    Retorna {ja_existia, marca, modelo, versao}.
+    """
+    import csv as _csv
+
+    from src.catalog.loader import (
+        SUPLEMENTO_VERSAO_CSV,
+        _indice_trim,
+        resetar_cache,
+    )
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    vs = normalizar_texto(versao or "")
+    if not mk or not md or not vs:
+        raise ValueError("Marca, modelo e versão são obrigatórios.")
+
+    ja = _indice_trim().get((mk, md), set())
+    if all(t in ja for t in vs.split()):
+        return {"ja_existia": True, "marca": mk, "modelo": md, "versao": vs}
+
+    novo = not SUPLEMENTO_VERSAO_CSV.exists()
+    SUPLEMENTO_VERSAO_CSV.parent.mkdir(parents=True, exist_ok=True)
+    with open(SUPLEMENTO_VERSAO_CSV, "a", encoding="utf-8", newline="") as f:
+        w = _csv.writer(f)
+        if novo:
+            w.writerow(["marca", "modelo", "versao"])
+        w.writerow([mk, md, vs])
+
+    resetar_cache()  # próxima _indice_trim() já enxerga o novo trim
+    return {"ja_existia": False, "marca": mk, "modelo": md, "versao": vs}
+
+
+def limpar_versao_do_par(marca: str, modelo: str, versao: str) -> dict[str, Any]:
+    """
+    Apaga o campo `versao` dos anúncios de um (marca, modelo, versao) exato —
+    pro caso em que o valor não é versão nenhuma (lixo de parsing que as
+    regras automáticas não pegaram). Não apaga o anúncio, só o campo.
+
+    Retorna {atualizados}.
+    """
+    from src.pipeline.normalizer import normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    vs = (versao or "").strip()
+    if not mk or not vs:
+        raise ValueError("Marca e versão são obrigatórias.")
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE anuncios SET versao = NULL "
+                "WHERE UPPER(marca) = %s AND UPPER(COALESCE(modelo, '')) = %s "
+                "AND versao = %s",
+                (mk, md, vs),
+            )
+            return {"atualizados": cur.rowcount}
+
+
 def get_marcas_db() -> list[str]:
     """Retorna lista de marcas distintas presentes na tabela anuncios."""
     sql = "SELECT DISTINCT UPPER(marca) AS marca FROM anuncios WHERE marca IS NOT NULL ORDER BY 1"

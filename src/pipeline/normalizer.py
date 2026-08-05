@@ -455,6 +455,19 @@ _SPEC_CAMBIO: frozenset = frozenset({
 _SPEC_INJECAO: frozenset = frozenset({
     "MI", "MPI", "MPFI", "EFI", "IE", "I.E.", "TBI", "TB", "SFI", "MFI",
     "EGI", "INJECAO", "INJETADO", "CARBURADO", "CARBURADA", "CARB",
+    # "iA" = injeção + automático, sufixo que a OLX cola no nome na forma
+    # agregada ("BMW 328I /IA") — spec, não trim (auditoria 2026-08-05).
+    "IA",
+})
+
+# Preposição/conectivo que sobra quando o corte de spec come as palavras ao
+# redor: "Toyota Band.Jipe Cap.de Aço" perdia CAPOTA e AÇO e gravava versão
+# "DE" em 83 anúncios (auditoria 2026-08-05). Nenhum trim COMEÇA ou TERMINA
+# com preposição, então elas são aparadas das pontas — no meio ficam, que é o
+# que preserva "Ford Galaxie LTD Landau" e afins de frase composta.
+_CONECTIVO_VERSAO: frozenset = frozenset({
+    "DE", "DA", "DO", "DAS", "DOS", "COM", "SEM", "EM", "NO", "NA",
+    "PARA", "POR", "AO", "AOS", "A", "O",
 })
 # "(modelo antigo)" e conectivo solto de enumeração de spec ("2p E 4p").
 _SPEC_OBSERVACAO: frozenset = frozenset({"MODELO", "ANTIGO", "NOVO", "E"})
@@ -1686,6 +1699,85 @@ def _e_enumeracao_versoes(
     return False
 
 
+def _aparar_conectivos(tokens: list[str]) -> list[str]:
+    """
+    Tira preposição/conectivo das PONTAS da lista de tokens de versão.
+
+    'DE' -> []          (só conectivo: não é versão nenhuma)
+    'DE LUXO' -> ['LUXO']
+    'GALAXIE LTD' -> inalterado (nada nas pontas)
+    """
+    inicio, fim = 0, len(tokens)
+    while inicio < fim and tokens[inicio] in _CONECTIVO_VERSAO:
+        inicio += 1
+    while fim > inicio and tokens[fim - 1] in _CONECTIVO_VERSAO:
+        fim -= 1
+    return tokens[inicio:fim]
+
+
+def _tokens_redundantes(marca_norm: str, modelo_norm: str) -> set[str]:
+    """
+    Tokens que só repetem a marca ou o modelo e por isso nunca são versão.
+
+    Além do split por espaço, cobre dois vazamentos achados na auditoria de
+    versão (2026-08-05):
+
+      - hífen: o modelo 'AERO-WILLYS' era um token só, então a versão 'AERO'
+        não era reconhecida como repetição do nome (30 anúncios);
+      - alias de marca: o anúncio escreve 'Vw Fusca 1200' e o 'VW' virava
+        versão, porque a marca gravada é 'VOLKSWAGEN' e o alias não entrava
+        na comparação (8 anúncios).
+    """
+    partes: set[str] = set()
+    for nome in (marca_norm, modelo_norm):
+        for tok in nome.replace("-", " ").split():
+            partes.add(tok)
+    partes.update(
+        variante for variante, canonica in _ALIASES_MARCA.items()
+        if canonica == marca_norm and variante
+    )
+    return partes
+
+
+def _versao_e_so_outro_modelo(marca_norm: str, modelo_norm: str, tokens: list[str]) -> bool:
+    """
+    True quando a versão INTEIRA é só o nome de outro modelo da mesma marca —
+    o nome do carro vazou pro campo ('S-10' na versão de um BLAZER, 'DEL REY'
+    na de uma BELINA, 'AERO' na de um AERO-WILLYS).
+
+    Exige a versão inteira de propósito. A primeira versão desta regra
+    testava token a token e derrubava trim legítimo que por acaso divide o
+    nome com um modelo: 'Suburban Cheyenne Super 20' perdia o CHEYENNE
+    (Cheyenne é modelo Chevrolet E trim de Suburban) e sobrava 'SUPER 20V8'.
+    Nos 36 casos medidos na auditoria de 2026-08-05 o vazamento era SEMPRE a
+    versão toda, então a forma restrita pega tudo que interessa sem esse
+    risco.
+
+    A ressalva do trim continua valendo: o catálogo lista 'BLAZER' como trim
+    real da F-1000 (existiu uma F-1000 Blazer).
+    """
+    if not tokens:
+        return False
+    alvo_txt = " ".join(tokens)
+    if len(alvo_txt) < 3 or _trim_catalogo(marca_norm, modelo_norm, alvo_txt):
+        return False
+    try:
+        from src.catalog.loader import _canon_sem_separador, carregar_catalogo
+
+        catalogo = carregar_catalogo()
+    except Exception:  # pragma: no cover - catálogo indisponível
+        return False
+
+    alvo = _canon_sem_separador(alvo_txt)
+    if alvo == _canon_sem_separador(modelo_norm):
+        return True
+    return any(
+        _canon_sem_separador(md) == alvo
+        for mk, md in catalogo
+        if mk == marca_norm and md
+    )
+
+
 def _revalidar_motor(motor: Optional[str]) -> Optional[str]:
     """
     Passa um `motor` já gravado pelas regras atuais e remonta na forma
@@ -1827,8 +1919,9 @@ def decompor_versao(
 
     # Tokens que só repetem a marca ou o modelo não são versão ("Blazer Dlx"
     # no modelo BLAZER, "Jeep" no modelo JEEP) — item 5 do estudo, 193
-    # anúncios tinham versao == modelo.
-    redundante = set(marca_norm.split()) | set(modelo_norm.split())
+    # anúncios tinham versao == modelo. Cobre também hífen e alias de marca
+    # (ver `_tokens_redundantes`).
+    redundante = _tokens_redundantes(marca_norm, modelo_norm)
 
     geracao_tokens: list[str] = []
     cilindrada: Optional[str] = None
@@ -1920,6 +2013,14 @@ def decompor_versao(
 
     # ── canonização do trim contra o catálogo ────────────────────
     brutos = _limpar_tokens(versao_tokens)
+    # A checagem de modelo vazado vem ANTES da poda de conectivo: há nome de
+    # carro que CONTÉM preposição ("Cadillac Sedan de Ville"), e podar
+    # primeiro transformaria 'DE VILLE' em 'VILLE' — um trim inventado que
+    # nunca existiu — em vez de reconhecer o vazamento do nome inteiro
+    # (achado no dry-run de 2026-08-05).
+    if _versao_e_so_outro_modelo(marca_norm, modelo_norm, brutos):
+        brutos = []
+    brutos = _aparar_conectivos(brutos)
     canon: list[str] = []
     j = 0
     while j < len(brutos):

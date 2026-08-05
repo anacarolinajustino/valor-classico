@@ -31,6 +31,13 @@ CSV_PADRAO = Path(__file__).parent.parent.parent / "data" / "base_marcamodelo.cs
 # Colunas: marca,modelo,ano_min,ano_max (marca/modelo já normalizados).
 SUPLEMENTO_MANUAL_CSV = Path(__file__).parent.parent.parent / "data" / "suplemento_manual.csv"
 
+# Suplemento de VERSÃO, o equivalente do acima pro vocabulário de trim
+# (auditoria de versão 2026-08-05). O CSV base vem da Webmotors e é incompleto
+# pro clássico nacional: Corcel II "L", Belina "L" e S10 "Luxe" são trims reais
+# de fábrica que ele não lista, e sem isso ficam para sempre marcados como
+# "fora do catálogo". Colunas: marca,modelo,versao (já normalizados).
+SUPLEMENTO_VERSAO_CSV = Path(__file__).parent.parent.parent / "data" / "suplemento_versao.csv"
+
 # Suplemento manual: modelos ausentes do CSV principal.
 # Chaves já normalizadas (uppercase, sem acento). Ranges = anos de produção no Brasil.
 _SUPLEMENTO: dict[tuple[str, str], set[int]] = {
@@ -397,6 +404,15 @@ def _indice_trim() -> dict[tuple[str, str], set[str]]:
     if _trim_idx is not None:
         return _trim_idx
 
+    # Mesma canonização de frase que o normalizer aplica no lado do ANÚNCIO.
+    # Sem ela os dois lados usam convenções diferentes pro mesmo trim: o CSV
+    # grafa "R/T" e "SL/E", a barra vira espaço em `normalizar_texto`, e o
+    # vocabulário fica com 'R'+'T' e 'SL'+'E' soltos — enquanto o anúncio,
+    # que passa por `_VERSAO_SINONIMO_FRASE`, chega aqui como 'RT' e 'SLE' e
+    # não casa com nada (auditoria de versão 2026-08-05: 112 anúncios do
+    # Charger, Dakota, Monza, Chevette e Kadett caíam fora por isso).
+    from src.pipeline.normalizer import _VERSAO_SINONIMO_FRASE
+
     idx: dict[tuple[str, str], set[str]] = {}
     try:
         with open(CSV_PADRAO, encoding="utf-8", newline="") as f:
@@ -408,15 +424,44 @@ def _indice_trim() -> dict[tuple[str, str], set[str]]:
                     continue
                 mk = normalizar_texto(marca_raw)
                 md = normalizar_texto(modelo_raw)
-                for t in normalizar_texto(versao_raw).split():
+                versao_norm = normalizar_texto(versao_raw)
+                for padrao, canonico in _VERSAO_SINONIMO_FRASE:
+                    versao_norm = padrao.sub(canonico, versao_norm)
+                for t in versao_norm.split():
                     if t in _SPEC_VERSAO_PALAVRA or _SPEC_VERSAO_RE.match(t):
                         continue
                     idx.setdefault((mk, md), set()).add(t)
     except FileNotFoundError:
         pass
 
+    for (mk, md), tokens in _carregar_suplemento_versao().items():
+        idx.setdefault((mk, md), set()).update(tokens)
+
     _trim_idx = idx
     return _trim_idx
+
+
+def _carregar_suplemento_versao() -> dict[tuple[str, str], set[str]]:
+    """
+    Lê o suplemento de versão (CSV curado pelo painel) como
+    (marca_norm, modelo_norm) -> set de tokens de trim.
+
+    Ausência do arquivo ou linha malformada degrada pra vazio, igual ao
+    suplemento de marca/modelo — nunca derruba o vocabulário.
+    """
+    extra: dict[tuple[str, str], set[str]] = {}
+    try:
+        with open(SUPLEMENTO_VERSAO_CSV, encoding="utf-8", newline="") as f:
+            for linha in csv.DictReader(f):
+                mk = normalizar_texto((linha.get("marca") or "").strip())
+                md = normalizar_texto((linha.get("modelo") or "").strip())
+                vs = normalizar_texto((linha.get("versao") or "").strip())
+                if not mk or not md or not vs:
+                    continue
+                extra.setdefault((mk, md), set()).update(vs.split())
+    except FileNotFoundError:
+        pass
+    return extra
 
 
 def canonizar_trim(marca_norm: str, modelo_norm: str, token: str) -> Optional[str]:

@@ -204,3 +204,87 @@ def test_alias_ja_decidido_sai_da_fila(monkeypatch):
     )
     assert pendencias.listar_aliases_pendentes()["aliases"] == []
     assert pendencias.listar_aliases_pendentes(incluir_decididos=True)["aliases"]
+
+
+# ── Versões a conferir (auditoria de versão 2026-08-05) ──────────────────
+
+class TestVersoesPendentes:
+    """
+    A fila de versão só existe porque o catálogo da Webmotors é incompleto:
+    70,8% dos anúncios com versão batiam com ele, e o grosso do resto é trim
+    nacional real que ele não lista. Os testes cobrem a classificação, não a
+    consulta.
+    """
+
+    LINHAS = [
+        {"marca": "FORD", "modelo": "CORCEL II", "versao": "L", "n": 141},
+        {"marca": "CHEVROLET", "modelo": "CORVETTE", "versao": "C1", "n": 6},
+        {"marca": "FIAT", "modelo": "PREMIO", "versao": "CS", "n": 24},
+        {"marca": "VOLKSWAGEN", "modelo": "GOL", "versao": "CL", "n": 99},
+    ]
+
+    def _montar(self, monkeypatch):
+        import src.catalog.externo as externo
+        import src.catalog.loader as loader
+        import src.pipeline.persistence as persistence
+
+        monkeypatch.setattr(loader, "carregar_catalogo", lambda *a, **k: {})
+        monkeypatch.setattr(loader, "_indice_trim", lambda: {
+            ("FORD", "CORCEL II"): {"GL", "LDO", "LUXO"},   # tem vocab, sem "L"
+            ("CHEVROLET", "CORVETTE"): {"STINGRAY"},
+            ("VOLKSWAGEN", "GOL"): {"CL", "GL"},            # "CL" é conhecida
+            # FIAT PREMIO ausente de propósito: par sem vocabulário nenhum
+        })
+        monkeypatch.setattr(externo, "carregar_vocabulario", lambda *a, **k: {
+            ("CHEVROLET", "CORVETTE"): {
+                "geracoes": ["C1", "C2", "C3"], "trims": [], "carrocerias": []},
+        })
+        monkeypatch.setattr(externo, "evidencia_externa", lambda mk, md: None)
+
+        class _Cur:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def execute(self, *a, **k): pass
+            def fetchall(self): return TestVersoesPendentes.LINHAS
+
+        class _Conn:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def cursor(self): return _Cur()
+
+        monkeypatch.setattr(persistence, "_connect", lambda: _Conn())
+
+    def test_versao_conhecida_nao_entra_na_fila(self, monkeypatch):
+        self._montar(monkeypatch)
+        d = pendencias.listar_versoes_pendentes()
+        assert ("VOLKSWAGEN", "GOL", "CL") not in {
+            (v["marca"], v["modelo"], v["versao"]) for v in d["versoes"]
+        }
+
+    def test_trim_provavel(self, monkeypatch):
+        self._montar(monkeypatch)
+        d = pendencias.listar_versoes_pendentes()
+        alvo = next(v for v in d["versoes"] if v["versao"] == "L")
+        assert alvo["sugestao"] == "trim_provavel"
+        # O vocabulário conhecido vai junto pra usuária comparar sem sair da tela.
+        assert "GL" in alvo["vocabulario"]
+
+    def test_geracao_identificada_pela_fonte_externa(self, monkeypatch):
+        self._montar(monkeypatch)
+        d = pendencias.listar_versoes_pendentes()
+        alvo = next(v for v in d["versoes"] if v["versao"] == "C1")
+        assert alvo["sugestao"] == "geracao"
+
+    def test_par_sem_vocabulario(self, monkeypatch):
+        self._montar(monkeypatch)
+        d = pendencias.listar_versoes_pendentes()
+        alvo = next(v for v in d["versoes"] if v["versao"] == "CS")
+        assert alvo["sugestao"] == "sem_referencia"
+        assert alvo["vocabulario"] == []
+
+    def test_totais_e_contagem_de_anuncios(self, monkeypatch):
+        self._montar(monkeypatch)
+        d = pendencias.listar_versoes_pendentes()
+        assert d["total"] == 3                      # GOL CL ficou de fora
+        assert d["total_anuncios"] == 141 + 6 + 24
+        assert d["totais"] == {"trim_provavel": 1, "geracao": 1, "sem_referencia": 1}

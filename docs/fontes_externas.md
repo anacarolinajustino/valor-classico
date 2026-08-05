@@ -196,7 +196,13 @@ parsing. Agora **a evidência externa classifica a pendência**, e cada aba tem 
 | Nome incompleto | a fonte tem o nome MAIS longo | corrigir no banco (sugestão pré-preenchida) |
 | Confirmados pela fonte | a fonte confirma o par, muitas vezes com faixa de ano | "Ao catálogo" |
 | Sem evidência | nenhuma fonte conhece | triagem manual — é onde cai o carro nacional |
+| Versões a conferir | o vocabulário de trim não reconhece a versão | "É trim real" / "Não é versão" |
 | Aliases a conferir | palpites `fuzzy` de tradução | "É o mesmo carro" / "São diferentes" |
+
+A aba de versão (auditoria 2026-08-05, ver seção 8) usa a coluna `geracoes` do
+`vocabulario_geracao_trim.csv` pra sugerir quando um valor é geração no campo errado
+(`C1` da Corvette, `MK1` do Golf). **É sugestão de tela, não regra de pipeline** — a fonte
+externa continua isolada, e quem move o valor de campo é a usuária.
 
 Na aba de nome incompleto o botão "Ao catálogo" é **omitido de propósito**: cadastrar `RANGE`
 cimentaria o erro em vez de corrigi-lo.
