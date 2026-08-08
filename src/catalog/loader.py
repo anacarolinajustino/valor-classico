@@ -387,6 +387,40 @@ _SPEC_VERSAO_RE = re.compile(
     r"^(\d[.,]\d+|\d{1,2}V|V\d{1,2}|\d{1,2}P|\d{1,4}(CV|HP)|G[.]?([IVX]{1,4}|[1-8]))$"
 )
 
+
+def _e_trim_de_verdade(tokens: list[str], i: int) -> bool:
+    """
+    O token `i` da `nome_versao` é trim, ou é spec que sobrou?
+
+    Os dois filtros acima olham um token por vez, e há três formas de lixo que
+    só se reconhecem pelo VIZINHO — por isso esta função existe em vez de mais
+    entradas nas listas (auditoria 2026-08-07, achada ao exportar a aba "Sem
+    versão": os trims "perdidos" que sobravam eram `6`, `I`, `DE` e `E`).
+
+    1. número antes de CILINDROS — "2.8 6 CILINDROS" indexava `6` como trim em
+       59 pares, e daí a Mercedes 280 SE, o Willys Jeep e a Puma GTB ficavam
+       com versão "6". Não dá pra banir dígito solto em geral: "CARRERA 4" da
+       Porsche e "MACH 1" do Mustang são trim de verdade, e é justamente o
+       vizinho que separa um caso do outro.
+    2. `I` depois da cilindrada — "1.3 I", "2.0 I XR3" é injeção, irmã das que
+       já estão em _SPEC_VERSAO_PALAVRA (MI, MPI, IE). Eram 34 pares.
+    3. conectivo — "TETO DE LONA", "CAPOTA DE LONA", "SUPER DE LUXE" deixavam
+       `DE` como se fosse trim em 12 pares. `E` idem ("2.0 E" da Audi, que
+       também é injeção). Conectivo nunca é trim SOZINHO; entre dois trims ele
+       continua valendo, e quem preserva isso é `_trims_na_cauda`, do outro
+       lado — o vocabulário é só a lista do que vale por si.
+    """
+    from src.pipeline.normalizer import _CONECTIVO_VERSAO, _SPEC_DECIMAL
+
+    t = tokens[i]
+    if t in _CONECTIVO_VERSAO or t == "E":
+        return False
+    if t.isdigit() and i + 1 < len(tokens) and tokens[i + 1] == "CILINDROS":
+        return False
+    if t == "I" and i > 0 and _SPEC_DECIMAL.match(tokens[i - 1]):
+        return False
+    return True
+
 # (marca_norm, modelo_norm) -> set de tokens de trim canônicos
 _trim_idx: Optional[dict[tuple[str, str], set[str]]] = None
 
@@ -427,8 +461,11 @@ def _indice_trim() -> dict[tuple[str, str], set[str]]:
                 versao_norm = normalizar_texto(versao_raw)
                 for padrao, canonico in _VERSAO_SINONIMO_FRASE:
                     versao_norm = padrao.sub(canonico, versao_norm)
-                for t in versao_norm.split():
+                toks = versao_norm.split()
+                for i, t in enumerate(toks):
                     if t in _SPEC_VERSAO_PALAVRA or _SPEC_VERSAO_RE.match(t):
+                        continue
+                    if not _e_trim_de_verdade(toks, i):
                         continue
                     idx.setdefault((mk, md), set()).add(t)
     except FileNotFoundError:

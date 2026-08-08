@@ -1745,13 +1745,21 @@ def _trims_na_cauda(
     "Luxe") continua não sendo recuperado aqui. Esses são a fila de curadoria
     da aba "Versões a conferir" — depois de cadastrados no suplemento de
     versão, passam a ser pescados por esta função sem mudança de código.
+
+    O conectivo no MEIO de um trim composto ("Custom de Luxe" da D20/Veraneio)
+    é preservado à parte: ele não está no vocabulário — sozinho não é trim
+    nenhum, e enquanto esteve lá a Toyota Bandeirante gravou versão "DE" —,
+    mas tirá-lo daqui produziria "CUSTOM LUXE", nome de carro que não existe.
     """
     if not modelo_norm:
         return []
-    achados: list[str] = []
-    for tok in tokens[corte:]:
-        limpo = tok.strip(".-")
-        if not limpo or limpo in achados:
+
+    # Guarda a POSIÇÃO junto: é ela que diz se um conectivo está ligando dois
+    # trims ou apenas boiando no meio do texto de venda.
+    aceitos: dict[int, str] = {}
+    for pos in range(corte, len(tokens)):
+        limpo = tokens[pos].strip(".-")
+        if not limpo or limpo in aceitos.values():
             continue
         # Spec nunca é trim, mesmo quando o catálogo tem um trim parecido: a
         # expansão por prefixo de `canonizar_trim` casava a cilindrada "1.8"
@@ -1760,7 +1768,21 @@ def _trims_na_cauda(
         if _e_token_spec(limpo):
             continue
         if _trim_catalogo(marca_norm, modelo_norm, limpo):
-            achados.append(limpo)
+            aceitos[pos] = limpo
+
+    if not aceitos:
+        return []
+
+    achados: list[str] = []
+    for pos in range(min(aceitos), max(aceitos) + 1):
+        if pos in aceitos:
+            achados.append(aceitos[pos])
+        elif (
+            tokens[pos] in _CONECTIVO_VERSAO
+            and pos - 1 in aceitos
+            and pos + 1 in aceitos
+        ):
+            achados.append(tokens[pos])
     return achados
 
 

@@ -1465,3 +1465,61 @@ class TestTrimNaCaudaDaSpec:
         """
         assert inferir_marca_modelo_versao_obs_ano(
             "Volkswagen Gol 1.8 Mi Gl 8v Gasolina 2p Manual")[2] == "GL"
+
+    def test_conectivo_entre_dois_trims_e_preservado(self):
+        """
+        'CUSTOM DE LUXE' é o nome real do trim da D20/Veraneio/Bonanza. O DE
+        não está no vocabulário — sozinho não é trim nenhum, e enquanto
+        esteve lá virou versão "DE" na Bandeirante —, mas tirá-lo daqui
+        produziria "CUSTOM LUXE", nome de carro que não existe. A ponte só
+        vale entre dois trims aceitos e adjacentes (2026-08-07).
+        """
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Chevrolet D20 4.0 Custom De Luxe Cs 8v Diesel 2p Manual"
+        )[2] == "CUSTOM DE LUXE CS"
+        assert inferir_marca_modelo_versao_obs_ano(
+            "CHEVROLET VERANEIO 4.1 CUSTOM DE LUXE 12V GASOLINA 4P MANUAL 1993"
+        )[2] == "CUSTOM DE LUXE"
+
+
+class TestLixoDoVocabularioDeTrim:
+    """
+    O vocabulário sai da coluna `nome_versao` da Webmotors, e três formas de
+    spec escapavam dos filtros dela porque só se reconhecem pelo token
+    VIZINHO. `_trims_na_cauda` então pescava o lixo de volta, porque a regra
+    dele é justamente "confio no que o catálogo avaliza" (auditoria
+    2026-08-07, achada ao exportar a aba "Sem versão": os trims "perdidos"
+    que sobravam eram '6', 'I' e 'DE').
+
+    Estes casos são de ponta a ponta de propósito: o que importa não é o
+    conteúdo do índice, é que o título deixe de virar versão errada.
+    """
+
+    def test_numero_de_cilindros_nao_e_versao(self):
+        for titulo in (
+            "WILLYS JEEP 2.6 6 CILINDROS 12V GASOLINA 2P MANUAL 1942",
+            "MERCEDES-BENZ 280 SE 2.8 6 CILINDROS GASOLINA 4P AUTOMATICO 1968",
+            "PUMA GTB 4.1 COUPE 6 CILINDROS 12V GASOLINA 2P MANUAL 1977",
+        ):
+            assert inferir_marca_modelo_versao_obs_ano(titulo)[2] is None, titulo
+
+    def test_numero_que_e_trim_de_verdade_continua(self):
+        """
+        Por isso a regra é posicional e não "dígito solto nunca é trim":
+        'CARRERA 4' (tração integral) e 'MACH 1' são nome de versão, e o que
+        separa do '6' de '6 CILINDROS' é só o vizinho.
+        """
+        assert inferir_marca_modelo_versao_obs_ano(
+            "PORSCHE 911 3.6 CARRERA 4 COUPE 6 CILINDROS 24V GASOLINA 2P MANUAL 1990"
+        )[2] == "CARRERA 4"
+        assert inferir_marca_modelo_versao_obs_ano(
+            "FORD A 0.8 4 CILINDROS PHAETON 4P GASOLINA MANUAL 1929"
+        )[2] == "PHAETON"
+
+    def test_i_de_injecao_depois_da_cilindrada_nao_e_versao(self):
+        """'1.0 i', '2.0 i' é injeção — irmã de MI/MPI/IE, que já eram spec."""
+        assert inferir_marca_modelo_versao_obs_ano("Volkswagen Gol 1995 1.0 I")[2] is None
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Ford Escort 1993 2.0 I Xr3 8v")[2] == "XR3"
+        assert inferir_marca_modelo_versao_obs_ano(
+            "Ford Escort 1.8 I Gl 16v Gasolina 4p Manual")[2] == "GL"

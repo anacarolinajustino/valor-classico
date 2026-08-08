@@ -409,3 +409,49 @@ O resíduo de 445 é o que a trava de par divergente pulou, mais casos onde o tr
 carroceria (vai pra `obs`) ou não está no catálogo — esses últimos dependem da curadoria da aba
 "Versões a conferir"; assim que o trim entra no suplemento de versão, `_trims_na_cauda` passa a
 pescá-lo sem mudança de código.
+
+## O lixo que o próprio vocabulário avalizava (2026-08-07)
+
+Os 445 "recuperáveis" acima eram quase todos falso positivo, e foi a **exportação da aba
+"Sem versão"** que mostrou: lidos em CSV, os trims supostamente perdidos eram `I`, `6`, `DE`,
+`E`. Não é que a extração falhasse — o vocabulário estava mandando pescar lixo.
+
+`_indice_trim` tira a spec de `nome_versao` por duas listas que olham **um token por vez**.
+Três formas de spec só se reconhecem pelo token VIZINHO e passavam batido:
+
+| `nome_versao` | indexava | em | por quê |
+|---|---|---|---|
+| `2.8 6 CILINDROS` | `6` | 59 pares | `CILINDROS` é spec, mas o número antes dele não |
+| `1.3 I SEDAN` | `I` | 34 pares | injeção, irmã de `MI`/`MPI`/`IE` que já eram spec |
+| `TETO DE LONA`, `SUPER DE LUXE` | `DE` | 12 pares | conectivo |
+
+E `_trims_na_cauda`, cuja regra é "confio no que o catálogo avaliza", pescava tudo isso de volta:
+a Mercedes 280 SE ficou com versão `6`, o Gol com `I`, o Escort com `I XR3`.
+
+`_e_trim_de_verdade` barra os três na origem. **A regra é posicional, não uma lista de tokens
+proibidos** — `CARRERA 4` da Porsche e `MACH 1` do Mustang são trim de verdade, e o que separa
+do `6` de `6 CILINDROS` é só o vizinho. Banir dígito solto destruiria os dois.
+
+**A contrapartida:** `CUSTOM DE LUXE` (D20, Veraneio, Bonanza, A20) é nome real de trim. Tirar o
+`DE` do vocabulário produziria `CUSTOM LUXE`, carro que não existe. Por isso o conectivo saiu do
+vocabulário — onde significaria "vale por si" — e ganhou uma ponte em `_trims_na_cauda`: ele é
+preservado quando está **entre dois trims aceitos e adjacentes**. Sozinho continua não sendo nada,
+que é o que evita a versão `DE` da Bandeirante (83 anúncios, auditoria de 2026-08-05).
+
+**Retroativo:** `scripts/reprocessar_vocabulario_limpo.py`. O escopo é calculado, não escrito à
+mão — o script reconstrói o vocabulário ANTIGO e trata só os anúncios cuja versão contém um token
+que o índice deixou de avalizar naquele par. Isso importa porque em boa parte da base a versão
+**não vem do título**, vem do campo estruturado da ficha técnica; re-derivar tudo trocaria dado
+bom por dado pior. 353 anúncios no escopo, 265 alterados (115 ficaram sem versão, porque a versão
+era só o lixo), 0 pulados por par divergente.
+
+**Resultado.** Recuperáveis na aba: 445 → **43**, e os 43 que sobram são reais (`A-10 de Luxe`,
+`348 Tb`, `Ram 2500`, `Range Rover Hse`). Conformidade por combinação: 72,1% → **66,1%** — caiu,
+e essa é a leitura certa: um token-lixo no vocabulário fazia combinações passarem por
+conformes sem serem. Por anúncio a conformidade é 92,2%.
+
+Os 88 anúncios inalterados são de duas naturezas: `CUSTOM DE LUXE` (73), que é a ponte
+funcionando, e casos em que o token está no MIOLO do título, antes do corte de spec, onde o
+vocabulário nunca mandou — `WOLFSBURG EDITION I` (de "Logus Wolfsburg Edition 2000i") e `SO 6`
+(de "Mercedes 320 E SÓ 65.000 KM"). Esses são outro bug; ficam visíveis na fila "Versões a
+conferir", que é onde a curadoria manual decide.
