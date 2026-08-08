@@ -361,6 +361,57 @@ class TestGetDashboardStats:
         anos = {x["ano"]: x["qtd"] for x in d["opcoes"]["ano"]}
         assert anos == {1975: 1, 1968: 1}
 
+    # ── Filtro de versão (2026-08-08) ───────────────────────────────
+    #
+    # Versão é onde o preço de fato mora — um Opala SS não vale o mesmo que
+    # um Opala de luxo —, então sem esse recorte a mediana do dashboard
+    # mistura carros que não se comparam.
+
+    def _semear_versoes(self):
+        upsert_anuncios([
+            _anuncio("http://x/1", 1975, marca="CHEVROLET", modelo="OPALA", versao="SS"),
+            _anuncio("http://x/2", 1976, marca="CHEVROLET", modelo="OPALA", versao="SS"),
+            _anuncio("http://x/3", 1975, marca="CHEVROLET", modelo="OPALA", versao="COMODORO"),
+            _anuncio("http://x/4", 1975, marca="CHEVROLET", modelo="OPALA"),  # sem versão
+            _anuncio("http://x/5", 1975, marca="CHEVROLET", modelo="CARAVAN", versao="SS"),
+        ])
+
+    def test_opcoes_versao_vazia_sem_modelo(self):
+        """Cascata de modelo: a mesma 'SS' existe em carros diferentes."""
+        self._semear_versoes()
+        assert get_dashboard_stats(marca="chevrolet")["opcoes"]["versao"] == []
+
+    def test_opcoes_versao_em_cascata_do_modelo(self):
+        self._semear_versoes()
+        d = get_dashboard_stats(marca="chevrolet", modelo="opala")
+        versoes = {x["versao"]: x["qtd"] for x in d["opcoes"]["versao"]}
+        assert versoes == {"SS": 2, "COMODORO": 1, "": 1}
+
+    def test_filtro_recorta_os_kpis(self):
+        self._semear_versoes()
+        d = get_dashboard_stats(marca="chevrolet", modelo="opala", versao="SS")
+        assert d["kpis"]["total"] == 2
+
+    def test_versao_vazia_e_o_balde_sem_versao(self):
+        """A convenção do módulo: None = todas, "" = sem o campo informado."""
+        self._semear_versoes()
+        assert get_dashboard_stats(
+            marca="chevrolet", modelo="opala", versao="")["kpis"]["total"] == 1
+        assert get_dashboard_stats(
+            marca="chevrolet", modelo="opala")["kpis"]["total"] == 4
+
+    def test_ano_e_facetado_pela_versao(self):
+        """Escolher a versão tem que reduzir os anos oferecidos, não só os KPIs."""
+        self._semear_versoes()
+        d = get_dashboard_stats(marca="chevrolet", modelo="opala", versao="COMODORO")
+        assert {x["ano"] for x in d["opcoes"]["ano"]} == {1975}
+
+    def test_versao_nao_faceta_a_si_mesma(self):
+        """Senão o dropdown ficaria só com a opção já escolhida, sem saída."""
+        self._semear_versoes()
+        d = get_dashboard_stats(marca="chevrolet", modelo="opala", versao="SS")
+        assert {x["versao"] for x in d["opcoes"]["versao"]} == {"SS", "COMODORO", ""}
+
 
 # ── get_media_modelo: estatísticas de preço de um par (calculadora de média) ──
 

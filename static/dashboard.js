@@ -282,8 +282,14 @@ const grid = document.getElementById("dash-grid");
 const filtroFonte = document.getElementById("filtro-fonte");
 const filtroMarca = document.getElementById("filtro-marca");
 const filtroModelo = document.getElementById("filtro-modelo");
+const filtroVersao = document.getElementById("filtro-versao");
 const filtroAno = document.getElementById("filtro-ano");
 let fontesPopuladas = false;
+
+// Sentinela de "sem versão informada" (a API traduz — ver _arg_versao() no
+// app.py). Precisa ser distinto de "", que no <select> já quer dizer "todas
+// as versões". Mesma convenção de /admin/anuncios.
+const VERSAO_SEM = "__sem__";
 
 async function carregar() {
   grid.classList.add("carregando");
@@ -292,6 +298,7 @@ async function carregar() {
     if (filtroFonte.value) params.set("fonte", filtroFonte.value);
     if (filtroMarca.value) params.set("marca", filtroMarca.value);
     if (filtroModelo.value) params.set("modelo", filtroModelo.value);
+    if (filtroVersao.value) params.set("versao", filtroVersao.value);
     if (filtroAno.value) params.set("ano", filtroAno.value);
     const qs = params.toString();
     const resp = await fetch("/admin/api/dashboard" + (qs ? `?${qs}` : ""));
@@ -321,6 +328,15 @@ async function carregar() {
       valorFn: (x) => x.modelo,
       rotuloFn: (x) => `${x.modelo} (${FMT_INT.format(x.qtd)})`,
       placeholder: temMarca ? "Todos os modelos" : "Selecione uma marca",
+    });
+
+    // Versão só existe sob um modelo, e tem o balde "sem versão informada"
+    // que a string vazia não distingue de "todas" — daí o sentinela.
+    filtroVersao.disabled = !filtroModelo.value;
+    popularSelect(filtroVersao, dados.opcoes.versao || [], {
+      valorFn: (x) => x.versao || VERSAO_SEM,
+      rotuloFn: (x) => `${x.versao || "Sem versão informada"} (${FMT_INT.format(x.qtd)})`,
+      placeholder: filtroModelo.value ? "Todas as versões" : "Selecione um modelo",
     });
 
     popularSelect(filtroAno, dados.opcoes.ano, {
@@ -371,13 +387,22 @@ async function carregar() {
   }
 }
 
+// Trocar um filtro zera os que estão ABAIXO dele na cascata: a versão de um
+// modelo não existe em outro, e manter o valor antigo pediria um recorte
+// vazio antes de o select se repopular.
 filtroFonte.addEventListener("change", carregar);
 filtroMarca.addEventListener("change", () => {
   filtroModelo.value = "";
+  filtroVersao.value = "";
   filtroAno.value = "";
   carregar();
 });
 filtroModelo.addEventListener("change", () => {
+  filtroVersao.value = "";
+  filtroAno.value = "";
+  carregar();
+});
+filtroVersao.addEventListener("change", () => {
   filtroAno.value = "";
   carregar();
 });

@@ -143,7 +143,7 @@
       <p class="admin-sub">Recortes dos anúncios coletados — volume, marcas, décadas e preços.</p>
     </div>
 
-    <!-- Filtros (escopam tudo abaixo; marca → modelo → ano é uma cascata) -->
+    <!-- Filtros (escopam tudo abaixo; marca → modelo → versão → ano é uma cascata) -->
     <div class="dash-filtros">
       <div class="dash-filtro-grupo">
         <label for="filtro-fonte">Fonte</label>
@@ -163,6 +163,16 @@
         <label for="filtro-modelo">Modelo</label>
         <select id="filtro-modelo" disabled>
           <option value="">Selecione uma marca</option>
+        </select>
+      </div>
+
+      <!-- Versão é cascata de modelo: a mesma "GL" existe em carros
+           diferentes, então só faz sentido depois que um modelo reduz o
+           universo. -->
+      <div class="dash-filtro-grupo">
+        <label for="filtro-versao">Versão</label>
+        <select id="filtro-versao" disabled>
+          <option value="">Selecione um modelo</option>
         </select>
       </div>
 

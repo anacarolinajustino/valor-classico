@@ -540,27 +540,40 @@ def get_dashboard_stats(
     marca: str | None = None,
     modelo: str | None = None,
     ano: int | None = None,
+    versao: str | None = None,
 ) -> dict[str, Any]:
     """
     Agregados pro dashboard do painel admin, opcionalmente recortados por
-    fonte/marca/modelo/ano. Uma chamada devolve todos os blocos que a página
-    consome, pra manter os números consistentes entre si (mesma foto do
+    fonte/marca/modelo/versão/ano. Uma chamada devolve todos os blocos que a
+    página consome, pra manter os números consistentes entre si (mesma foto do
     banco) — incluindo as opções de cada filtro com a contagem de anúncios,
     no estilo faceta (ver `_opcoes_marca_modelo_ano`).
+
+    `versao` segue a convenção do módulo: None = todas, "" = só os anúncios
+    sem versão informada (COALESCE trata NULL e '' como o mesmo balde). É o
+    recorte onde o preço de fato mora — um Opala SS não vale o mesmo que um
+    Opala de luxo —, então é ele que torna a mediana do dashboard comparável.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
         "marca": marca.strip().upper() if marca else None,
         "modelo": modelo.strip().upper() if modelo else None,
         "ano": ano,
+        "versao": versao.strip().upper() if versao is not None else None,
     }
+    # Campo onde o vazio é valor legítimo ("sem versão informada"): casa NULL
+    # e '' pelo mesmo COALESCE, como em `_opcoes_marca_modelo_ano`.
+    coalesce_vazio = ("versao",)
 
     def _where(excluir: str | None = None, *extra: str) -> tuple[str, list]:
         conds, params = [], []
         for campo, valor in filtros.items():
-            if valor is not None and campo != excluir:
-                conds.append(f"{campo} = %s")
-                params.append(valor)
+            if valor is None or campo == excluir:
+                continue
+            conds.append(
+                f"COALESCE({campo}, '') = %s" if campo in coalesce_vazio else f"{campo} = %s"
+            )
+            params.append(valor)
         conds.extend(extra)
         sql = ("WHERE " + " AND ".join(conds)) if conds else ""
         return sql, params
@@ -637,7 +650,9 @@ def get_dashboard_stats(
             )
             top_modelos = [dict(r) for r in cur.fetchall()]
 
-            opcoes = _opcoes_marca_modelo_ano(cur, fonte, marca, modelo, ano)
+            opcoes = _opcoes_marca_modelo_ano(
+                cur, fonte, marca, modelo, ano, versao=versao, com_versao=True
+            )
 
     return {
         "kpis": {

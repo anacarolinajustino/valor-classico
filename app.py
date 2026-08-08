@@ -18,7 +18,7 @@ Endpoints:
   GET  /admin/api/exportar                → baixa snapshot CSV da base (?tipo=anuncios|resumo)
   GET  /admin/api/exportar-pendencias     → baixa uma aba de pendências em CSV (?aba=)
   GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=&versao=)
-  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
+  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&versao=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
 """
@@ -677,7 +677,9 @@ def admin_api_dashboard():
         return jsonify({"erro": "Parâmetro ano inválido"}), 400
 
     try:
-        return jsonify(get_dashboard_stats(fonte=fonte, marca=marca, modelo=modelo, ano=ano))
+        return jsonify(get_dashboard_stats(
+            fonte=fonte, marca=marca, modelo=modelo, ano=ano, versao=_arg_versao(),
+        ))
     except Exception as exc:
         logger.error("admin_api_dashboard erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
