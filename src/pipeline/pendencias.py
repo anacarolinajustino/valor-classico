@@ -176,7 +176,7 @@ def listar_pendencias(incluir_dispensadas: bool = False) -> dict[str, Any]:
     }
 
 
-def listar_versoes_pendentes(limite: int = 400) -> dict[str, Any]:
+def listar_versoes_pendentes(limite: Optional[int] = 400) -> dict[str, Any]:
     """
     Versões do banco que o vocabulário de trim não reconhece.
 
@@ -262,15 +262,15 @@ def listar_versoes_pendentes(limite: int = 400) -> dict[str, Any]:
         totais[p["sugestao"]] += 1
 
     return {
-        "versoes": pendentes[:limite],
+        "versoes": pendentes if limite is None else pendentes[:limite],
         "total": len(pendentes),
         "total_anuncios": sum(p["qtd"] for p in pendentes),
         "totais": dict(totais),
-        "truncado": len(pendentes) > limite,
+        "truncado": limite is not None and len(pendentes) > limite,
     }
 
 
-def listar_sem_versao(limite: int = 300) -> dict[str, Any]:
+def listar_sem_versao(limite: Optional[int] = 300) -> dict[str, Any]:
     """
     Anúncios SEM versão nenhuma, agrupados por (marca, modelo).
 
@@ -370,11 +370,11 @@ def listar_sem_versao(limite: int = 300) -> dict[str, Any]:
     lista.sort(key=lambda g: (-g["recuperavel"], -g["qtd"]))
 
     return {
-        "grupos": lista[:limite],
+        "grupos": lista if limite is None else lista[:limite],
         "total_grupos": len(lista),
         "total_anuncios": len(rows),
         "totais": dict(totais),
-        "truncado": len(lista) > limite,
+        "truncado": limite is not None and len(lista) > limite,
     }
 
 
@@ -399,3 +399,200 @@ def listar_aliases_pendentes(incluir_decididos: bool = False) -> dict[str, Any]:
         "total_pendentes": len([a for a in fuzzy if not a["decisao"]]),
         "total_deterministicos": len(todos) - len(fuzzy),
     }
+
+
+# ── Exportação ───────────────────────────────────────────────────────────
+#
+# A tela mostra as listas grandes cortadas nos maiores (400 versões, 300
+# grupos sem versão), porque rolar milhares de linhas no navegador não ajuda
+# ninguém. O CSV NÃO leva esse corte: quem exporta quer justamente levar a
+# fila inteira pra triar fora do sistema, e um arquivo silenciosamente
+# truncado seria pior que arquivo nenhum — a usuária concluiria que acabou.
+#
+# Os rótulos saem em português e iguais aos da tela. O CSV é lido meses
+# depois, longe da página que explica o que 'trim_provavel' quer dizer.
+
+ROTULO_TIPO = {
+    TIPO_CORRIGIR: "Nome incompleto",
+    TIPO_CONFIRMADO: "Confirmado pela fonte",
+    TIPO_SEM_EVIDENCIA: "Sem evidência",
+}
+
+ROTULO_SUGESTAO_VERSAO = {
+    "trim_provavel": "trim provável",
+    "geracao": "é geração",
+    "sem_referencia": "sem referência",
+}
+
+ROTULO_CLASSE_SEM_VERSAO = {
+    "recuperavel": "trim no título, não capturado",
+    "enumeracao": "título enumera a linha inteira",
+    "fonte_nao_diz": "a fonte não informa versão",
+    "sem_vocabulario": "sem vocabulário no catálogo",
+}
+
+# Nome do arquivo por aba (o app acrescenta a data).
+ABA_ARQUIVO = {
+    TIPO_CORRIGIR: "pendencias_nome-incompleto",
+    TIPO_CONFIRMADO: "pendencias_confirmados",
+    TIPO_SEM_EVIDENCIA: "pendencias_sem-evidencia",
+    "versao": "pendencias_versoes-a-conferir",
+    "sem_versao": "pendencias_sem-versao",
+    "alias": "pendencias_aliases",
+}
+
+_COLUNAS_PARES = [
+    "marca", "modelo", "anuncios", "situacao", "nome_sugerido",
+    "modelo_na_fonte", "casou_por", "fonte", "ano_min", "ano_max", "dispensada",
+]
+_COLUNAS_VERSAO = [
+    "marca", "modelo", "versao_no_banco", "anuncios", "situacao",
+    "trims_que_o_catalogo_conhece",
+]
+_COLUNAS_SEM_VERSAO = [
+    "marca", "modelo", "sem_versao", "recuperavel", "enumeracao",
+    "fonte_nao_diz", "sem_vocabulario", "fontes", "trim_perdido",
+    "titulos_de_exemplo",
+]
+_COLUNAS_ALIAS = [
+    "marca", "modelo_no_banco", "modelo_na_fonte", "fonte",
+    "semelhanca_pct", "anuncios", "regra", "decisao",
+]
+
+COLUNAS_EXPORT_PENDENCIAS = {
+    TIPO_CORRIGIR: _COLUNAS_PARES,
+    TIPO_CONFIRMADO: _COLUNAS_PARES,
+    TIPO_SEM_EVIDENCIA: _COLUNAS_PARES,
+    "versao": _COLUNAS_VERSAO,
+    "sem_versao": _COLUNAS_SEM_VERSAO,
+    "alias": _COLUNAS_ALIAS,
+}
+
+ABAS_EXPORTAVEIS = tuple(COLUNAS_EXPORT_PENDENCIAS)
+
+
+def _casa(busca: str, *campos: Optional[str]) -> bool:
+    """Mesmo filtro da caixa de busca da tela: substring, sem diferenciar caixa."""
+    if not busca:
+        return True
+    alvo = busca.strip().upper()
+    return any(alvo in (c or "").upper() for c in campos)
+
+
+def _linhas_pares(aba: str, busca: str, incluir_dispensadas: bool) -> list[dict]:
+    dados = listar_pendencias(incluir_dispensadas=incluir_dispensadas)
+    linhas = []
+    for p in dados["pares"]:
+        if p["tipo"] != aba or not _casa(busca, p["marca"], p["modelo"]):
+            continue
+        ev = p["evidencia"] or {}
+        linhas.append({
+            "marca": p["marca"],
+            "modelo": p["modelo"],
+            "anuncios": p["qtd"],
+            "situacao": ROTULO_TIPO.get(p["tipo"], p["tipo"]),
+            "nome_sugerido": p["sugestao"],
+            "modelo_na_fonte": ev.get("modelo_fonte", ""),
+            "casou_por": ev.get("estrategia", ""),
+            "fonte": ev.get("fonte", ""),
+            "ano_min": ev.get("ano_min"),
+            "ano_max": ev.get("ano_max"),
+            "dispensada": "sim" if p["dispensada"] else "não",
+        })
+    return linhas
+
+
+def _linhas_versao(busca: str, sugestao: str) -> list[dict]:
+    dados = listar_versoes_pendentes(limite=None)
+    linhas = []
+    for v in dados["versoes"]:
+        if sugestao and v["sugestao"] != sugestao:
+            continue
+        if not _casa(busca, v["marca"], v["modelo"], v["versao"]):
+            continue
+        linhas.append({
+            "marca": v["marca"],
+            "modelo": v["modelo"],
+            "versao_no_banco": v["versao"],
+            "anuncios": v["qtd"],
+            "situacao": ROTULO_SUGESTAO_VERSAO.get(v["sugestao"], v["sugestao"]),
+            "trims_que_o_catalogo_conhece": ", ".join(v["vocabulario"]),
+        })
+    return linhas
+
+
+def _linhas_sem_versao(busca: str, so_recuperavel: bool) -> list[dict]:
+    dados = listar_sem_versao(limite=None)
+    linhas = []
+    for g in dados["grupos"]:
+        if so_recuperavel and not g["recuperavel"]:
+            continue
+        if not _casa(busca, g["marca"], g["modelo"]):
+            continue
+        amostras = g["amostras"]
+        linhas.append({
+            "marca": g["marca"],
+            "modelo": g["modelo"],
+            "sem_versao": g["qtd"],
+            "recuperavel": g["recuperavel"],
+            "enumeracao": g["enumeracao"],
+            "fonte_nao_diz": g["fonte_nao_diz"],
+            "sem_vocabulario": g["sem_vocabulario"],
+            "fontes": ", ".join(g["fontes"]),
+            # A prova de que o dado está na origem: o trim achado e os títulos
+            # onde ele aparece. Sem isso a linha é só um número e a usuária
+            # teria que voltar ao painel pra conferir cada grupo.
+            "trim_perdido": amostras[0]["trim"] if amostras else "",
+            "titulos_de_exemplo": " | ".join(a["titulo"] for a in amostras),
+        })
+    return linhas
+
+
+def _linhas_alias(busca: str) -> list[dict]:
+    dados = listar_aliases_pendentes()
+    linhas = []
+    for a in dados["aliases"]:
+        if not _casa(busca, a["marca"], a["modelo_ptbr"], a["modelo_intl"]):
+            continue
+        linhas.append({
+            "marca": a["marca"],
+            "modelo_no_banco": a["modelo_ptbr"],
+            "modelo_na_fonte": a["modelo_intl"],
+            "fonte": a["fonte"],
+            "semelhanca_pct": round(a["similaridade"] * 100),
+            "anuncios": a["n_anuncios"],
+            "regra": a["regra"],
+            "decisao": a["decisao"] or "pendente",
+        })
+    return linhas
+
+
+def exportar_aba(
+    aba: str,
+    busca: str = "",
+    sugestao: str = "",
+    so_recuperavel: bool = False,
+    incluir_dispensadas: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """
+    Uma aba da página de pendências em formato de tabela, pronta pro CSV.
+
+    Devolve `(colunas, linhas)`. Os filtros são os mesmos da tela e chegam
+    pela URL, pra que "exportar" signifique exportar o que se está vendo — só
+    que inteiro, sem o corte de exibição das listas grandes.
+    """
+    if aba not in COLUNAS_EXPORT_PENDENCIAS:
+        raise ValueError(
+            f"Aba desconhecida: {aba!r}. Use uma de: {', '.join(ABAS_EXPORTAVEIS)}."
+        )
+
+    if aba in _ORDEM_TIPO:
+        linhas = _linhas_pares(aba, busca, incluir_dispensadas)
+    elif aba == "versao":
+        linhas = _linhas_versao(busca, sugestao)
+    elif aba == "sem_versao":
+        linhas = _linhas_sem_versao(busca, so_recuperavel)
+    else:
+        linhas = _linhas_alias(busca)
+
+    return COLUNAS_EXPORT_PENDENCIAS[aba], linhas

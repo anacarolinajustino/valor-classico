@@ -1918,6 +1918,15 @@ a { color: inherit; text-decoration: none; }
 .pd-msg--aviso { color: #B26A00; }
 .pd-msg--erro  { color: #C0392B; }
 
+/* Exportar CSV: encostado à direita da barra de filtros, longe dos campos
+   que ele leva junto — é a última coisa que se faz, não mais um filtro. */
+.pd-exportar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
 /* Linha já dispensada, visível só quando a usuária pede pra mostrar */
 .pd-row--dispensada { opacity: .55; }
 .pd-row--dispensada td { font-style: italic; }
@@ -1926,6 +1935,8 @@ a { color: inherit; text-decoration: none; }
   .pd-tab { flex: 1 1 auto; justify-content: space-between; }
   .pd-acoes .an-filter-input,
   .pd-acoes .pd-sel-modelo { width: 100%; }
+  /* Com a barra empilhada não há "direita" pra encostar. */
+  .pd-exportar { margin-left: 0; }
 }
 
 /* Distribuição das colunas: sem isto o navegador dá espaço demais pro texto

@@ -208,6 +208,28 @@ externa continua isolada, e quem move o valor de campo é a usuária.
 Na aba de nome incompleto o botão "Ao catálogo" é **omitido de propósito**: cadastrar `RANGE`
 cimentaria o erro em vez de corrigi-lo.
 
+### Exportar uma aba
+
+Cada aba tem um botão "Exportar CSV" (`GET /admin/api/exportar-pendencias?aba=…`), no mesmo
+padrão brasileiro da exportação da base — separador `;`, vírgula decimal, BOM pro Excel. Serve
+pra triar fora do painel, dividir a fila com outra pessoa e guardar o retrato de uma auditoria
+antes de começar a mexer.
+
+Duas decisões que valem registro:
+
+- **Os filtros da tela vão na URL** (`busca`, `sugestao`, `so_recuperavel`,
+  `incluir_dispensadas`), pra que "exportar" signifique exportar o que se está vendo.
+- **O corte de exibição NÃO vai.** A tela mostra as listas grandes cortadas nos maiores (400
+  versões, 300 grupos sem versão) porque rolar milhares de linhas no navegador não ajuda. O CSV
+  sai inteiro: quem exporta quer justamente a fila toda, e um arquivo silenciosamente truncado
+  seria pior que arquivo nenhum — a usuária concluiria que a fila acabou. Por isso
+  `listar_versoes_pendentes`/`listar_sem_versao` aceitam `limite=None`, e a contagem volta no
+  cabeçalho `X-Total-Linhas` pra tela confirmar ao lado do botão.
+
+Os rótulos saem em português e iguais aos da tela (`Nome incompleto`, `trim provável`): o CSV é
+lido meses depois, longe da página que explica o que `corrigir_nome` quer dizer. As colunas por
+aba estão em `pendencias.COLUNAS_EXPORT_PENDENCIAS`.
+
 Estado que a tela grava, ambos append-only (a última linha vence, e o histórico fica):
 
 - `data/pendencias_dispensadas.csv` — pares que a usuária analisou e decidiu deixar como estão.

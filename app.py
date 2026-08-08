@@ -16,6 +16,7 @@ Endpoints:
   GET  /admin/api/marca-modelo            → todos os pares (marca, modelo) distintos, sem cascata
   GET  /admin/api/versoes-do-par          → versões (com geração) de um par (?marca=&modelo=)
   GET  /admin/api/exportar                → baixa snapshot CSV da base (?tipo=anuncios|resumo)
+  GET  /admin/api/exportar-pendencias     → baixa uma aba de pendências em CSV (?aba=)
   GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=&versao=)
   GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&ano=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
@@ -48,7 +49,10 @@ load_dotenv(Path(__file__).parent / ".env")
 from src.catalog.externo import registrar_decisao_alias
 from src.pipeline.backup import fazer_backup
 from src.pipeline.pendencias import (
+    ABA_ARQUIVO,
+    ABAS_EXPORTAVEIS,
     dispensar as dispensar_pendencia,
+    exportar_aba,
     listar_aliases_pendentes,
     listar_pendencias,
     listar_sem_versao,
@@ -617,6 +621,47 @@ def admin_api_decidir_alias():
         return jsonify({"erro": str(exc)}), 400
     except Exception as exc:
         logger.error("admin_api_decidir_alias erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/exportar-pendencias")
+def admin_api_exportar_pendencias():
+    """
+    Baixa uma aba da página de pendências em CSV, no mesmo padrão brasileiro
+    da exportação da base.
+
+    Serve pra triar fora do painel — abrir no Excel, marcar o que já foi
+    resolvido, dividir a fila com outra pessoa — e pra guardar o retrato de
+    uma auditoria antes de começar a mexer.
+
+    ?aba=  corrigir_nome | confirmado | sem_evidencia | versao | sem_versao | alias
+
+    Os filtros da tela vão junto (`busca`, `sugestao`, `so_recuperavel`,
+    `incluir_dispensadas`), então o arquivo reflete o que está à vista. O que
+    NÃO vai junto é o corte de exibição das listas grandes: o CSV sai
+    completo (ver o comentário em `pendencias.exportar_aba`).
+    """
+    aba = request.args.get("aba", "").strip()
+    if aba not in ABAS_EXPORTAVEIS:
+        return jsonify({
+            "erro": f"aba deve ser uma de: {', '.join(ABAS_EXPORTAVEIS)}."
+        }), 400
+    try:
+        colunas, linhas = exportar_aba(
+            aba,
+            busca=request.args.get("busca", "").strip(),
+            sugestao=request.args.get("sugestao", "").strip(),
+            so_recuperavel=request.args.get("so_recuperavel", "").strip() == "1",
+            incluir_dispensadas=request.args.get("incluir_dispensadas", "").strip() == "1",
+        )
+        logger.info("exportar-pendencias: aba=%s (%d linhas)", aba, len(linhas))
+        resp = _csv_streaming(linhas, colunas, ABA_ARQUIVO[aba])
+        # A tela confirma a contagem ao lado do botão: é como a usuária vê que
+        # o arquivo saiu inteiro, e não com o corte de exibição da lista.
+        resp.headers["X-Total-Linhas"] = str(len(linhas))
+        return resp
+    except Exception as exc:
+        logger.error("admin_api_exportar_pendencias erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 

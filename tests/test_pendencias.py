@@ -374,3 +374,113 @@ class TestSemVersao:
         assert gol["fontes"] == ["mercadolivre", "webmotors"]
         assert d["total_grupos"] == 3
         assert d["total_anuncios"] == 4
+
+
+# ── Exportação ──────────────────────────────────
+#
+# O que se testa aqui é o contrato do arquivo: que ele saia INTEIRO (sem o
+# corte de exibição), que respeite os filtros da tela e que as colunas
+# prometidas existam em toda linha — um CSV com coluna faltando vira célula
+# deslocada na planilha, e o erro só aparece muito depois.
+
+class TestExportacao:
+
+    def test_colunas_prometidas_batem_com_as_linhas(self, fila):
+        colunas, linhas = pendencias.exportar_aba(pendencias.TIPO_CORRIGIR)
+        assert linhas
+        for linha in linhas:
+            assert set(linha) == set(colunas)
+
+    def test_exporta_so_a_aba_pedida(self, fila):
+        _c, linhas = pendencias.exportar_aba(pendencias.TIPO_SEM_EVIDENCIA)
+        assert [l["marca"] for l in linhas] == ["GURGEL"]
+
+    def test_evidencia_vira_colunas_planas(self, fila):
+        _c, linhas = pendencias.exportar_aba(pendencias.TIPO_CORRIGIR)
+        linha = linhas[0]
+        assert linha["modelo_na_fonte"] == "RANGE ROVER"
+        assert linha["nome_sugerido"] == "RANGE ROVER"
+        assert linha["ano_min"] == 1970
+        assert linha["fonte"] == "the-oldtimers.com"
+
+    def test_rotulo_em_portugues_em_vez_do_slug(self, fila):
+        """O CSV é lido longe da tela que explica o que 'corrigir_nome' quer dizer."""
+        _c, linhas = pendencias.exportar_aba(pendencias.TIPO_CORRIGIR)
+        assert linhas[0]["situacao"] == "Nome incompleto"
+
+    def test_par_sem_evidencia_deixa_colunas_da_fonte_vazias(self, fila):
+        _c, linhas = pendencias.exportar_aba(pendencias.TIPO_SEM_EVIDENCIA)
+        assert linhas[0]["modelo_na_fonte"] == ""
+        assert linhas[0]["ano_min"] is None
+
+    def test_busca_filtra_igual_a_tela(self, fila):
+        _c, linhas = pendencias.exportar_aba(pendencias.TIPO_CONFIRMADO, busca="triu")
+        assert [l["modelo"] for l in linhas] == ["TR7"]
+        _c, vazio = pendencias.exportar_aba(pendencias.TIPO_CONFIRMADO, busca="honda")
+        assert vazio == []
+
+    def test_dispensada_fica_de_fora_por_padrao(self, fila):
+        pendencias.dispensar("GURGEL", "XEF")
+        _c, linhas = pendencias.exportar_aba(pendencias.TIPO_SEM_EVIDENCIA)
+        assert linhas == []
+        _c, com = pendencias.exportar_aba(
+            pendencias.TIPO_SEM_EVIDENCIA, incluir_dispensadas=True)
+        assert com[0]["dispensada"] == "sim"
+
+    def test_aba_desconhecida_falha(self, fila):
+        with pytest.raises(ValueError):
+            pendencias.exportar_aba("inventada")
+
+    def test_todas_as_abas_tem_nome_de_arquivo(self):
+        assert set(pendencias.ABAS_EXPORTAVEIS) == set(pendencias.ABA_ARQUIVO)
+
+    def test_versao_sai_inteira_sem_o_corte_da_tela(self, monkeypatch):
+        """
+        A tela corta em 400 pra não travar o navegador. O CSV existe pra
+        levar a fila toda embora — se saísse cortado, quem triasse fora do
+        painel concluiria que a fila acabou.
+        """
+        TestVersoesPendentes()._montar(monkeypatch)
+        assert pendencias.listar_versoes_pendentes(limite=2)["truncado"] is True
+        _c, linhas = pendencias.exportar_aba("versao")
+        assert len(linhas) == 3
+
+    def test_versao_filtra_por_sugestao(self, monkeypatch):
+        TestVersoesPendentes()._montar(monkeypatch)
+        _c, linhas = pendencias.exportar_aba("versao", sugestao="geracao")
+        assert [l["versao_no_banco"] for l in linhas] == ["C1"]
+        assert linhas[0]["situacao"] == "é geração"
+
+    def test_versao_leva_o_vocabulario_do_catalogo(self, monkeypatch):
+        TestVersoesPendentes()._montar(monkeypatch)
+        _c, linhas = pendencias.exportar_aba("versao", busca="corcel")
+        assert linhas[0]["trims_que_o_catalogo_conhece"] == "GL, LDO, LUXO"
+
+    def test_sem_versao_leva_a_prova_no_titulo(self, monkeypatch, tmp_path):
+        """Sem o título de exemplo a linha é só um número, e a usuária teria
+        que voltar ao painel pra conferir grupo por grupo."""
+        TestSemVersao()._montar(monkeypatch, tmp_path)
+        _c, linhas = pendencias.exportar_aba("sem_versao", busca="GOL")
+        assert linhas[0]["trim_perdido"] == "GL"
+        assert "Gol 1.8 Mi Gl" in linhas[0]["titulos_de_exemplo"]
+        assert linhas[0]["fontes"] == "mercadolivre, webmotors"
+
+    def test_sem_versao_so_recuperavel(self, monkeypatch, tmp_path):
+        TestSemVersao()._montar(monkeypatch, tmp_path)
+        _c, todos = pendencias.exportar_aba("sem_versao")
+        _c, recup = pendencias.exportar_aba("sem_versao", so_recuperavel=True)
+        assert len(todos) == 3
+        assert [l["modelo"] for l in recup] == ["GOL"]
+
+    def test_alias_converte_similaridade_em_porcentagem(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.catalog.externo.listar_aliases",
+            lambda: [
+                {"marca": "FORD", "modelo_ptbr": "CRISTLINE", "modelo_intl": "CRESTLINE",
+                 "regra": "fuzzy", "fonte": "the-oldtimers.com", "n_anuncios": 1,
+                 "similaridade": 0.889, "decisao": ""},
+            ],
+        )
+        _c, linhas = pendencias.exportar_aba("alias")
+        assert linhas[0]["semelhanca_pct"] == 89
+        assert linhas[0]["decisao"] == "pendente"

@@ -86,6 +86,11 @@
           </select>
         </div>
         <span class="an-total" id="pd-total">—</span>
+        <div class="pd-exportar">
+          <button class="btn btn-outline btn-sm" onclick="exportarAba(this)"
+                  title="Baixa esta aba em CSV, com os filtros aplicados">Exportar CSV</button>
+          <span class="pd-msg"></span>
+        </div>
       </div>
       <div class="an-table-wrap">
         <table class="an-table" id="pd-table">
@@ -123,6 +128,11 @@
           </select>
         </div>
         <span class="an-total" id="pd-versao-total">—</span>
+        <div class="pd-exportar">
+          <button class="btn btn-outline btn-sm" onclick="exportarAba(this)"
+                  title="Baixa a lista inteira em CSV — não só as maiores que cabem na tela">Exportar CSV</button>
+          <span class="pd-msg"></span>
+        </div>
       </div>
       <div class="an-table-wrap">
         <table class="an-table" id="pd-versao-table">
@@ -158,6 +168,11 @@
           </select>
         </div>
         <span class="an-total" id="pd-sv-total">—</span>
+        <div class="pd-exportar">
+          <button class="btn btn-outline btn-sm" onclick="exportarAba(this)"
+                  title="Baixa a lista inteira em CSV, com os títulos de exemplo">Exportar CSV</button>
+          <span class="pd-msg"></span>
+        </div>
       </div>
       <div class="an-table-wrap">
         <table class="an-table" id="pd-sv-table">
@@ -180,7 +195,14 @@
 
     <!-- Aliases (última aba) -->
     <section class="admin-section hidden" id="pd-alias-section">
-      <p class="admin-sub" id="pd-alias-nota"></p>
+      <div class="an-filters">
+        <span class="an-total" id="pd-alias-nota"></span>
+        <div class="pd-exportar">
+          <button class="btn btn-outline btn-sm" onclick="exportarAba(this)"
+                  title="Baixa os aliases pendentes em CSV">Exportar CSV</button>
+          <span class="pd-msg"></span>
+        </div>
+      </div>
       <div class="an-table-wrap">
         <table class="an-table" id="pd-alias-table">
           <thead>

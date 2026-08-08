@@ -751,6 +751,75 @@ async function decidirAlias(btn, decisao) {
   setTimeout(renderAliases, 700);
 }
 
+// ── Exportação ──────────────────────────────────────────────────────────
+//
+// O CSV vem do servidor, não do que está renderizado: as listas grandes
+// aparecem na tela cortadas nos maiores, e um arquivo com o mesmo corte
+// enganaria quem levasse a fila pra triar fora do painel. Os filtros da aba
+// vão na URL pra que o arquivo corresponda ao que está à vista.
+
+function paramsDaAba() {
+  const p = new URLSearchParams({ aba: pdAba });
+  const pegar = (chave, id) => {
+    const el = document.getElementById(id);
+    const v = (el?.value || '').trim();
+    if (v) p.set(chave, v);
+  };
+  if (pdAba === 'versao') {
+    pegar('busca', 'pd-versao-busca');
+    pegar('sugestao', 'pd-versao-sugestao');
+  } else if (pdAba === 'sem_versao') {
+    pegar('busca', 'pd-sv-busca');
+    pegar('so_recuperavel', 'pd-sv-so-recup');
+  } else if (pdAba !== 'alias') {
+    pegar('busca', 'pd-busca');
+    pegar('incluir_dispensadas', 'pd-dispensadas');
+  }
+  return p;
+}
+
+// Baixa via fetch em vez de navegar pro endpoint: se o servidor devolver
+// erro, navegar jogaria a usuária num JSON cru e apagaria os filtros que ela
+// acabou de montar. Assim o erro aparece ao lado do botão e a tela fica.
+async function exportarAba(btn) {
+  const msg = btn.parentElement.querySelector('.pd-msg');
+  const rotulo = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Gerando…';
+  msg.className = 'pd-msg';
+  msg.textContent = '';
+
+  try {
+    const res = await fetch(`/admin/api/exportar-pendencias?${paramsDaAba()}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.erro || `falhou (HTTP ${res.status})`);
+    }
+    const disp = res.headers.get('Content-Disposition') || '';
+    const nome = (disp.match(/filename="?([^"]+)"?/) || [])[1] || 'pendencias.csv';
+    const blob = await res.blob();
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nome;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    // Confirmar a contagem é o que mostra que o arquivo saiu inteiro, e não
+    // com o corte da tela.
+    const n = Number(res.headers.get('X-Total-Linhas'));
+    msg.className = 'pd-msg pd-msg--ok';
+    msg.textContent = Number.isFinite(n) ? `✓ ${n.toLocaleString('pt-BR')} linhas` : '✓ baixado';
+  } catch (err) {
+    msg.className = 'pd-msg pd-msg--erro';
+    msg.textContent = `Erro: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = rotulo;
+  }
+}
+
 // ── Utilitários ─────────────────────────────────────────────────────────
 function fmtPreco(val) {
   if (val == null) return '—';
