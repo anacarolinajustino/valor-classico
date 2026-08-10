@@ -429,22 +429,29 @@ def get_db_stats() -> dict[str, Any]:
 
 def _cond_amostra_minima(conds_base: list[str], params_base: list) -> tuple[str, list]:
     """
-    Condição "só pares marca/modelo com N+ anúncios", sob os MESMOS filtros da
-    consulta externa.
+    Condição "só combinações marca/modelo/ANO com N+ anúncios", sob os MESMOS
+    filtros da consulta externa.
+
+    O ano entra na chave porque é ele que torna os preços comparáveis: um
+    Fusca 1970 e um Fusca 1996 são o mesmo par marca/modelo e mercados
+    diferentes. Agrupar só por marca/modelo daria base estatística a um
+    conjunto que mistura três décadas.
 
     Contar dentro do recorte, e não na base inteira, é o que faz o número
-    significar o que a tela mostra: com fonte=olx, um par que tem 1 anúncio na
-    OLX e 5 no ML é um grupo de 1 ali, e exibi-lo como se tivesse 6 seria
-    mentir sobre a amostra daquele gráfico.
+    significar o que a tela mostra: com fonte=olx, uma combinação com 1
+    anúncio na OLX e 5 no ML é um grupo de 1 ali, e exibi-la como se tivesse
+    6 seria mentir sobre a amostra daquele gráfico.
 
-    COALESCE nos dois lados porque `IN` com NULL nunca casa — sem isso, todo
-    anúncio sem modelo sumiria em silêncio ao ligar o filtro.
+    COALESCE nos três campos porque `IN` com NULL nunca casa — sem isso, todo
+    anúncio sem modelo ou sem ano sumiria em silêncio ao ligar o filtro. Os
+    sem ano formam um grupo à parte por modelo, que é o mais honesto que dá
+    pra fazer: não pertencem a ano nenhum, mas também não são lixo.
     """
+    chave = "COALESCE(marca, ''), COALESCE(modelo, ''), COALESCE(ano, -1)"
     onde = ("WHERE " + " AND ".join(conds_base)) if conds_base else ""
     return (
-        "(COALESCE(marca, ''), COALESCE(modelo, '')) IN ("
-        "SELECT COALESCE(marca, ''), COALESCE(modelo, '') FROM anuncios "
-        f"{onde} GROUP BY 1, 2 HAVING COUNT(*) >= %s)",
+        f"({chave}) IN (SELECT {chave} FROM anuncios "
+        f"{onde} GROUP BY 1, 2, 3 HAVING COUNT(*) >= %s)",
         params_base,
     )
 
@@ -492,7 +499,7 @@ def _opcoes_marca_modelo_ano(
         if min_anuncios and min_anuncios > 1:
             # Por último, pra que os parâmetros dele venham depois dos demais.
             # A subconsulta usa a MESMA exclusão do facetamento: senão o
-            # dropdown ofereceria uma marca que, ao ser escolhida, esvaziaria
+            # dropdown ofereceria uma opção que, ao ser escolhida, esvaziaria
             # a tela por não alcançar a amostra mínima.
             cond_min, params_min = _cond_amostra_minima(base_conds, base_params)
             conds.append(cond_min)
@@ -586,12 +593,12 @@ def get_dashboard_stats(
     recorte onde o preço de fato mora — um Opala SS não vale o mesmo que um
     Opala de luxo —, então é ele que torna a mediana do dashboard comparável.
 
-    `min_anuncios` descarta os pares marca/modelo com amostra pequena demais
-    pra sustentar uma mediana — mesmo filtro da lista de marcas e modelos e
-    da calculadora. Diferente dos outros: em vez de recortar um valor, corta
-    pela CONTAGEM do grupo a que o anúncio pertence, dentro do recorte
-    corrente (ver `_cond_amostra_minima`). `descartados_min` no retorno diz
-    quantos anúncios ficaram de fora, pra tela não parecer ter perdido dado.
+    `min_anuncios` descarta as combinações marca/modelo/ANO com amostra
+    pequena demais pra sustentar uma mediana. Diferente dos outros filtros:
+    em vez de recortar um valor, corta pela CONTAGEM do grupo a que o anúncio
+    pertence, dentro do recorte corrente (ver `_cond_amostra_minima`).
+    `descartados_min` no retorno diz quantos anúncios ficaram de fora, pra
+    tela não parecer ter perdido dado.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,

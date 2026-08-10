@@ -413,29 +413,39 @@ class TestGetDashboardStats:
         d = get_dashboard_stats(marca="chevrolet", modelo="opala", versao="SS")
         assert {x["versao"] for x in d["opcoes"]["versao"]} == {"SS", "COMODORO", ""}
 
-    # ── Amostra mínima (2026-08-10) ─────────────────────────────────
+    # ── Amostra mínima por marca/modelo/ANO (2026-08-10) ────────────
     #
-    # Corta pela CONTAGEM do par marca/modelo, não por um valor de campo:
-    # mediana de 1 ou 2 anúncios é ruído. Mesmo filtro da lista de
-    # marcas/modelos e da calculadora.
+    # Corta pela CONTAGEM do grupo a que o anúncio pertence, não por um valor
+    # de campo. O ano entra na chave porque é ele que torna os preços
+    # comparáveis: um Fusca 1970 e um 1996 são mercados diferentes.
 
     def _semear_amostras(self):
         upsert_anuncios([
-            # FUSCA: 3 anúncios (passa no mínimo 3)
+            # FUSCA 1975: 3 anúncios (passa no mínimo 3)
             _anuncio("http://x/1", 1975, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
-            _anuncio("http://x/2", 1976, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
-            _anuncio("http://x/3", 1977, fonte="maxicar", marca="VOLKSWAGEN", modelo="FUSCA"),
-            # KOMBI: 2 anúncios (não passa)
-            _anuncio("http://x/4", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
-            _anuncio("http://x/5", 1981, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
-            # OPALA: 1 anúncio (não passa)
-            _anuncio("http://x/6", 1975, fonte="olx", marca="CHEVROLET", modelo="OPALA"),
+            _anuncio("http://x/2", 1975, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/3", 1975, fonte="maxicar", marca="VOLKSWAGEN", modelo="FUSCA"),
+            # FUSCA 1976: 1 anúncio — mesmo par, outro ano, não passa
+            _anuncio("http://x/4", 1976, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
+            # KOMBI 1980: 2 anúncios (não passa)
+            _anuncio("http://x/5", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
+            _anuncio("http://x/6", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
         ])
 
-    def test_min_corta_pares_com_amostra_pequena(self):
+    def test_min_corta_grupos_com_amostra_pequena(self):
         self._semear_amostras()
         assert get_dashboard_stats()["kpis"]["total"] == 6
         assert get_dashboard_stats(min_anuncios=3)["kpis"]["total"] == 3
+
+    def test_o_ano_faz_parte_da_chave(self):
+        """
+        O ponto do filtro: o Fusca tem 4 anúncios no par marca/modelo, mas
+        eles se dividem em 1975 (3) e 1976 (1) — só o primeiro grupo tem base.
+        """
+        self._semear_amostras()
+        d = get_dashboard_stats(marca="volkswagen", modelo="fusca", min_anuncios=3)
+        assert d["kpis"]["total"] == 3
+        assert {x["ano"] for x in d["opcoes"]["ano"]} == {1975}
 
     def test_min_1_ou_vazio_nao_filtra(self):
         self._semear_amostras()
@@ -445,14 +455,14 @@ class TestGetDashboardStats:
     def test_descartados_min_explica_a_queda(self):
         self._semear_amostras()
         d = get_dashboard_stats(min_anuncios=3)
-        assert d["descartados_min"] == 3          # 2 da Kombi + 1 do Opala
+        assert d["descartados_min"] == 3          # 1 do Fusca 76 + 2 da Kombi
         assert d["kpis"]["total"] + d["descartados_min"] == 6
         assert get_dashboard_stats()["descartados_min"] == 0
 
     def test_conta_dentro_do_recorte_e_nao_na_base_inteira(self):
         """
-        Com fonte=olx o Fusca tem 2 anúncios, não 3 — exibi-lo como grupo de
-        3 seria mentir sobre a amostra daquele gráfico.
+        Com fonte=olx o Fusca 1975 tem 2 anúncios, não 3 — exibi-lo como
+        grupo de 3 seria mentir sobre a amostra daquele gráfico.
         """
         self._semear_amostras()
         assert get_dashboard_stats(fonte="olx")["kpis"]["total"] == 5
@@ -460,14 +470,16 @@ class TestGetDashboardStats:
 
     def test_opcoes_respeitam_o_minimo(self):
         """
-        Senão o dropdown ofereceria uma marca que, ao ser escolhida, deixaria
+        Senão o dropdown ofereceria uma opção que, ao ser escolhida, deixaria
         a tela vazia.
         """
         self._semear_amostras()
         d = get_dashboard_stats(min_anuncios=3)
+        assert {x["modelo"] for x in d["opcoes"]["modelo"]} == set()  # sem marca escolhida
         assert {x["marca"] for x in d["opcoes"]["marca"]} == {"VOLKSWAGEN"}
-        assert {x["marca"] for x in get_dashboard_stats()["opcoes"]["marca"]} == {
-            "VOLKSWAGEN", "CHEVROLET"
+        assert {x["ano"] for x in d["opcoes"]["ano"]} == {1975}
+        assert {x["ano"] for x in get_dashboard_stats()["opcoes"]["ano"]} == {
+            1975, 1976, 1980
         }
 
     def test_min_se_soma_aos_outros_filtros(self):
@@ -478,15 +490,27 @@ class TestGetDashboardStats:
 
     def test_anuncio_sem_modelo_nao_some_em_silencio(self):
         """
-        `IN` com NULL nunca casa — sem o COALESCE nos dois lados, todo
-        anúncio sem modelo sumiria ao ligar o filtro, mesmo com amostra
-        suficiente.
+        `IN` com NULL nunca casa — sem o COALESCE, todo anúncio sem modelo
+        sumiria ao ligar o filtro, mesmo com amostra suficiente.
         """
         upsert_anuncios([
             _anuncio(f"http://y/{i}", 1975, marca="GURGEL", modelo=None)
             for i in range(1, 4)
         ])
         assert get_dashboard_stats(min_anuncios=3)["kpis"]["total"] == 3
+
+    def test_anuncio_sem_ano_agrupa_a_parte_e_nao_some(self):
+        """
+        Sem ano não se pertence a ano nenhum, mas descartar em silêncio é
+        pior — formam um grupo por modelo, que é o mais honesto possível.
+        """
+        upsert_anuncios([
+            _anuncio(f"http://z/{i}", None, marca="PUMA", modelo="GTB")
+            for i in range(1, 4)
+        ] + [_anuncio("http://z/9", 1975, marca="PUMA", modelo="GTB")])
+        d = get_dashboard_stats(min_anuncios=3)
+        assert d["kpis"]["total"] == 3            # os 3 sem ano passam
+        assert d["descartados_min"] == 1          # o de 1975, sozinho, não
 
 
 # ── reclassificar_versao: os destinos da fila de curadoria (2026-08-10) ──────

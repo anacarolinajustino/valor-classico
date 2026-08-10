@@ -353,7 +353,7 @@ async function carregar() {
     const fora = dados.descartados_min || 0;
     notaMin.textContent = fora
       ? `Amostra mínima de ${filtroMin.value}: ${FMT_INT.format(fora)} anúncios de fora, ` +
-        `em pares com menos que isso neste recorte.`
+        `em combinações modelo + ano com menos que isso neste recorte.`
       : "";
 
     const k = dados.kpis;

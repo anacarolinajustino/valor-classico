@@ -190,12 +190,13 @@
       </div>
 
       <!-- Amostra mínima: diferente dos outros, não recorta um valor — corta
-           pela CONTAGEM do par marca/modelo. Mediana de 1 ou 2 anúncios é
-           ruído. Mesmo filtro da lista de marcas/modelos e da calculadora. -->
+           pela CONTAGEM do grupo marca/modelo/ANO a que o anúncio pertence.
+           O ano entra na chave porque é ele que torna os preços comparáveis:
+           um Fusca 1970 e um 1996 são mercados diferentes. -->
       <div class="dash-filtro-grupo">
         <label for="filtro-min">Mín. de anúncios</label>
         <select id="filtro-min"
-                title="Só pares marca/modelo com pelo menos esta quantidade de anúncios no recorte atual">
+                title="Só combinações modelo + ano com pelo menos esta quantidade de anúncios no recorte atual">
           <option value="3" selected>3 ou mais</option>
           <option value="5">5 ou mais</option>
           <option value="10">10 ou mais</option>
