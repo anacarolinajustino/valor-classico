@@ -599,6 +599,10 @@ def get_dashboard_stats(
     pertence, dentro do recorte corrente (ver `_cond_amostra_minima`).
     `descartados_min` no retorno diz quantos anúncios ficaram de fora, pra
     tela não parecer ter perdido dado.
+
+    `extremos` traz o anúncio mais barato e o mais caro do recorte (com url),
+    não só os valores — a ponta é onde mora o erro de preço, e o link é o que
+    permite conferir na hora.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -653,6 +657,24 @@ def get_dashboard_stats(
                 params,
             )
             por_fonte = [dict(r) for r in cur.fetchall()]
+
+            # Os dois anúncios das pontas, não só os valores: a ponta é onde
+            # mora o erro de preço (há um F-250 anunciado a R$ 100 milhões na
+            # Webmotors), e sem o link a usuária vê o número esquisito sem
+            # ter como conferir de onde veio.
+            cur.execute(
+                f"""
+                (SELECT 'min' AS ponta, preco, titulo, url, fonte, ano
+                   FROM anuncios {cond_e} preco IS NOT NULL AND preco > 0
+                  ORDER BY preco ASC LIMIT 1)
+                UNION ALL
+                (SELECT 'max' AS ponta, preco, titulo, url, fonte, ano
+                   FROM anuncios {cond_e} preco IS NOT NULL AND preco > 0
+                  ORDER BY preco DESC LIMIT 1)
+                """,
+                params + params,
+            )
+            extremos = {r["ponta"]: dict(r) for r in cur.fetchall()}
 
             cur.execute(
                 f"""
@@ -723,6 +745,9 @@ def get_dashboard_stats(
             "preco_mediano": k["preco_mediano"],
         },
         "descartados_min": descartados_min,
+        # {"min": {...}, "max": {...}} — o anúncio de cada ponta, com url.
+        # Vazio quando o recorte não tem preço nenhum.
+        "extremos": extremos,
         "por_fonte": por_fonte,
         "por_decada": por_decada,
         "top_marcas": top_marcas,

@@ -39,6 +39,21 @@
       color: var(--vc-ink-muted);
       min-height: 1em;
     }
+    .dash-faixa {
+      display: block;
+      margin-top: .35rem;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--vc-ink-muted);
+    }
+    .dash-faixa a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 3px;
+    }
+    .dash-faixa a:hover { color: var(--dash-realce); }
+    .dash-faixa strong { color: var(--vc-ink); font-weight: 600; }
     .dash-grid {
       display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem;
       transition: opacity var(--transition);
@@ -216,6 +231,10 @@
       <div class="admin-stat-card">
         <span class="admin-stat-label">Preço mediano</span>
         <span class="admin-stat-value" id="kpi-mediana">—</span>
+        <!-- A faixa mora junto da mediana em vez de virar dois cards: é a
+             mesma pergunta ("quanto vale?") vista de outro ângulo, e a ponta
+             só significa alguma coisa ao lado do centro. -->
+        <span class="dash-faixa" id="kpi-faixa"></span>
       </div>
       <div class="admin-stat-card">
         <span class="admin-stat-label">Fontes com dados</span>

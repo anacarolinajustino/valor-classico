@@ -276,6 +276,43 @@ function popularSelect(select, itens, { valorFn, rotuloFn, placeholder }) {
   if (itens.some((item) => valorFn(item) === atual)) select.value = atual;
 }
 
+/* ── Faixa de preço (as duas pontas do recorte) ── */
+
+/**
+ * Valor da ponta, clicável quando o anúncio tem url. Sempre via DOM e
+ * textContent — título de anúncio é texto de terceiro, nunca innerHTML.
+ */
+function pontaDePreco(rotulo, item) {
+  const valor = document.createElement("strong");
+  valor.textContent = fmtBRL(item.preco);
+
+  const alvo = item.url ? document.createElement("a") : valor;
+  if (item.url) {
+    alvo.href = item.url;
+    alvo.target = "_blank";
+    alvo.rel = "noopener";
+    alvo.append(valor);
+  }
+  // O título no tooltip é o que transforma um número estranho em algo
+  // verificável sem sair da página.
+  alvo.title = `${rotulo}: ${item.titulo || "(sem título)"}`
+    + `${item.ano ? " · " + item.ano : ""} · ${item.fonte}`;
+  return alvo;
+}
+
+// Notação de faixa em vez de "menor X · maior Y": cabe numa linha dentro do
+// card, e a ordem crescente já diz qual é qual.
+function renderFaixa(extremos) {
+  const el = document.getElementById("kpi-faixa");
+  el.replaceChildren();
+  if (!extremos || !extremos.min || !extremos.max) return;
+
+  el.title = "Menor e maior preço deste recorte — clique para abrir o anúncio";
+  el.append(pontaDePreco("Menor", extremos.min));
+  el.append(document.createTextNode(" – "));
+  el.append(pontaDePreco("Maior", extremos.max));
+}
+
 /* ── Carga e composição ── */
 
 const grid = document.getElementById("dash-grid");
@@ -359,6 +396,7 @@ async function carregar() {
     const k = dados.kpis;
     document.getElementById("kpi-total").textContent = FMT_INT.format(k.total);
     document.getElementById("kpi-mediana").textContent = fmtBRL(k.preco_mediano);
+    renderFaixa(dados.extremos);
     document.getElementById("kpi-fontes").textContent = FMT_INT.format(k.fontes);
     document.getElementById("kpi-com-ano").textContent =
       k.total ? Math.round((k.com_ano / k.total) * 100) + "%" : "—";

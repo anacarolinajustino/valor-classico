@@ -499,6 +499,44 @@ class TestGetDashboardStats:
         ])
         assert get_dashboard_stats(min_anuncios=3)["kpis"]["total"] == 3
 
+    # ── Faixa de preço: as duas pontas do recorte ───────────────────
+
+    def _semear_precos(self):
+        def _com_preco(url, ano, preco, modelo="FUSCA"):
+            a = _anuncio(url, ano, marca="VOLKSWAGEN", modelo=modelo)
+            return Anuncio(**{**a.__dict__, "preco": preco})
+
+        upsert_anuncios([
+            _com_preco("http://p/1", 1975, 10000.0),
+            _com_preco("http://p/2", 1975, 50000.0),
+            _com_preco("http://p/3", 1975, 900000.0),
+            _com_preco("http://p/9", 1980, 7000.0, modelo="KOMBI"),
+        ])
+
+    def test_extremos_trazem_as_duas_pontas(self):
+        self._semear_precos()
+        e = get_dashboard_stats()["extremos"]
+        assert e["min"]["preco"] == 7000.0
+        assert e["max"]["preco"] == 900000.0
+
+    def test_extremos_trazem_a_url_pra_conferir(self):
+        """A ponta é onde mora o erro de preço; sem o link o número não é
+        verificável."""
+        self._semear_precos()
+        e = get_dashboard_stats()["extremos"]
+        assert e["max"]["url"] == "http://p/3"
+        assert e["max"]["titulo"] and e["max"]["fonte"]
+
+    def test_extremos_respeitam_o_recorte(self):
+        self._semear_precos()
+        e = get_dashboard_stats(marca="volkswagen", modelo="fusca")["extremos"]
+        assert e["min"]["preco"] == 10000.0     # o Kombi de 7 mil ficou fora
+        assert e["max"]["preco"] == 900000.0
+
+    def test_extremos_vazios_quando_nao_ha_recorte(self):
+        self._semear_precos()
+        assert get_dashboard_stats(marca="FERRARI")["extremos"] == {}
+
     def test_anuncio_sem_ano_agrupa_a_parte_e_nao_some(self):
         """
         Sem ano não se pertence a ano nenhum, mas descartar em silêncio é
