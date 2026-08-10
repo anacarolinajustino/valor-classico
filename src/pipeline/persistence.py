@@ -427,10 +427,32 @@ def get_db_stats() -> dict[str, Any]:
     return {"total_anuncios": total, "por_fonte": por_fonte}
 
 
+def _cond_amostra_minima(conds_base: list[str], params_base: list) -> tuple[str, list]:
+    """
+    Condição "só pares marca/modelo com N+ anúncios", sob os MESMOS filtros da
+    consulta externa.
+
+    Contar dentro do recorte, e não na base inteira, é o que faz o número
+    significar o que a tela mostra: com fonte=olx, um par que tem 1 anúncio na
+    OLX e 5 no ML é um grupo de 1 ali, e exibi-lo como se tivesse 6 seria
+    mentir sobre a amostra daquele gráfico.
+
+    COALESCE nos dois lados porque `IN` com NULL nunca casa — sem isso, todo
+    anúncio sem modelo sumiria em silêncio ao ligar o filtro.
+    """
+    onde = ("WHERE " + " AND ".join(conds_base)) if conds_base else ""
+    return (
+        "(COALESCE(marca, ''), COALESCE(modelo, '')) IN ("
+        "SELECT COALESCE(marca, ''), COALESCE(modelo, '') FROM anuncios "
+        f"{onde} GROUP BY 1, 2 HAVING COUNT(*) >= %s)",
+        params_base,
+    )
+
+
 def _opcoes_marca_modelo_ano(
     cur, fonte: str | None, marca: str | None, modelo: str | None, ano: int | None,
     versao: str | None = None, com_versao: bool = False,
-    geracao: str | None = None,
+    geracao: str | None = None, min_anuncios: int | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Opções pros dropdowns de marca/modelo/ano (dashboard e /admin/anuncios),
@@ -465,7 +487,16 @@ def _opcoes_marca_modelo_ano(
                 f"COALESCE({campo}, '') = %s" if campo in coalesce_vazio else f"{campo} = %s"
             )
             params.append(valor)
-        conds.extend(extra)
+        base_conds, base_params = list(conds), list(params)
+        conds.extend(extra)  # literais, sem parâmetro
+        if min_anuncios and min_anuncios > 1:
+            # Por último, pra que os parâmetros dele venham depois dos demais.
+            # A subconsulta usa a MESMA exclusão do facetamento: senão o
+            # dropdown ofereceria uma marca que, ao ser escolhida, esvaziaria
+            # a tela por não alcançar a amostra mínima.
+            cond_min, params_min = _cond_amostra_minima(base_conds, base_params)
+            conds.append(cond_min)
+            params.extend([*params_min, min_anuncios])
         sql = ("WHERE " + " AND ".join(conds)) if conds else ""
         return sql, params
 
@@ -541,6 +572,7 @@ def get_dashboard_stats(
     modelo: str | None = None,
     ano: int | None = None,
     versao: str | None = None,
+    min_anuncios: int | None = None,
 ) -> dict[str, Any]:
     """
     Agregados pro dashboard do painel admin, opcionalmente recortados por
@@ -553,6 +585,13 @@ def get_dashboard_stats(
     sem versão informada (COALESCE trata NULL e '' como o mesmo balde). É o
     recorte onde o preço de fato mora — um Opala SS não vale o mesmo que um
     Opala de luxo —, então é ele que torna a mediana do dashboard comparável.
+
+    `min_anuncios` descarta os pares marca/modelo com amostra pequena demais
+    pra sustentar uma mediana — mesmo filtro da lista de marcas e modelos e
+    da calculadora. Diferente dos outros: em vez de recortar um valor, corta
+    pela CONTAGEM do grupo a que o anúncio pertence, dentro do recorte
+    corrente (ver `_cond_amostra_minima`). `descartados_min` no retorno diz
+    quantos anúncios ficaram de fora, pra tela não parecer ter perdido dado.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -565,7 +604,8 @@ def get_dashboard_stats(
     # e '' pelo mesmo COALESCE, como em `_opcoes_marca_modelo_ano`.
     coalesce_vazio = ("versao",)
 
-    def _where(excluir: str | None = None, *extra: str) -> tuple[str, list]:
+    def _where(excluir: str | None = None, *extra: str,
+               com_min: bool = True) -> tuple[str, list]:
         conds, params = [], []
         for campo, valor in filtros.items():
             if valor is None or campo == excluir:
@@ -574,7 +614,12 @@ def get_dashboard_stats(
                 f"COALESCE({campo}, '') = %s" if campo in coalesce_vazio else f"{campo} = %s"
             )
             params.append(valor)
-        conds.extend(extra)
+        base_conds, base_params = list(conds), list(params)
+        conds.extend(extra)  # literais, sem parâmetro
+        if com_min and min_anuncios and min_anuncios > 1:
+            cond_min, params_min = _cond_amostra_minima(base_conds, base_params)
+            conds.append(cond_min)
+            params.extend([*params_min, min_anuncios])
         sql = ("WHERE " + " AND ".join(conds)) if conds else ""
         return sql, params
 
@@ -651,8 +696,17 @@ def get_dashboard_stats(
             top_modelos = [dict(r) for r in cur.fetchall()]
 
             opcoes = _opcoes_marca_modelo_ano(
-                cur, fonte, marca, modelo, ano, versao=versao, com_versao=True
+                cur, fonte, marca, modelo, ano, versao=versao, com_versao=True,
+                min_anuncios=min_anuncios,
             )
+
+            # Quantos ficaram de fora só por causa da amostra mínima. Sem
+            # isso o total cai sem explicação e parece perda de dado.
+            descartados_min = 0
+            if min_anuncios and min_anuncios > 1:
+                cond_sem, params_sem = _where(com_min=False)
+                cur.execute(f"SELECT COUNT(*) AS n FROM anuncios {cond_sem}", params_sem)
+                descartados_min = cur.fetchone()["n"] - k["total"]
 
     return {
         "kpis": {
@@ -661,6 +715,7 @@ def get_dashboard_stats(
             "fontes": k["fontes"],
             "preco_mediano": k["preco_mediano"],
         },
+        "descartados_min": descartados_min,
         "por_fonte": por_fonte,
         "por_decada": por_decada,
         "top_marcas": top_marcas,

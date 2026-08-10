@@ -18,7 +18,7 @@ Endpoints:
   GET  /admin/api/exportar                → baixa snapshot CSV da base (?tipo=anuncios|resumo)
   GET  /admin/api/exportar-pendencias     → baixa uma aba de pendências em CSV (?aba=)
   GET  /admin/api/media-modelo            → estatísticas de preço de um par (?marca=&modelo=&versao=)
-  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&versao=&ano=)
+  GET  /admin/api/dashboard               → agregados pro dashboard (?fonte=&marca=&modelo=&versao=&ano=&min_anuncios=)
   POST /admin/api/coletar                 → dispara coleta assíncrona de uma fonte
   GET  /admin/api/coletar-status/<id>     → status de uma coleta em andamento
 """
@@ -696,9 +696,16 @@ def admin_api_dashboard():
     except ValueError:
         return jsonify({"erro": "Parâmetro ano inválido"}), 400
 
+    min_raw = request.args.get("min_anuncios", "").strip()
+    try:
+        min_anuncios = int(min_raw) if min_raw else None
+    except ValueError:
+        return jsonify({"erro": "Parâmetro min_anuncios inválido"}), 400
+
     try:
         return jsonify(get_dashboard_stats(
             fonte=fonte, marca=marca, modelo=modelo, ano=ano, versao=_arg_versao(),
+            min_anuncios=min_anuncios,
         ))
     except Exception as exc:
         logger.error("admin_api_dashboard erro: %s", exc, exc_info=True)

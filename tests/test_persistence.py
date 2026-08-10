@@ -413,6 +413,81 @@ class TestGetDashboardStats:
         d = get_dashboard_stats(marca="chevrolet", modelo="opala", versao="SS")
         assert {x["versao"] for x in d["opcoes"]["versao"]} == {"SS", "COMODORO", ""}
 
+    # ── Amostra mínima (2026-08-10) ─────────────────────────────────
+    #
+    # Corta pela CONTAGEM do par marca/modelo, não por um valor de campo:
+    # mediana de 1 ou 2 anúncios é ruído. Mesmo filtro da lista de
+    # marcas/modelos e da calculadora.
+
+    def _semear_amostras(self):
+        upsert_anuncios([
+            # FUSCA: 3 anúncios (passa no mínimo 3)
+            _anuncio("http://x/1", 1975, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/2", 1976, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"),
+            _anuncio("http://x/3", 1977, fonte="maxicar", marca="VOLKSWAGEN", modelo="FUSCA"),
+            # KOMBI: 2 anúncios (não passa)
+            _anuncio("http://x/4", 1980, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
+            _anuncio("http://x/5", 1981, fonte="olx", marca="VOLKSWAGEN", modelo="KOMBI"),
+            # OPALA: 1 anúncio (não passa)
+            _anuncio("http://x/6", 1975, fonte="olx", marca="CHEVROLET", modelo="OPALA"),
+        ])
+
+    def test_min_corta_pares_com_amostra_pequena(self):
+        self._semear_amostras()
+        assert get_dashboard_stats()["kpis"]["total"] == 6
+        assert get_dashboard_stats(min_anuncios=3)["kpis"]["total"] == 3
+
+    def test_min_1_ou_vazio_nao_filtra(self):
+        self._semear_amostras()
+        assert get_dashboard_stats(min_anuncios=1)["kpis"]["total"] == 6
+        assert get_dashboard_stats(min_anuncios=None)["kpis"]["total"] == 6
+
+    def test_descartados_min_explica_a_queda(self):
+        self._semear_amostras()
+        d = get_dashboard_stats(min_anuncios=3)
+        assert d["descartados_min"] == 3          # 2 da Kombi + 1 do Opala
+        assert d["kpis"]["total"] + d["descartados_min"] == 6
+        assert get_dashboard_stats()["descartados_min"] == 0
+
+    def test_conta_dentro_do_recorte_e_nao_na_base_inteira(self):
+        """
+        Com fonte=olx o Fusca tem 2 anúncios, não 3 — exibi-lo como grupo de
+        3 seria mentir sobre a amostra daquele gráfico.
+        """
+        self._semear_amostras()
+        assert get_dashboard_stats(fonte="olx")["kpis"]["total"] == 5
+        assert get_dashboard_stats(fonte="olx", min_anuncios=3)["kpis"]["total"] == 0
+
+    def test_opcoes_respeitam_o_minimo(self):
+        """
+        Senão o dropdown ofereceria uma marca que, ao ser escolhida, deixaria
+        a tela vazia.
+        """
+        self._semear_amostras()
+        d = get_dashboard_stats(min_anuncios=3)
+        assert {x["marca"] for x in d["opcoes"]["marca"]} == {"VOLKSWAGEN"}
+        assert {x["marca"] for x in get_dashboard_stats()["opcoes"]["marca"]} == {
+            "VOLKSWAGEN", "CHEVROLET"
+        }
+
+    def test_min_se_soma_aos_outros_filtros(self):
+        self._semear_amostras()
+        d = get_dashboard_stats(marca="volkswagen", min_anuncios=3)
+        assert d["kpis"]["total"] == 3
+        assert {x["modelo"] for x in d["opcoes"]["modelo"]} == {"FUSCA"}
+
+    def test_anuncio_sem_modelo_nao_some_em_silencio(self):
+        """
+        `IN` com NULL nunca casa — sem o COALESCE nos dois lados, todo
+        anúncio sem modelo sumiria ao ligar o filtro, mesmo com amostra
+        suficiente.
+        """
+        upsert_anuncios([
+            _anuncio(f"http://y/{i}", 1975, marca="GURGEL", modelo=None)
+            for i in range(1, 4)
+        ])
+        assert get_dashboard_stats(min_anuncios=3)["kpis"]["total"] == 3
+
 
 # ── reclassificar_versao: os destinos da fila de curadoria (2026-08-10) ──────
 #

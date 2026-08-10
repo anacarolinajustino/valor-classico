@@ -33,6 +33,12 @@
     .dash-filtros select:disabled {
       opacity: .55; cursor: not-allowed;
     }
+    .dash-nota {
+      margin: -.75rem 0 1.25rem;
+      font-size: 13px;
+      color: var(--vc-ink-muted);
+      min-height: 1em;
+    }
     .dash-grid {
       display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem;
       transition: opacity var(--transition);
@@ -182,7 +188,23 @@
           <option value="">Todos os anos</option>
         </select>
       </div>
+
+      <!-- Amostra mínima: diferente dos outros, não recorta um valor — corta
+           pela CONTAGEM do par marca/modelo. Mediana de 1 ou 2 anúncios é
+           ruído. Mesmo filtro da lista de marcas/modelos e da calculadora. -->
+      <div class="dash-filtro-grupo">
+        <label for="filtro-min">Mín. de anúncios</label>
+        <select id="filtro-min"
+                title="Só pares marca/modelo com pelo menos esta quantidade de anúncios no recorte atual">
+          <option value="3" selected>3 ou mais</option>
+          <option value="5">5 ou mais</option>
+          <option value="10">10 ou mais</option>
+          <option value="20">20 ou mais</option>
+          <option value="">Qualquer quantidade</option>
+        </select>
+      </div>
     </div>
+    <p class="dash-nota" id="dash-nota-min"></p>
 
     <!-- KPIs -->
     <div class="admin-stats-grid dash-kpis">

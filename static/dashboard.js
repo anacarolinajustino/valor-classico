@@ -284,6 +284,8 @@ const filtroMarca = document.getElementById("filtro-marca");
 const filtroModelo = document.getElementById("filtro-modelo");
 const filtroVersao = document.getElementById("filtro-versao");
 const filtroAno = document.getElementById("filtro-ano");
+const filtroMin = document.getElementById("filtro-min");
+const notaMin = document.getElementById("dash-nota-min");
 let fontesPopuladas = false;
 
 // Sentinela de "sem versão informada" (a API traduz — ver _arg_versao() no
@@ -300,6 +302,7 @@ async function carregar() {
     if (filtroModelo.value) params.set("modelo", filtroModelo.value);
     if (filtroVersao.value) params.set("versao", filtroVersao.value);
     if (filtroAno.value) params.set("ano", filtroAno.value);
+    if (filtroMin.value) params.set("min_anuncios", filtroMin.value);
     const qs = params.toString();
     const resp = await fetch("/admin/api/dashboard" + (qs ? `?${qs}` : ""));
     const dados = await resp.json();
@@ -344,6 +347,14 @@ async function carregar() {
       rotuloFn: (x) => `${x.ano} (${FMT_INT.format(x.qtd)})`,
       placeholder: "Todos os anos",
     });
+
+    // O corte por amostra mínima derruba o total sem que nada na tela
+    // explique por quê — daí dizer em números quantos ficaram de fora.
+    const fora = dados.descartados_min || 0;
+    notaMin.textContent = fora
+      ? `Amostra mínima de ${filtroMin.value}: ${FMT_INT.format(fora)} anúncios de fora, ` +
+        `em pares com menos que isso neste recorte.`
+      : "";
 
     const k = dados.kpis;
     document.getElementById("kpi-total").textContent = FMT_INT.format(k.total);
@@ -407,4 +418,7 @@ filtroVersao.addEventListener("change", () => {
   carregar();
 });
 filtroAno.addEventListener("change", carregar);
+// Amostra mínima está fora da cascata: é um corte transversal, não um nível
+// dela — muda quantos anúncios entram, não qual carro está em foco.
+filtroMin.addEventListener("change", carregar);
 carregar();
