@@ -28,6 +28,7 @@ from src.pipeline.persistence import (
     log_search,
     get_historico,
     get_mais_pesquisados,
+    reclassificar_versao,
 )
 from src.pipeline.schema import Anuncio
 
@@ -411,6 +412,140 @@ class TestGetDashboardStats:
         self._semear_versoes()
         d = get_dashboard_stats(marca="chevrolet", modelo="opala", versao="SS")
         assert {x["versao"] for x in d["opcoes"]["versao"]} == {"SS", "COMODORO", ""}
+
+
+# ── reclassificar_versao: os destinos da fila de curadoria (2026-08-10) ──────
+#
+# A fila só tinha "é trim"/"não é nada", e numa amostra de 20 linhas METADE
+# pedia outro destino: "TDI" do Defender é motor, "WG" do Corolla é
+# carroceria, o "I" do Corcel é geração. Descartar esses valores perderia
+# informação certa que só estava na coluna errada.
+
+class TestReclassificarVersao:
+    def _semear(self, versao="TDI"):
+        """
+        A versão é gravada por SQL, não pelo upsert: o upsert aplica
+        `decompor_versao`, que já reclassifica carroceria e motor na entrada —
+        semear "PICK-UP" como versão produziria uma linha que o pipeline
+        nunca deixaria existir. Aqui o alvo é a função de reclassificação,
+        que age sobre o que ESTÁ no banco, venha de onde vier.
+        """
+        upsert_anuncios([
+            _anuncio("http://x/1", 1995, marca="LAND ROVER", modelo="DEFENDER 110"),
+            _anuncio("http://x/2", 1996, marca="LAND ROVER", modelo="DEFENDER 110"),
+            # Outro par com a MESMA versão: não pode ser tocado.
+            _anuncio("http://x/3", 1995, marca="FORD", modelo="RANGER"),
+        ])
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("UPDATE anuncios SET versao = %s", (versao,))
+        conn.commit()
+        conn.close()
+
+    def _ler(self, url):
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT versao, geracao, motor, obs FROM anuncios WHERE url = %s",
+                        (url,))
+            r = cur.fetchone()
+        conn.close()
+        return r
+
+    def test_move_para_motor_e_esvazia_versao(self):
+        self._semear()
+        res = reclassificar_versao("LAND ROVER", "DEFENDER 110", "TDI", "motor")
+        assert res["atualizados"] == 2
+        versao, _ger, motor, _obs = self._ler("http://x/1")
+        assert versao is None and motor == "TDI"
+
+    def test_nao_toca_outro_par_com_a_mesma_versao(self):
+        self._semear()
+        reclassificar_versao("LAND ROVER", "DEFENDER 110", "TDI", "motor")
+        assert self._ler("http://x/3")[0] == "TDI"
+
+    def test_move_para_geracao(self):
+        self._semear(versao="I")
+        reclassificar_versao("LAND ROVER", "DEFENDER 110", "I", "geracao")
+        versao, geracao, _m, _o = self._ler("http://x/1")
+        assert versao is None and geracao == "I"
+
+    def test_nao_sobrescreve_campo_ja_preenchido(self):
+        """
+        Geração/motor extraídos do título passaram pelas regras; a decisão da
+        fila olha só o campo versão. Na dúvida, o dado extraído vence e a
+        linha volta como conflito.
+        """
+        self._semear(versao="I")
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("UPDATE anuncios SET geracao = 'III' WHERE url = 'http://x/1'")
+        conn.commit()
+        conn.close()
+
+        res = reclassificar_versao("LAND ROVER", "DEFENDER 110", "I", "geracao")
+        assert res["atualizados"] == 1
+        assert res["conflitos"] == 1
+        assert self._ler("http://x/1")[1] == "III"   # preservado
+        assert self._ler("http://x/2")[1] == "I"     # o vazio recebeu
+
+    def test_obs_acumula_em_vez_de_sobrescrever(self):
+        """Um anúncio pode ser CONVERSIVEL e PICK-UP — os dois são verdade."""
+        self._semear(versao="PICK-UP")
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("UPDATE anuncios SET obs = 'CONVERSIVEL' WHERE url = 'http://x/1'")
+        conn.commit()
+        conn.close()
+
+        reclassificar_versao("LAND ROVER", "DEFENDER 110", "PICK-UP", "obs")
+        assert self._ler("http://x/1")[3] == "CONVERSIVEL PICK-UP"
+        assert self._ler("http://x/2")[3] == "PICK-UP"
+
+    def test_obs_nao_duplica_valor_ja_presente(self):
+        self._semear(versao="PICK-UP")
+        conn = _raw_conn()
+        with conn.cursor() as cur:
+            cur.execute("UPDATE anuncios SET obs = 'PICK-UP' WHERE url = 'http://x/1'")
+        conn.commit()
+        conn.close()
+
+        res = reclassificar_versao("LAND ROVER", "DEFENDER 110", "PICK-UP", "obs")
+        assert res["atualizados"] == 2
+        versao, _g, _m, obs = self._ler("http://x/1")
+        assert obs == "PICK-UP" and versao is None
+
+    def test_corrigir_troca_o_valor(self):
+        self._semear(versao="P-UP LUXE")
+        reclassificar_versao("LAND ROVER", "DEFENDER 110", "P-UP LUXE", "corrigir", "Luxe")
+        assert self._ler("http://x/1")[0] == "LUXE"   # normalizado
+
+    def test_corrigir_sem_valor_falha(self):
+        self._semear()
+        with pytest.raises(ValueError):
+            reclassificar_versao("LAND ROVER", "DEFENDER 110", "TDI", "corrigir", "")
+
+    def test_agregada_grava_a_sentinela(self):
+        from src.pipeline.normalizer import VERSAO_AGREGADA
+
+        self._semear(versao="SDX DLX STD")
+        reclassificar_versao("LAND ROVER", "DEFENDER 110", "SDX DLX STD", "agregada")
+        assert self._ler("http://x/1")[0] == VERSAO_AGREGADA
+
+    def test_descartar_limpa(self):
+        self._semear()
+        reclassificar_versao("LAND ROVER", "DEFENDER 110", "TDI", "descartar")
+        assert self._ler("http://x/1")[0] is None
+
+    def test_destino_invalido_falha(self):
+        self._semear()
+        with pytest.raises(ValueError):
+            reclassificar_versao("LAND ROVER", "DEFENDER 110", "TDI", "inventado")
+
+    def test_marca_ou_versao_vazia_falha(self):
+        with pytest.raises(ValueError):
+            reclassificar_versao("", "DEFENDER 110", "TDI", "motor")
+        with pytest.raises(ValueError):
+            reclassificar_versao("LAND ROVER", "DEFENDER 110", "", "motor")
 
 
 # ── get_media_modelo: estatísticas de preço de um par (calculadora de média) ──

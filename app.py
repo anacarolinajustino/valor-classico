@@ -60,10 +60,12 @@ from src.pipeline.pendencias import (
     restaurar as restaurar_pendencia,
 )
 from src.pipeline.persistence import (
+    DESTINOS_VERSAO,
     adicionar_ao_catalogo,
     adicionar_versao_ao_catalogo,
     corrigir_marca_modelo,
     limpar_versao_do_par,
+    reclassificar_versao,
     excluir_marca_modelo,
     get_dashboard_stats,
     get_db_stats,
@@ -550,14 +552,24 @@ def admin_api_versoes_pendentes():
 def admin_api_decidir_versao():
     """
     Decide uma versão pendente. `acao`:
-      manter  — é trim real; cadastra no suplemento de versão
-      limpar  — não é versão nenhuma; apaga o campo nos anúncios do par
+      manter     — é trim real; cadastra no suplemento de versão
+      limpar     — não é versão nenhuma; apaga o campo nos anúncios do par
+      geracao    \
+      motor       > o valor está certo, o campo é que estava errado
+      obs        /
+      agregada   — o título enumerava a linha inteira; grava a sentinela
+      corrigir   — o valor precisa de ajuste (exige `valor`)
+
+    Os quatro últimos vêm de 2026-08-10: a fila só tinha "é trim"/"não é
+    nada", e metade das decisões reais não cabia nessas duas — ver
+    `persistence.DESTINOS_VERSAO`.
     """
     data = request.get_json(silent=True) or {}
     marca  = (data.get("marca")  or "").strip()
     modelo = (data.get("modelo") or "").strip()
     versao = (data.get("versao") or "").strip()
     acao   = (data.get("acao")   or "").strip().lower()
+    valor  = (data.get("valor")  or "").strip()
     if not marca or not versao:
         return jsonify({"erro": "Marca e versão são obrigatórias."}), 400
     try:
@@ -569,8 +581,16 @@ def admin_api_decidir_versao():
             res = limpar_versao_do_par(marca, modelo, versao)
             logger.info("decidir-versao limpar: %r/%r/%r (%d anúncios)",
                         marca, modelo, versao, res["atualizados"])
+        elif acao in DESTINOS_VERSAO:
+            res = reclassificar_versao(marca, modelo, versao, acao, valor)
+            logger.info("decidir-versao %s: %r/%r/%r -> %r (%d anúncios, %d conflitos)",
+                        acao, marca, modelo, versao, valor or acao,
+                        res["atualizados"], res["conflitos"])
         else:
-            return jsonify({"erro": "Ação deve ser 'manter' ou 'limpar'."}), 400
+            return jsonify({
+                "erro": "Ação deve ser 'manter', 'limpar' ou uma de: "
+                        + ", ".join(DESTINOS_VERSAO)
+            }), 400
         return jsonify({"ok": True, "acao": acao, **res})
     except ValueError as exc:
         return jsonify({"erro": str(exc)}), 400

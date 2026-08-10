@@ -1412,6 +1412,104 @@ def limpar_versao_do_par(marca: str, modelo: str, versao: str) -> dict[str, Any]
             return {"atualizados": cur.rowcount}
 
 
+# Para onde o valor do campo `versao` pode ser reclassificado. A fila de
+# curadoria tinha só dois destinos ("é trim" / "não é nada") e isso obrigava a
+# jogar fora informação boa: numa amostra de 20 linhas da fila, METADE pedia um
+# destino que não existia (2026-08-10).
+#
+#   geracao/motor/obs — o valor está certo, o campo é que está errado:
+#                       "TDI" do Defender é motor, "WG" do Corolla é carroceria,
+#                       "I" do Corcel é geração
+#   agregada          — o título enumerava a linha inteira e o detector não
+#                       pegou ("Towner SDX / Dlx/ STD")
+#   corrigir          — o valor precisa de ajuste ("P-UP LUXE" -> "LUXE")
+#   descartar         — não é informação nenhuma
+_CAMPOS_DESTINO = ("geracao", "motor", "obs")
+DESTINOS_VERSAO = _CAMPOS_DESTINO + ("agregada", "corrigir", "descartar")
+
+
+def reclassificar_versao(
+    marca: str, modelo: str, versao: str, destino: str, valor: str | None = None,
+) -> dict[str, Any]:
+    """
+    Move ou corrige o valor do campo `versao` de um (marca, modelo, versao)
+    exato. Ver `DESTINOS_VERSAO` para os destinos e o porquê de cada um.
+
+    Ao mover para outro campo, um valor que JÁ EXISTE lá nunca é sobrescrito:
+    `obs` acumula (é o que o pipeline faz com carroceria), e geração/motor
+    pulam a linha e a devolvem em `conflitos`. Sobrescrever seria trocar dado
+    extraído do título — que passou pelas regras — por uma decisão tomada
+    olhando só o campo versão.
+
+    Retorna {atualizados, conflitos, destino}.
+    """
+    from src.pipeline.normalizer import VERSAO_AGREGADA, normalizar_texto
+
+    mk = normalizar_texto(marca or "")
+    md = normalizar_texto(modelo or "")
+    vs = (versao or "").strip()
+    if not mk or not vs:
+        raise ValueError("Marca e versão são obrigatórias.")
+    if destino not in DESTINOS_VERSAO:
+        raise ValueError(
+            f"Destino inválido: {destino!r}. Use um de: {', '.join(DESTINOS_VERSAO)}."
+        )
+
+    novo_valor = normalizar_texto(valor or "") if destino == "corrigir" else None
+    if destino == "corrigir" and not novo_valor:
+        raise ValueError("Corrigir exige o novo valor da versão.")
+
+    onde = ("UPPER(marca) = %s AND UPPER(COALESCE(modelo, '')) = %s AND versao = %s")
+    chave = [mk, md, vs]
+
+    with _connect() as conn:
+        with conn.cursor() as cur:
+            if destino == "corrigir":
+                cur.execute(f"UPDATE anuncios SET versao = %s WHERE {onde}",
+                            [novo_valor, *chave])
+                return {"atualizados": cur.rowcount, "conflitos": 0, "destino": destino}
+
+            if destino == "agregada":
+                cur.execute(f"UPDATE anuncios SET versao = %s WHERE {onde}",
+                            [VERSAO_AGREGADA, *chave])
+                return {"atualizados": cur.rowcount, "conflitos": 0, "destino": destino}
+
+            if destino == "descartar":
+                cur.execute(f"UPDATE anuncios SET versao = NULL WHERE {onde}", chave)
+                return {"atualizados": cur.rowcount, "conflitos": 0, "destino": destino}
+
+            if destino == "obs":
+                # Acumula sem duplicar: o anúncio pode já ter "CONVERSIVEL" na
+                # obs e receber "PICK-UP" — os dois são verdade.
+                cur.execute(
+                    f"""UPDATE anuncios
+                        SET obs = CASE
+                                WHEN COALESCE(obs, '') = '' THEN %s
+                                ELSE obs || ' ' || %s
+                            END,
+                            versao = NULL
+                        WHERE {onde}
+                          AND COALESCE(obs, '') NOT LIKE %s""",
+                    [vs, vs, *chave, f"%{vs}%"],
+                )
+                movidos = cur.rowcount
+                # Onde a obs já continha o valor, só limpa a versão duplicada.
+                cur.execute(f"UPDATE anuncios SET versao = NULL WHERE {onde}", chave)
+                return {"atualizados": movidos + cur.rowcount, "conflitos": 0,
+                        "destino": destino}
+
+            # geracao / motor: só preenche o que está vazio.
+            cur.execute(
+                f"UPDATE anuncios SET {destino} = %s, versao = NULL "
+                f"WHERE {onde} AND COALESCE({destino}, '') = ''",
+                [vs, *chave],
+            )
+            movidos = cur.rowcount
+            cur.execute(f"SELECT COUNT(*) AS n FROM anuncios WHERE {onde}", chave)
+            return {"atualizados": movidos, "conflitos": cur.fetchone()["n"],
+                    "destino": destino}
+
+
 def get_marcas_db() -> list[str]:
     """Retorna lista de marcas distintas presentes na tabela anuncios."""
     sql = "SELECT DISTINCT UPPER(marca) AS marca FROM anuncios WHERE marca IS NOT NULL ORDER BY 1"

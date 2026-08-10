@@ -196,7 +196,7 @@ parsing. Agora **a evidência externa classifica a pendência**, e cada aba tem 
 | Nome incompleto | a fonte tem o nome MAIS longo | corrigir no banco (sugestão pré-preenchida) |
 | Confirmados pela fonte | a fonte confirma o par, muitas vezes com faixa de ano | "Ao catálogo" |
 | Sem evidência | nenhuma fonte conhece | triagem manual — é onde cai o carro nacional |
-| Versões a conferir | o vocabulário de trim não reconhece a versão | "É trim real" / "Não é versão" |
+| Versões a conferir | o vocabulário de trim não reconhece a versão | 6 destinos — ver abaixo |
 | Sem versão | anúncios sem versão nenhuma, agrupados por par | diagnóstica: separa bug de extração de limite da fonte |
 | Aliases a conferir | palpites `fuzzy` de tradução | "É o mesmo carro" / "São diferentes" |
 
@@ -207,6 +207,29 @@ externa continua isolada, e quem move o valor de campo é a usuária.
 
 Na aba de nome incompleto o botão "Ao catálogo" é **omitido de propósito**: cadastrar `RANGE`
 cimentaria o erro em vez de corrigi-lo.
+
+### Os 6 destinos da aba de versão (2026-08-10)
+
+A aba nascera com dois botões — "é trim" / "não é nada". Ao gerar sugestões para as 20 primeiras
+linhas da fila, **metade pedia um destino que não existia**, e a única saída era descartar
+informação certa que só estava na coluna errada. A pergunta que a aba faz agora é *para qual
+campo esse valor pertence?*:
+
+| Botão | Quando | O que faz |
+|---|---|---|
+| É trim real | acabamento de fábrica que o catálogo não lista (Corcel II `L`, S10 `LUXE`) | grava no `suplemento_versao.csv`; passa a valer em **todas** as fontes |
+| → geração | `I` do Corcel, `MK1` do Golf | move pra coluna `geracao` |
+| → motor | `TDI` do Defender, `16V` | move pra coluna `motor` |
+| → obs | `WG` do Corolla, `PICK-UP` | move pra `obs`, **acumulando** com o que já houver |
+| É agregada | o título enumerava a linha e o detector não pegou (`SDX / Dlx/ STD`) | grava a sentinela `VERSAO AGREGADA` |
+| Corrigir… | o valor precisa de ajuste (`P-UP LUXE` → `LUXE`) | regrava o campo |
+| Descartar | não é informação nenhuma | limpa a versão (não apaga o anúncio) |
+
+Regra dos três "mover" (`persistence.reclassificar_versao`): **valor já existente no destino nunca
+é sobrescrito.** `obs` acumula, porque um carro pode ser conversível *e* pick-up; geração e motor
+pulam a linha e a devolvem em `conflitos`, que a tela mostra. O motivo é de confiança da fonte:
+geração e motor extraídos do título passaram pelas regras do normalizer, enquanto a decisão da
+fila é tomada olhando só o campo versão — na dúvida, o dado extraído vence.
 
 ### Exportar uma aba
 

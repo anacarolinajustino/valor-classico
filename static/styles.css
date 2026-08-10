@@ -1918,6 +1918,24 @@ a { color: inherit; text-decoration: none; }
 .pd-msg--aviso { color: #B26A00; }
 .pd-msg--erro  { color: #C0392B; }
 
+/* Classificação de versão: são 6 destinos, e sem agrupamento eles viram uma
+   fileira indistinta. Os três "mover para" ficam colados entre si e separados
+   do resto — respondem à mesma pergunta ("o campo está errado, qual é o
+   certo?"), enquanto os outros são decisões independentes. */
+.pd-classificar { flex-wrap: wrap; gap: 6px; }
+/* O vocabulário é referência de leitura, não o objeto da decisão — cedendo
+   largura a ele, os 6 botões quebram em 3 linhas e a fila de 700 vira uma
+   rolagem enorme. Limitado, sobra espaço pra decisão caber em 2. */
+.pd-vocab { display: inline-block; max-width: 210px; }
+.pd-mover {
+  display: inline-flex;
+  gap: 2px;
+  padding: 0 6px;
+  border-left: 1px solid var(--vc-border);
+  border-right: 1px solid var(--vc-border);
+}
+.pd-mover .btn { font-variant-numeric: tabular-nums; }
+
 /* Exportar CSV: encostado à direita da barra de filtros, longe dos campos
    que ele leva junto — é a última coisa que se faz, não mais um filtro. */
 .pd-exportar {

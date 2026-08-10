@@ -30,8 +30,10 @@ const AJUDA = {
   versao:
     'Versões que o vocabulário de trim do catálogo não reconhece. Boa parte NÃO é erro do ' +
     'banco: o catálogo da Webmotors não lista trim nacional real (Corcel II "L", Belina "L", ' +
-    'S10 "Luxe"). "É trim real" cadastra no suplemento de versão e some daqui; "Não é versão" ' +
-    'limpa o campo nos anúncios do par, sem apagar o anúncio.',
+    'S10 "Luxe") — nesses, "É trim real" cadastra no suplemento e o catálogo passa a ' +
+    'reconhecer em todas as fontes. A pergunta das outras opções é a mesma: PARA QUAL CAMPO ' +
+    'esse valor pertence? "TDI" é motor, "WG" é carroceria, o "I" do Corcel é geração — o ' +
+    'valor está certo, só está na coluna errada, e mover preserva o dado em vez de descartar.',
   sem_versao:
     'Anúncios sem versão nenhuma — 42% da base. Aba de DIAGNÓSTICO, não fila de cliques: o '
     + 'volume não se tria à mão. O que ela mostra é onde há versão sendo PERDIDA (o título traz '
@@ -497,41 +499,99 @@ function renderVersoes() {
         <span class="pd-ev ${classe}" title="${escapeAttr(ajuda)}">${escapeHtml(rotulo)}</span>
       </td>
       <td class="an-td an-td--num">${v.qtd.toLocaleString('pt-BR')}</td>
-      <td class="an-td"><span class="pd-ev pd-ev--nada">${
+      <td class="an-td"><span class="pd-ev pd-ev--nada pd-vocab">${
         v.vocabulario.length ? escapeHtml(v.vocabulario.join(', ')) : 'nenhum'
       }</span></td>
       <td class="an-td">
-        <div class="pd-acoes">
+        <div class="pd-acoes pd-classificar">
           <button class="btn btn-primary btn-sm" onclick="decidirVersao(this,'manter')"
-                  title="Cadastra no suplemento de versão — o catálogo passa a reconhecer">É trim real</button>
+                  title="É acabamento de fábrica — cadastra no suplemento e o catálogo passa a reconhecer em todas as fontes">É trim real</button>
+          <span class="pd-mover" title="O valor está certo, o campo é que está errado">
+            <button class="btn btn-neutro btn-sm" onclick="decidirVersao(this,'geracao')"
+                    title="É geração (o 'I' do Corcel, 'MK1' do Golf) — move pro campo geração">→ geração</button>
+            <button class="btn btn-neutro btn-sm" onclick="decidirVersao(this,'motor')"
+                    title="É motorização (TDI, 16V) — move pro campo motor">→ motor</button>
+            <button class="btn btn-neutro btn-sm" onclick="decidirVersao(this,'obs')"
+                    title="É carroceria ou tração (WG, PICK-UP, 4X4) — move pra obs, acumulando com o que já houver">→ obs</button>
+          </span>
+          <button class="btn btn-neutro btn-sm" onclick="decidirVersao(this,'agregada')"
+                  title="O título enumera a linha inteira e o detector não pegou — grava a sentinela VERSAO AGREGADA">É agregada</button>
+          <button class="btn btn-neutro btn-sm" onclick="alternarCorrecaoVersao(this)"
+                  title="O valor precisa de ajuste (P-UP LUXE → LUXE)">Corrigir…</button>
           <button class="btn btn-danger btn-sm" onclick="decidirVersao(this,'limpar')"
-                  title="Limpa o campo versão nos anúncios deste par (não apaga o anúncio)">Não é versão</button>
+                  title="Não é informação nenhuma — limpa o campo (não apaga o anúncio)">Descartar</button>
           <span class="pd-msg"></span>
+        </div>
+        <div class="pd-edicao hidden">
+          <input class="an-filter-input pd-in-versao" value="${escapeAttr(v.versao)}"
+                 placeholder="versão corrigida" />
+          <button class="btn btn-primary btn-sm" onclick="decidirVersao(this,'corrigir')">Gravar</button>
         </div>
       </td>
     </tr>`;
   }).join('');
 }
 
+function alternarCorrecaoVersao(btn) {
+  const edicao = btn.closest('tr').querySelector('.pd-edicao');
+  edicao.classList.toggle('hidden');
+  if (!edicao.classList.contains('hidden')) edicao.querySelector('.pd-in-versao').focus();
+}
+
+// Rótulo do que cada destino fez, pra confirmação ao lado do botão.
+const FEITO_VERSAO = {
+  geracao: 'movidos p/ geração',
+  motor: 'movidos p/ motor',
+  obs: 'movidos p/ obs',
+  agregada: 'marcados como agregada',
+  corrigir: 'corrigidos',
+  limpar: 'limpos',
+};
+
 async function decidirVersao(btn, acao) {
   const tr = btn.closest('tr');
   const msg = tr.querySelector('.pd-msg');
+  const alvo = `"${tr.dataset.versao}" de ${tr.dataset.marca} ${tr.dataset.modelo}`;
+
   if (acao === 'limpar' &&
-      !confirm(`Limpar a versão "${tr.dataset.versao}" de ${tr.dataset.marca} ${tr.dataset.modelo}?\n\nO campo fica vazio nos anúncios desse par. Os anúncios continuam no banco.`)) {
+      !confirm(`Descartar a versão ${alvo}?\n\nO campo fica vazio nos anúncios desse par. Os anúncios continuam no banco.`)) {
     return;
   }
-  const data = await postar('/admin/api/decidir-versao', {
+
+  const payload = {
     marca: tr.dataset.marca,
     modelo: tr.dataset.modelo,
     versao: tr.dataset.versao,
     acao,
-  }, btn, msg);
+  };
+  if (acao === 'corrigir') {
+    payload.valor = tr.querySelector('.pd-in-versao').value.trim();
+    if (!payload.valor) {
+      msg.className = 'pd-msg pd-msg--erro';
+      msg.textContent = 'Preencha o novo valor.';
+      return;
+    }
+  }
+
+  const data = await postar('/admin/api/decidir-versao', payload, btn, msg);
   if (!data) return;
 
   msg.className = 'pd-msg pd-msg--ok';
-  msg.textContent = acao === 'manter'
-    ? (data.ja_existia ? '✓ já no catálogo' : '✓ cadastrada')
-    : `✓ ${data.atualizados} limpos`;
+  if (acao === 'manter') {
+    msg.textContent = data.ja_existia ? '✓ já no catálogo' : '✓ cadastrada';
+  } else {
+    msg.textContent = `✓ ${data.atualizados} ${FEITO_VERSAO[acao] || 'atualizados'}`;
+  }
+
+  // Conflito = anúncios que já tinham geração/motor preenchidos e foram
+  // pulados de propósito. A combinação continua existindo em parte, então o
+  // estado local não serve mais: recarrega em vez de sumir com a linha.
+  if (data.conflitos) {
+    msg.className = 'pd-msg pd-msg--aviso';
+    msg.textContent += ` · ${data.conflitos} já tinham ${acao} e ficaram`;
+    setTimeout(carregarVersoes, 900);
+    return;
+  }
 
   pdVersoes.versoes = pdVersoes.versoes.filter(
     v => !(v.marca === tr.dataset.marca && v.modelo === tr.dataset.modelo
