@@ -60,6 +60,7 @@ from src.pipeline.pendencias import (
     restaurar as restaurar_pendencia,
 )
 from src.pipeline.persistence import (
+    COBERTURA_FAIXA_PADRAO,
     DESTINOS_VERSAO,
     adicionar_ao_catalogo,
     adicionar_versao_ao_catalogo,
@@ -702,10 +703,16 @@ def admin_api_dashboard():
     except ValueError:
         return jsonify({"erro": "Parâmetro min_anuncios inválido"}), 400
 
+    cob_raw = request.args.get("cobertura", "").strip()
+    try:
+        cobertura = float(cob_raw) if cob_raw else COBERTURA_FAIXA_PADRAO
+    except ValueError:
+        return jsonify({"erro": "Parâmetro cobertura inválido"}), 400
+
     try:
         return jsonify(get_dashboard_stats(
             fonte=fonte, marca=marca, modelo=modelo, ano=ano, versao=_arg_versao(),
-            min_anuncios=min_anuncios,
+            min_anuncios=min_anuncios, cobertura_faixa=cobertura,
         ))
     except Exception as exc:
         logger.error("admin_api_dashboard erro: %s", exc, exc_info=True)

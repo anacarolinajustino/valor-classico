@@ -219,6 +219,20 @@
           <option value="">Qualquer quantidade</option>
         </select>
       </div>
+
+      <!-- Quanto de variação aceitar em torno da mediana. Percentis
+           simétricos: 0,5 é a metade central (P25–P75). -->
+      <div class="dash-filtro-grupo">
+        <label for="filtro-cobertura">Faixa central</label>
+        <select id="filtro-cobertura"
+                title="Que fatia dos anúncios, em torno da mediana, entra na média sem extremos">
+          <option value="0.3">30% mais ao centro</option>
+          <option value="0.4">40% mais ao centro</option>
+          <option value="0.5" selected>50% mais ao centro</option>
+          <option value="0.7">70% mais ao centro</option>
+          <option value="0.9">90% mais ao centro</option>
+        </select>
+      </div>
     </div>
     <p class="dash-nota" id="dash-nota-min"></p>
 
@@ -236,10 +250,10 @@
              só significa alguma coisa ao lado do centro. -->
         <span class="dash-faixa" id="kpi-faixa"></span>
       </div>
-      <!-- A leitura oposta à faixa: em vez das pontas, o miolo. Tukey
-           1,5×IQR em escala log — ver `_faixa_central` no persistence. -->
+      <!-- A leitura oposta à faixa: em vez das pontas, o miolo. Percentis
+           simétricos em torno da mediana — ver `_faixa_central`. -->
       <div class="admin-stat-card">
-        <span class="admin-stat-label">Média sem extremos</span>
+        <span class="admin-stat-label">Média do centro</span>
         <span class="admin-stat-value" id="kpi-media-central">—</span>
         <span class="dash-faixa" id="kpi-central-nota"></span>
       </div>

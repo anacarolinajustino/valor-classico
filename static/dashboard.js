@@ -328,12 +328,14 @@ function renderFaixaCentral(f) {
   }
 
   valor.textContent = fmtBRL(f.media);
+  const p = Math.round(f.cobertura * 100);
+  const meio = Math.round((100 - p) / 2);
   valor.title =
     `Média dos ${FMT_INT.format(f.n_dentro)} anúncios entre ${fmtBRL(f.piso)} e ` +
-    `${fmtBRL(f.teto)}. Limites por Tukey (${f.k}×IQR) em escala logarítmica.`;
+    `${fmtBRL(f.teto)} — os ${p}% mais ao centro (do percentil ${meio} ao ${100 - meio}).`;
 
-  // Quanto foi descartado é parte do resultado: uma média "sem extremos" que
-  // jogou fora metade da amostra fala mais do corte que do mercado.
+  // Quanto ficou de fora é parte do resultado: uma média "do centro" que
+  // descartou metade da amostra fala mais do corte que do mercado.
   const partes = [`entre ${fmtBRL(f.piso)} e ${fmtBRL(f.teto)}`];
   partes.push(f.n_fora
     ? `${FMT_INT.format(f.n_fora)} de ${FMT_INT.format(f.n_dentro + f.n_fora)} fora`
@@ -350,6 +352,7 @@ const filtroModelo = document.getElementById("filtro-modelo");
 const filtroVersao = document.getElementById("filtro-versao");
 const filtroAno = document.getElementById("filtro-ano");
 const filtroMin = document.getElementById("filtro-min");
+const filtroCobertura = document.getElementById("filtro-cobertura");
 const notaMin = document.getElementById("dash-nota-min");
 let fontesPopuladas = false;
 
@@ -368,6 +371,7 @@ async function carregar() {
     if (filtroVersao.value) params.set("versao", filtroVersao.value);
     if (filtroAno.value) params.set("ano", filtroAno.value);
     if (filtroMin.value) params.set("min_anuncios", filtroMin.value);
+    if (filtroCobertura.value) params.set("cobertura", filtroCobertura.value);
     const qs = params.toString();
     const resp = await fetch("/admin/api/dashboard" + (qs ? `?${qs}` : ""));
     const dados = await resp.json();
@@ -488,4 +492,5 @@ filtroAno.addEventListener("change", carregar);
 // Amostra mínima está fora da cascata: é um corte transversal, não um nível
 // dela — muda quantos anúncios entram, não qual carro está em foco.
 filtroMin.addEventListener("change", carregar);
+filtroCobertura.addEventListener("change", carregar);
 carregar();

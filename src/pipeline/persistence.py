@@ -456,67 +456,78 @@ def _cond_amostra_minima(conds_base: list[str], params_base: list) -> tuple[str,
     )
 
 
-# Faixa central de preço: Tukey (1,5 × IQR) aplicado ao LOGARITMO do preço.
+# Faixa central de preço: a fatia de `cobertura` dos anúncios em torno da
+# MEDIANA, e a média do que está dentro dela.
 #
-# O objetivo é a média dos anúncios "do meio", ignorando os muito distantes —
-# tanto o erro de digitação (há um F-250 a R$ 100 milhões) quanto o carro de
-# coleção que não se compara ao resto do grupo.
+# A pergunta é "quanto vale este carro", e a resposta útil vem de onde os
+# preços se concentram — não da média de tudo, que um anúncio de R$ 100
+# milhões desloca sozinho.
 #
-# Por que 1,5 × IQR e não uma fatia fixa (aparar 10% de cada ponta): a fatia
-# fixa descarta sempre a mesma proporção, mesmo quando não há outlier nenhum.
-# Medido em 2026-08-10: no Maverick 1974 e na C10 1975, cuja dispersão é
-# real, a regra de IQR não corta nada, enquanto a aparada de 10% jogaria fora
-# 6 e 2 anúncios bons. Onde há cauda (Fusca 1975, Kombi 1996) ela corta.
+# Três métodos foram medidos em 9 recortes reais (2026-08-10) antes deste:
 #
-# Por que no LOG e não no preço direto: preço é multiplicativo — "o dobro da
-# mediana" é a noção natural de longe, não "+R$ 50 mil". Na escala linear o
-# limite inferior fica negativo na maioria dos grupos (Q1 − 1,5·IQR < 0), ou
-# seja, a regra só pune o lado caro e deixa passar qualquer preço baixo,
-# inclusive o Puma GTB anunciado a R$ 169. No log os dois lados são
-# simétricos em proporção: Fusca 1975 sai de "R$ 1.012 – 56.832" (limite
-# inferior sem sentido) para "R$ 10.488 – 75.116".
-_IQR_K = 1.5
-# Abaixo disso o quartil não significa nada — com 3 pontos, Q1 e Q3 são
+#   Tukey 1,5×IQR (versão anterior) — pensado pra DESCARTAR OUTLIER, não pra
+#     achar o centro. A cerca fica larga demais pro uso: Fusca 1975 dava
+#     "R$ 10.488 – 75.116" (razão de 7x), Opala 1980 dava 31x. Serve pra
+#     auditar, não pra avaliar.
+#
+#   Janela mais densa (a menor faixa que contém X% dos anúncios) — é a
+#     tradução literal de "faixa de valor mais repetida", e por isso foi
+#     testada. Reprovou: NADA garante que ela contenha a mediana, e em
+#     distribuição assimétrica ela se agarra a um aglomerado lateral. Na
+#     escala linear puxava pro lado barato (Chevette 1983: R$ 12 mil, com
+#     mediana de R$ 19 mil); corrigida pra escala log, passou a errar pro
+#     caro (Opala 1980: média R$ 66 mil, mediana R$ 50 mil).
+#
+#   Percentis simétricos em torno da mediana (este) — P25–P75 na cobertura
+#     padrão. Duas propriedades que os outros não têm: contém a mediana POR
+#     CONSTRUÇÃO, então nunca escolhe um aglomerado lateral; e percentil é
+#     invariante a transformação monótona, então não há a pergunta "no preço
+#     ou no log?" — o resultado é o mesmo. Nos 9 recortes a razão teto/piso
+#     ficou entre 1,5x e 2,7x, contra 5x–54x do Tukey.
+#
+# A cobertura é o "quanto de variação aceitar" e fica na mão da usuária:
+# 0,5 pega a metade central (P25–P75); 0,4 aperta (P30–P70); 0,8 abre
+# (P10–P90).
+COBERTURA_FAIXA_PADRAO = 0.5
+# Abaixo disso o percentil não significa nada — com 3 pontos, P25 e P75 são
 # praticamente o mínimo e o máximo, e a "faixa central" seria a amostra
 # inteira com ar de estatística.
 _MIN_AMOSTRA_FAIXA = 4
 
 
-def _faixa_central(cur, cond_e: str, params: list) -> dict[str, Any] | None:
+def _faixa_central(
+    cur, cond_e: str, params: list, cobertura: float = COBERTURA_FAIXA_PADRAO,
+) -> dict[str, Any] | None:
     """
-    Média dos preços dentro da cerca de Tukey em escala log, com os limites e
-    quantos ficaram de fora. None quando a amostra é pequena demais.
+    Faixa que concentra `cobertura` dos preços em torno da mediana, e a média
+    dos anúncios dentro dela. None quando a amostra é pequena demais.
 
     Ver o bloco acima para a escolha do método. O retorno traz `n_fora` de
-    propósito: uma média "sem extremos" que descartou metade da amostra diz
-    mais sobre o corte do que sobre o mercado, e quem lê precisa ver isso.
+    propósito: uma média "do centro" que descartou metade da amostra diz mais
+    sobre o corte do que sobre o mercado, e quem lê precisa ver isso.
     """
+    cobertura = min(max(float(cobertura), 0.1), 0.99)
+    p_baixo, p_alto = 0.5 - cobertura / 2, 0.5 + cobertura / 2
+
     cur.execute(
         f"""
         WITH base AS (
-            SELECT preco, ln(preco) AS lp FROM anuncios
+            SELECT preco FROM anuncios
             {cond_e} preco IS NOT NULL AND preco > 0
-        ), quartis AS (
+        ), limites AS (
             SELECT COUNT(*) AS n,
-                   percentile_cont(0.25) WITHIN GROUP (ORDER BY lp) AS q1,
-                   percentile_cont(0.75) WITHIN GROUP (ORDER BY lp) AS q3
+                   percentile_cont(%s) WITHIN GROUP (ORDER BY preco) AS piso,
+                   percentile_cont(%s) WITHIN GROUP (ORDER BY preco) AS teto
             FROM base
-        ), cerca AS (
-            SELECT n,
-                   exp(q1 - %s * (q3 - q1)) AS piso,
-                   exp(q3 + %s * (q3 - q1)) AS teto
-            FROM quartis
         )
-        SELECT cerca.n AS n_total, cerca.piso, cerca.teto,
-               COUNT(base.preco)                AS n_dentro,
-               AVG(base.preco)                  AS media,
-               MIN(base.preco)                  AS menor,
-               MAX(base.preco)                  AS maior
-        FROM cerca
-        LEFT JOIN base ON base.preco BETWEEN cerca.piso AND cerca.teto
-        GROUP BY cerca.n, cerca.piso, cerca.teto
+        SELECT limites.n AS n_total, limites.piso, limites.teto,
+               COUNT(base.preco) AS n_dentro,
+               AVG(base.preco)   AS media
+        FROM limites
+        LEFT JOIN base ON base.preco BETWEEN limites.piso AND limites.teto
+        GROUP BY limites.n, limites.piso, limites.teto
         """,
-        [*params, _IQR_K, _IQR_K],
+        [*params, p_baixo, p_alto],
     )
     r = cur.fetchone()
     if not r or not r["n_total"] or r["n_total"] < _MIN_AMOSTRA_FAIXA:
@@ -524,9 +535,8 @@ def _faixa_central(cur, cond_e: str, params: list) -> dict[str, Any] | None:
     return {
         "media": r["media"],
         "piso": r["piso"], "teto": r["teto"],
-        "menor": r["menor"], "maior": r["maior"],
         "n_dentro": r["n_dentro"], "n_fora": r["n_total"] - r["n_dentro"],
-        "k": _IQR_K,
+        "cobertura": cobertura,
     }
 
 
@@ -654,6 +664,7 @@ def get_dashboard_stats(
     ano: int | None = None,
     versao: str | None = None,
     min_anuncios: int | None = None,
+    cobertura_faixa: float = COBERTURA_FAIXA_PADRAO,
 ) -> dict[str, Any]:
     """
     Agregados pro dashboard do painel admin, opcionalmente recortados por
@@ -678,9 +689,10 @@ def get_dashboard_stats(
     não só os valores — a ponta é onde mora o erro de preço, e o link é o que
     permite conferir na hora.
 
-    `faixa_central` é a leitura oposta: descarta as pontas e devolve a média
-    do miolo (ver `_faixa_central`). Os dois convivem de propósito — um serve
-    pra auditar o dado, o outro pra ler o mercado.
+    `faixa_central` é a leitura oposta: a fatia de `cobertura_faixa` dos
+    preços em torno da mediana e a média deles (ver `_faixa_central`). Os
+    dois convivem de propósito — um serve pra auditar o dado, o outro pra
+    ler o mercado.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -754,7 +766,7 @@ def get_dashboard_stats(
             )
             extremos = {r["ponta"]: dict(r) for r in cur.fetchall()}
 
-            faixa_central = _faixa_central(cur, cond_e, params)
+            faixa_central = _faixa_central(cur, cond_e, params, cobertura_faixa)
 
             cur.execute(
                 f"""

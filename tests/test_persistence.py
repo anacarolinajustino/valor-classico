@@ -537,11 +537,12 @@ class TestGetDashboardStats:
         self._semear_precos()
         assert get_dashboard_stats(marca="FERRARI")["extremos"] == {}
 
-    # ── Faixa central: média do miolo, sem os extremos ──────────────
+    # ── Faixa central: a fatia em torno da mediana ──────────────────
     #
-    # Tukey 1,5×IQR em escala LOG. O log importa: na escala linear o limite
-    # inferior fica negativo na maioria dos grupos, e a regra só puniria o
-    # lado caro — deixando passar o Puma GTB anunciado a R$ 169.
+    # Percentis simétricos, não Tukey nem "janela mais densa" (as duas foram
+    # medidas e reprovaram — ver o bloco em `_faixa_central`). A propriedade
+    # que decidiu: percentil CONTÉM a mediana por construção, então a faixa
+    # nunca se agarra a um aglomerado lateral.
 
     def _com_precos(self, precos, modelo="FUSCA", ano=1975):
         upsert_anuncios([
@@ -553,35 +554,54 @@ class TestGetDashboardStats:
     def test_media_ignora_o_extremo_alto(self):
         self._com_precos([28000, 29000, 30000, 31000, 32000, 5_000_000])
         f = get_dashboard_stats()["faixa_central"]
-        assert f["n_fora"] == 1
-        assert f["n_dentro"] == 5
-        assert 29000 <= f["media"] <= 31000     # sem o milhão, fica no miolo
+        assert f["teto"] < 100000
+        assert 28000 <= f["media"] <= 32000     # o milhão não desloca
 
     def test_media_ignora_o_extremo_baixo(self):
         """O caso real: um Puma GTB anunciado a R$ 169 entre carros de 200 mil."""
         self._com_precos([169, 180000, 190000, 200000, 210000])
         f = get_dashboard_stats()["faixa_central"]
-        assert f["n_fora"] == 1
+        assert f["piso"] > 100000
         assert f["media"] > 150000
 
-    def test_nao_corta_dispersao_legitima(self):
+    def test_faixa_sempre_contem_a_mediana(self):
         """
-        Onde a dispersão é real, a regra não corta nada — é a diferença pra
-        uma aparada de percentual fixo, que descartaria sempre.
+        A garantia que fez este método vencer a "janela mais densa": nenhum
+        recorte pode produzir uma faixa deslocada do centro.
         """
-        self._com_precos([40000, 90000, 150000, 220000, 300000, 398000])
-        f = get_dashboard_stats()["faixa_central"]
-        assert f["n_fora"] == 0
-        assert f["n_dentro"] == 6
+        for precos in (
+            [10000, 11000, 12000, 90000, 95000, 99000],      # dois aglomerados
+            [1000, 2000, 3000, 4000, 500000],                 # cauda longa
+            [50000] * 8 + [900000],                           # quase tudo igual
+        ):
+            conn = _raw_conn()
+            with conn.cursor() as cur:
+                cur.execute("TRUNCATE anuncios RESTART IDENTITY CASCADE")
+            conn.commit()
+            conn.close()
+            self._com_precos(precos)
+            d = get_dashboard_stats()
+            f = d["faixa_central"]
+            mediana = d["kpis"]["preco_mediano"]
+            assert f["piso"] <= mediana <= f["teto"], (precos, f, mediana)
 
-    def test_limites_saem_junto_com_a_media(self):
-        self._com_precos([28000, 29000, 30000, 31000, 32000, 5_000_000])
+    def test_cobertura_controla_a_largura(self):
+        self._com_precos(list(range(10000, 110000, 1000)))   # 100 preços
+        estreita = get_dashboard_stats(cobertura_faixa=0.3)["faixa_central"]
+        larga = get_dashboard_stats(cobertura_faixa=0.9)["faixa_central"]
+        assert estreita["teto"] - estreita["piso"] < larga["teto"] - larga["piso"]
+        assert estreita["n_dentro"] < larga["n_dentro"]
+        assert estreita["cobertura"] == 0.3
+
+    def test_cobertura_padrao_e_a_metade_central(self):
+        self._com_precos(list(range(10000, 110000, 1000)))
         f = get_dashboard_stats()["faixa_central"]
-        assert 0 < f["piso"] < f["media"] < f["teto"] < 5_000_000
-        assert f["k"] == 1.5
+        assert f["cobertura"] == 0.5
+        # P25 e P75 de 10.000..109.000
+        assert abs(f["piso"] - 34750) < 500 and abs(f["teto"] - 84250) < 500
 
     def test_amostra_pequena_nao_vira_estatistica(self):
-        """Com 3 pontos, Q1 e Q3 são quase o mínimo e o máximo."""
+        """Com 3 pontos, P25 e P75 são quase o mínimo e o máximo."""
         self._com_precos([10000, 20000, 30000])
         assert get_dashboard_stats()["faixa_central"] is None
 
