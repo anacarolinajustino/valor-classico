@@ -120,21 +120,24 @@
       <h1 class="admin-title">Calculadora de média</h1>
       <p class="admin-sub">
         Escolha um modelo pra ver o valor médio dele nos anúncios coletados —
-        e, se quiser, afine o recorte por versão. Só entram na lista os
-        modelos com pelo menos a quantidade mínima de anúncios selecionada
-        (padrão: 3), pra a média ter alguma base. Todo número de anúncios é
-        clicável: abre os anúncios daquele recorte aqui mesmo.
+        e, se quiser, afine o recorte por versão. Por padrão só entram na
+        lista os modelos com valor de coleção aferido, ou seja, aqueles com
+        anúncios de mercado aberto suficientes pra sustentar a projeção.
+        Todo número de anúncios é clicável: abre os anúncios daquele recorte
+        aqui mesmo.
       </p>
     </div>
 
     <div class="calc-controles">
+      <!-- Quem decide se o par tem projeção é o servidor (campo
+           `tem_colecao`), com a mesma constante que o cálculo usa — a tela
+           não pode prometer um número que o cálculo depois se recusa a dar. -->
       <div class="calc-grupo">
-        <label for="calc-min">Mín. de anúncios</label>
-        <select id="calc-min" title="Só modelos com pelo menos esta quantidade de anúncios coletados">
-          <option value="3" selected>3 ou mais</option>
-          <option value="5">5 ou mais</option>
-          <option value="10">10 ou mais</option>
-          <option value="1">Qualquer quantidade</option>
+        <label for="calc-min">Modelos</label>
+        <select id="calc-min"
+                title="O valor de coleção precisa de anúncios de mercado aberto com preço pra ser projetado; sem eles o modelo não tem o que aferir">
+          <option value="colecao" selected>Com valor de coleção aferido</option>
+          <option value="">Todos os modelos</option>
         </select>
       </div>
 

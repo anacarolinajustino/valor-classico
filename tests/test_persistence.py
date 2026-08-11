@@ -23,6 +23,7 @@ from src.pipeline.persistence import (
     init_db,
     listar_anuncios,
     listar_anuncios_do_par,
+    listar_marca_modelo_pares,
     upsert_anuncios,
     upsert_preco,
     log_search,
@@ -952,6 +953,77 @@ class TestGetMediaModelo:
     def test_modelo_inexistente_nao_projeta(self):
         self._semear()
         assert get_media_modelo("volkswagen", "brasilia")["valor_colecao"] is None
+
+
+# ── listar_marca_modelo_pares: quem tem valor de coleção aferido ─────────────
+#
+# A calculadora filtra a lista de modelos por `tem_colecao`, e o critério
+# NÃO é `qtd`: o que sustenta a projeção são os anúncios de mercado aberto
+# com preço. Um par pode ter dezenas de anúncios e mesmo assim não ter o que
+# aferir.
+
+class TestListarMarcaModeloPares:
+    def _anuncio(self, url, preco, fonte="olx", marca="VOLKSWAGEN", modelo="FUSCA"):
+        return Anuncio(
+            titulo="Carro 1975", preco=preco, marca=marca, modelo=modelo,
+            ano=1975, versao=None, url=url, fonte=fonte, data_coleta="2026-07-14",
+        )
+
+    def _pares(self):
+        return {(p["marca"], p["modelo"]): p for p in listar_marca_modelo_pares()}
+
+    def test_marketplace_com_preco_afere(self):
+        upsert_anuncios([self._anuncio(f"http://x/{i}", 20000.0 + i * 1000)
+                         for i in range(5)])
+        p = self._pares()[("VOLKSWAGEN", "FUSCA")]
+        assert p["qtd"] == 5
+        assert p["qtd_mercado"] == 5
+        assert p["tem_colecao"] is True
+
+    def test_amostra_curta_nao_afere(self):
+        upsert_anuncios([self._anuncio(f"http://x/{i}", 20000.0) for i in range(4)])
+        p = self._pares()[("VOLKSWAGEN", "FUSCA")]
+        assert p["qtd"] == 4
+        assert p["tem_colecao"] is False
+
+    def test_loja_especializada_nao_afere(self):
+        """Muitos anúncios, nenhum de mercado aberto: não há o que projetar."""
+        upsert_anuncios([
+            self._anuncio(f"http://x/{i}", 90000.0, fonte="pastorecc")
+            for i in range(20)
+        ])
+        p = self._pares()[("VOLKSWAGEN", "FUSCA")]
+        assert p["qtd"] == 20
+        assert p["qtd_mercado"] == 0
+        assert p["tem_colecao"] is False
+
+    def test_sob_consulta_nao_conta(self):
+        """Anúncio sem preço é anúncio, mas não sustenta mediana nenhuma."""
+        upsert_anuncios(
+            [self._anuncio(f"http://s/{i}", None) for i in range(10)]
+            + [self._anuncio(f"http://c/{i}", 20000.0) for i in range(3)]
+        )
+        p = self._pares()[("VOLKSWAGEN", "FUSCA")]
+        assert p["qtd"] == 13
+        assert p["qtd_mercado"] == 3
+        assert p["tem_colecao"] is False
+
+    def test_criterio_bate_com_a_projecao(self):
+        """
+        A trava que importa: se a lista diz que afere, a calculadora tem que
+        entregar. Marca/modelo diferentes dos dois lados do limite.
+        """
+        upsert_anuncios(
+            [self._anuncio(f"http://a/{i}", 20000.0, modelo="FUSCA")
+             for i in range(5)]
+            + [self._anuncio(f"http://b/{i}", 20000.0, modelo="BRASILIA")
+               for i in range(4)]
+        )
+        pares = self._pares()
+        for modelo in ("FUSCA", "BRASILIA"):
+            promete = pares[("VOLKSWAGEN", modelo)]["tem_colecao"]
+            entrega = get_media_modelo("VOLKSWAGEN", modelo)["valor_colecao"]
+            assert promete is (entrega is not None), modelo
 
 
 # ── listar_anuncios: marca/modelo/ano são dropdowns, filtro por igualdade ─────

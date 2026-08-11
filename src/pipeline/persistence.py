@@ -21,7 +21,11 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
-from src.pipeline.valor_colecao import FONTES_GENERALISTAS, estimar
+from src.pipeline.valor_colecao import (
+    FONTES_GENERALISTAS,
+    MIN_AMOSTRA as MIN_AMOSTRA_COLECAO,
+    estimar,
+)
 
 # ── Thresholds de negócio ─────────────────────────────────────────────────────
 
@@ -1142,6 +1146,14 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
     a mesma revisão de fragmentação um nível abaixo, agora que a versão saiu
     normalizada da auditoria de 2026-08-04. Um par com muitas versões e
     poucos anúncios é o sinal de que o campo ainda está fragmentado ali.
+
+    `qtd_mercado` e `tem_colecao` respondem "dá pra projetar valor de coleção
+    nesse par?" — a calculadora filtra por isso. Não é a mesma pergunta que
+    `qtd`: o que sustenta a projeção são os anúncios de marketplace COM
+    preço, e um par pode ter dezenas de anúncios de loja especializada (ou
+    "sob consulta") sem ter um só do mercado aberto. Quem decide é o
+    servidor, com a mesma constante que a projeção usa, pra a tela não
+    prometer um número que o cálculo depois se recusa a dar.
     """
     # COALESCE trata modelo NULL e '' como o mesmo balde "sem modelo" — senão
     # os anúncios com modelo NULL some da lista (não apareciam na quarentena
@@ -1150,15 +1162,20 @@ def listar_marca_modelo_pares() -> list[dict[str, Any]]:
         SELECT marca, COALESCE(modelo, '') AS modelo, COUNT(*) AS qtd,
                COUNT(DISTINCT (COALESCE(versao, ''), COALESCE(geracao, '')))
                    FILTER (WHERE versao IS NOT NULL OR geracao IS NOT NULL)
-                   AS versoes
+                   AS versoes,
+               COUNT(*) FILTER (WHERE fonte = ANY(%s) AND preco > 0)
+                   AS qtd_mercado,
+               COUNT(*) FILTER (WHERE fonte = ANY(%s) AND preco > 0) >= %s
+                   AS tem_colecao
         FROM anuncios
         WHERE marca IS NOT NULL
         GROUP BY marca, COALESCE(modelo, '')
         ORDER BY marca, COALESCE(modelo, '')
     """
+    generalistas = list(FONTES_GENERALISTAS)
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql)
+            cur.execute(sql, [generalistas, generalistas, MIN_AMOSTRA_COLECAO])
             return [dict(r) for r in cur.fetchall()]
 
 

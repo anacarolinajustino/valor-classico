@@ -65,29 +65,32 @@ async function carregarPares() {
   }
 }
 
-function minAtual() {
-  return parseInt(selMin.value, 10) || 1;
+// O critério é do servidor (`tem_colecao`), não uma contagem recalculada
+// aqui: o que sustenta a projeção são os anúncios de mercado aberto COM
+// preço, e o `qtd` do par conta tudo — loja especializada e "sob consulta"
+// inclusive. Filtrar por `qtd` deixaria passar modelo que a calculadora
+// depois não consegue aferir.
+function passaNoFiltro(p) {
+  return selMin.value !== "colecao" || p.tem_colecao;
 }
 
-// Marcas que têm pelo menos um modelo alcançando o mínimo.
+// Marcas que têm pelo menos um modelo passando no filtro.
 function popularMarcas() {
-  const min = minAtual();
-  const marcas = [...new Set(pares.filter(p => p.qtd >= min).map(p => p.marca))]
+  const marcas = [...new Set(pares.filter(passaNoFiltro).map(p => p.marca))]
     .sort((a, b) => a.localeCompare(b));
 
   const anterior = selMarca.value;
   selMarca.replaceChildren(new Option(
-    marcas.length ? "Selecione uma marca" : "Nenhuma marca com esse mínimo", ""));
+    marcas.length ? "Selecione uma marca" : "Nenhuma marca com esse filtro", ""));
   for (const m of marcas) selMarca.add(new Option(m, m));
-  // Preserva a marca se ela ainda alcança o mínimo.
+  // Preserva a marca se ela ainda passa no filtro.
   if (marcas.includes(anterior)) selMarca.value = anterior;
 
   popularModelos();
 }
 
-// Modelos da marca escolhida que alcançam o mínimo (com a contagem no rótulo).
+// Modelos da marca escolhida que passam no filtro (com a contagem no rótulo).
 function popularModelos() {
-  const min = minAtual();
   const marca = selMarca.value;
   const anterior = selModelo.value;
 
@@ -98,7 +101,7 @@ function popularModelos() {
     return;
   }
   const modelos = pares
-    .filter(p => p.marca === marca && p.qtd >= min)
+    .filter(p => p.marca === marca && passaNoFiltro(p))
     .sort((a, b) => a.modelo.localeCompare(b.modelo));
 
   selModelo.replaceChildren(new Option("Selecione um modelo", ""));
@@ -527,7 +530,7 @@ function mostrarMsg(txt, classe) {
 // ── Wiring ───────────────────────────────────────────────────────────────
 selMin.addEventListener("change", () => {
   popularMarcas();
-  calcular();  // o par pode ter deixado de alcançar o mínimo → esconde/recalcula
+  calcular();  // o par pode ter deixado de passar no filtro → esconde/recalcula
 });
 selMarca.addEventListener("change", () => {
   limparVersoes();   // outra marca, outras versões
