@@ -54,14 +54,6 @@
     }
     .dash-faixa a:hover { color: var(--dash-realce); }
     .dash-faixa strong { color: var(--vc-ink); font-weight: 600; }
-    /* O valor de coleção é a resposta que o índice publica; os outros KPIs
-       são o caminho até ela. A borda marca essa diferença sem precisar de
-       um bloco separado na página. */
-    .dash-card-destaque {
-      border-color: var(--dash-realce);
-      box-shadow: inset 3px 0 0 var(--dash-realce);
-    }
-    .dash-card-destaque .admin-stat-value { color: var(--dash-realce); }
     .dash-grid {
       display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem;
       transition: opacity var(--transition);
@@ -277,7 +269,7 @@
            que o mercado aberto não mostra. Destacado porque é a resposta
            final, e com banda de confiança porque erra 20% — ver
            `src/pipeline/valor_colecao.py`. -->
-      <div class="admin-stat-card dash-card-destaque">
+      <div class="admin-stat-card admin-stat-card--destaque">
         <span class="admin-stat-label">Valor de coleção</span>
         <span class="admin-stat-value" id="kpi-colecao">—</span>
         <span class="dash-faixa" id="kpi-colecao-nota"></span>

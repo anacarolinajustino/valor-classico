@@ -1386,6 +1386,25 @@ a { color: inherit; text-decoration: none; }
   color: var(--vc-ink);
 }
 
+/* KPI que é resposta, não caminho até ela — hoje o valor de coleção, no
+   dashboard e na calculadora. A borda marca a diferença sem precisar de um
+   bloco separado na página. */
+.admin-stat-card--destaque {
+  border-color: var(--vc-accent-strong);
+  box-shadow: inset 3px 0 0 var(--vc-accent-strong);
+}
+.admin-stat-card--destaque .admin-stat-value { color: var(--vc-accent-strong); }
+
+/* Linha de apoio dentro de um card: banda de confiança, contagem, ressalva.
+   Existe pra que número projetado nunca apareça sozinho. */
+.admin-stat-nota {
+  display: block;
+  margin-top: .35rem;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--vc-ink-muted);
+}
+
 /* Tabela de fontes */
 .admin-fonte-lista {
   margin-top: 8px;

@@ -47,6 +47,15 @@
     }
     .calc-destaque .calc-media-sub { color: var(--vc-ink-soft); font-size: .9rem; margin-top: .35rem; }
 
+    /* São 5 KPIs e o auto-fit global dava ~170px por card — estreito demais
+       pro Playfair de 28px, e "R$ 998.900" quebrava em duas linhas (já
+       quebrava com 4). Três colunas dão o dobro de largura e ainda cabe a
+       nota da banda. Acima do breakpoint só, pra não atropelar o `1fr 1fr`
+       do mobile em styles.css. */
+    @media (min-width: 681px) {
+      #calc-resultado .admin-stats-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
     .calc-resultado { transition: opacity var(--transition); }
     .calc-resultado.carregando { opacity: .5; pointer-events: none; }
     .calc-hint { color: var(--vc-ink-soft); }
@@ -170,6 +179,14 @@
       </div>
 
       <div class="admin-stats-grid">
+        <!-- Vem antes da mediana de propósito: é a resposta que o índice
+             quer publicar, e as outras são o caminho até ela. Projeção, não
+             descrição da amostra — ver src/pipeline/valor_colecao.py. -->
+        <div class="admin-stat-card admin-stat-card--destaque">
+          <span class="admin-stat-label">Valor de coleção</span>
+          <span class="admin-stat-value" id="calc-colecao">—</span>
+          <span class="admin-stat-nota" id="calc-colecao-nota"></span>
+        </div>
         <div class="admin-stat-card">
           <span class="admin-stat-label">Mediana</span>
           <span class="admin-stat-value" id="calc-mediana">—</span>

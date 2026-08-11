@@ -902,6 +902,57 @@ class TestGetMediaModelo:
         assert d["total"] == 1
         assert d["preco_medio"] == 60000.0
 
+    # ── valor de coleção ───────────────────────────────────────────────────
+    #
+    # Mesma projeção do dashboard, e pelas mesmas regras: só o mercado
+    # aberto alimenta a conta, e ela segue o recorte de versão. O número em
+    # si é testado em test_valor_colecao.py.
+
+    def _semear_mercado(self, precos, fonte="olx", **kw):
+        upsert_anuncios([
+            self._anuncio_preco(f"http://{fonte}/{i}", p, fonte=fonte, **kw)
+            for i, p in enumerate(precos, 1)
+        ])
+
+    def test_projeta_valor_de_colecao(self):
+        self._semear_mercado([18000.0, 19000.0, 20000.0, 21000.0, 22000.0])
+        vc = get_media_modelo("volkswagen", "fusca")["valor_colecao"]
+        assert vc["mediana_mercado"] == 20000.0
+        assert vc["n_mercado"] == 5
+        assert vc["estimado"] > 20000.0
+
+    def test_loja_especializada_nao_entra_na_projecao(self):
+        self._semear_mercado([18000.0, 19000.0, 20000.0, 21000.0, 22000.0], fonte="olx")
+        so_mercado = get_media_modelo("volkswagen", "fusca")["valor_colecao"]["estimado"]
+
+        self._semear_mercado([190000.0, 200000.0, 210000.0, 220000.0, 230000.0],
+                             fonte="pastorecc")
+        d = get_media_modelo("volkswagen", "fusca")
+        assert d["com_preco"] == 10                       # todos contam na média
+        assert d["preco_medio"] > 100000.0                # e puxam a média
+        assert d["valor_colecao"]["n_mercado"] == 5       # mas não a projeção
+        assert d["valor_colecao"]["estimado"] == so_mercado
+
+    def test_projecao_segue_o_recorte_de_versao(self):
+        """Um Opala SS de coleção não vale o que vale um Opala de luxo."""
+        self._semear_mercado([90000.0, 95000.0, 100000.0, 105000.0, 110000.0],
+                             versao="SS")
+        self._semear_mercado([18000.0, 19000.0, 20000.0, 21000.0, 22000.0],
+                             fonte="mercadolivre")
+        assert get_media_modelo("volkswagen", "fusca", "ss")[
+            "valor_colecao"]["mediana_mercado"] == 100000.0
+        assert get_media_modelo("volkswagen", "fusca", "")[
+            "valor_colecao"]["mediana_mercado"] == 20000.0
+
+    def test_sem_mercado_aberto_nao_projeta(self):
+        self._semear_mercado([190000.0, 200000.0, 210000.0, 220000.0, 230000.0],
+                             fonte="maxicar")
+        assert get_media_modelo("volkswagen", "fusca")["valor_colecao"] is None
+
+    def test_modelo_inexistente_nao_projeta(self):
+        self._semear()
+        assert get_media_modelo("volkswagen", "brasilia")["valor_colecao"] is None
+
 
 # ── listar_anuncios: marca/modelo/ano são dropdowns, filtro por igualdade ─────
 

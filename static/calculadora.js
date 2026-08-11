@@ -214,6 +214,42 @@ function qsRecorte(extra = {}) {
   return p;
 }
 
+/**
+ * Diferente dos outros números da página, este não resume a amostra:
+ * projeta o preço de um exemplar em estado de coleção a partir da mediana
+ * do mercado aberto (ver src/pipeline/valor_colecao.py). Por isso a banda
+ * de confiança fica na nota, visível, em vez de escondida no tooltip — o
+ * erro típico é de 20% e quem lê precisa ver isso junto do número.
+ */
+function renderValorColecao(vc) {
+  const valor = document.getElementById("calc-colecao");
+  const nota = document.getElementById("calc-colecao-nota");
+
+  if (!vc) {
+    valor.textContent = "—";
+    nota.textContent = "sem base de mercado aberto neste recorte";
+    valor.removeAttribute("title");
+    return;
+  }
+
+  valor.textContent = fmtBRL(vc.estimado);
+  const c = vc.calibracao;
+  valor.title =
+    `Projetado a partir da mediana de ${fmtBRL(vc.mediana_mercado)} em ` +
+    `${FMT_INT.format(vc.n_mercado)} anúncios de marketplace ` +
+    `(${vc.premio.toFixed(2)}x). Curva calibrada em ${c.n_modelos} modelos ` +
+    `contra lojas de carro antigo, R² ${c.r2.toFixed(2)}, ` +
+    `erro típico ${Math.round(c.erro_tipico * 100)}% — ${c.data}.`;
+
+  // Projetar abaixo do mercado é legítimo em carro caro (ninguém anuncia
+  // 911 detonado, então a mediana do marketplace já é preço de coleção),
+  // mas sem uma palavra o número parece erro.
+  nota.textContent = `${fmtBRL(vc.piso)} a ${fmtBRL(vc.teto)} · ` + (
+    vc.abaixo_do_mercado
+      ? `${vc.premio.toFixed(2)}x — mercado já em preço de coleção`
+      : `${vc.premio.toFixed(2)}x o mercado aberto`);
+}
+
 function render(d) {
   popularVersoes(d.por_versao);
   popularGeracoes(d.por_geracao);
@@ -243,6 +279,7 @@ function render(d) {
   document.getElementById("calc-qtd").textContent       = `${FMT_INT.format(d.com_preco)} / ${FMT_INT.format(d.total)}`;
   document.getElementById("calc-min-preco").textContent = semPreco ? "—" : fmtBRL(d.preco_min);
   document.getElementById("calc-max-preco").textContent = semPreco ? "—" : fmtBRL(d.preco_max);
+  renderValorColecao(d.valor_colecao);
 
   renderVersoes(d.por_versao);
   renderAnos(d.por_ano);

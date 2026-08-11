@@ -917,6 +917,11 @@ def get_media_modelo(
     inteiro, ignorando o recorte, porque são o mapa que a calculadora usa pra
     montar os seletores (e pra comparar as opções entre si). Os demais blocos
     respeitam o recorte.
+
+    `valor_colecao` é o único bloco que não descreve a amostra: projeta o
+    preço de um exemplar em estado de coleção a partir da mediana do mercado
+    aberto (ver `_valor_colecao`). Os outros números respondem "quanto se
+    pede por esse carro hoje"; este responde "quanto vale um bom".
     """
     mk = (marca or "").strip().upper()
     md = (modelo or "").strip().upper()
@@ -1002,6 +1007,11 @@ def get_media_modelo(
             )
             por_geracao = [dict(r) for r in cur.fetchall()]
 
+            # Segue o recorte de versão/geração como todo o resto, e não o
+            # par inteiro: um Opala SS de coleção não vale o que vale um
+            # Opala de luxo de coleção. Mesma projeção do dashboard.
+            valor_colecao = _valor_colecao(cur, f"WHERE {where} AND", params)
+
     return {
         "marca": mk,
         "modelo": md,
@@ -1019,6 +1029,10 @@ def get_media_modelo(
         "por_geracao": por_geracao,
         "por_ano": por_ano,
         "por_fonte": por_fonte,
+        # Projeção do preço em estado de coleção — o único número aqui que
+        # não descreve a amostra (ver `_valor_colecao`). None quando o
+        # recorte não tem mercado aberto que sustente a conta.
+        "valor_colecao": valor_colecao,
     }
 
 
