@@ -207,9 +207,10 @@ class TestLogSearch:
 # ── AC-P07: upsert_anuncios aplica o corte de ano centralmente ────────────────
 
 def _anuncio(url: str, ano, fonte: str = "teste", marca: str = "VOLKSWAGEN", modelo: str = "FUSCA",
-             titulo: str | None = None, versao: str | None = None) -> Anuncio:
+             titulo: str | None = None, versao: str | None = None,
+             preco: float = 50000.0) -> Anuncio:
     return Anuncio(
-        titulo=titulo if titulo is not None else f"Carro {ano}", preco=50000.0, marca=marca, modelo=modelo,
+        titulo=titulo if titulo is not None else f"Carro {ano}", preco=preco, marca=marca, modelo=modelo,
         ano=ano, versao=versao, url=url, fonte=fonte, data_coleta="2026-07-14",
     )
 
@@ -623,6 +624,58 @@ class TestGetDashboardStats:
         d = get_dashboard_stats(min_anuncios=3)
         assert d["kpis"]["total"] == 3            # os 3 sem ano passam
         assert d["descartados_min"] == 1          # o de 1975, sozinho, não
+
+    # ── valor de coleção ────────────────────────────────────────────────
+    #
+    # O que importa aqui não é o número (isso é testado em
+    # test_valor_colecao.py) e sim DE ONDE ele tira a mediana: só das fontes
+    # generalistas. Incluir loja de carro antigo corrigiria duas vezes um
+    # preço que já está em patamar de coleção.
+
+    def _mercado(self, precos, fonte="olx", **kw):
+        upsert_anuncios([
+            _anuncio(f"http://{fonte}/{i}", 1975, fonte=fonte, preco=p, **kw)
+            for i, p in enumerate(precos, 1)
+        ])
+
+    def test_projeta_a_partir_do_mercado_aberto(self):
+        self._mercado([18000, 19000, 20000, 21000, 22000])
+        vc = get_dashboard_stats()["valor_colecao"]
+        assert vc["mediana_mercado"] == 20000
+        assert vc["n_mercado"] == 5
+        assert vc["estimado"] > 20000
+
+    def test_loja_especializada_nao_entra_na_mediana(self):
+        """
+        A loja é a régua que calibrou a curva, não insumo dela. Cinco
+        anúncios de marketplace a 20 mil e cinco de loja a 200 mil têm que
+        projetar o mesmo que os cinco de marketplace sozinhos.
+        """
+        self._mercado([18000, 19000, 20000, 21000, 22000], fonte="olx")
+        so_mercado = get_dashboard_stats()["valor_colecao"]["estimado"]
+
+        self._mercado([190000, 195000, 200000, 205000, 210000], fonte="pastorecc")
+        d = get_dashboard_stats()
+        assert d["kpis"]["total"] == 10                      # todos estão lá
+        assert d["valor_colecao"]["n_mercado"] == 5          # mas só 5 contam
+        assert d["valor_colecao"]["estimado"] == so_mercado
+
+    def test_recorte_so_de_loja_nao_projeta(self):
+        """Sem mercado aberto no recorte não há de onde projetar."""
+        self._mercado([190000, 200000, 210000, 220000, 230000], fonte="maxicar")
+        assert get_dashboard_stats()["valor_colecao"] is None
+        assert get_dashboard_stats(fonte="maxicar")["valor_colecao"] is None
+
+    def test_amostra_curta_de_mercado_nao_projeta(self):
+        self._mercado([19000, 20000, 21000])
+        assert get_dashboard_stats()["valor_colecao"] is None
+
+    def test_projecao_respeita_o_recorte(self):
+        self._mercado([19000, 20000, 21000, 22000, 23000], modelo="FUSCA")
+        self._mercado([90000, 95000, 100000, 105000, 110000], modelo="KOMBI")
+        vc = get_dashboard_stats(marca="volkswagen", modelo="kombi")["valor_colecao"]
+        assert vc["mediana_mercado"] == 100000
+        assert vc["n_mercado"] == 5
 
 
 # ── reclassificar_versao: os destinos da fila de curadoria (2026-08-10) ──────

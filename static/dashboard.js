@@ -343,6 +343,48 @@ function renderFaixaCentral(f) {
   nota.textContent = partes.join(" · ");
 }
 
+/* ── Valor de coleção (projeção, não descrição) ── */
+
+/**
+ * Diferente dos outros KPIs, este não resume a amostra: estima o preço de
+ * um exemplar em estado de coleção a partir da mediana do mercado aberto
+ * (ver src/pipeline/valor_colecao.py). Por isso a banda de confiança fica
+ * visível na nota em vez de escondida no tooltip — o erro típico é de 20%
+ * e quem lê precisa ver isso junto com o número.
+ */
+function renderValorColecao(vc) {
+  const valor = document.getElementById("kpi-colecao");
+  const nota = document.getElementById("kpi-colecao-nota");
+  nota.replaceChildren();
+
+  if (!vc) {
+    valor.textContent = "—";
+    // Os dois motivos possíveis, porque a tela não sabe qual foi: recorte
+    // sem anúncio de marketplace, ou amostra curta demais.
+    nota.textContent = "sem base de mercado aberto neste recorte";
+    valor.removeAttribute("title");
+    return;
+  }
+
+  valor.textContent = fmtBRL(vc.estimado);
+  const c = vc.calibracao;
+  valor.title =
+    `Projetado a partir da mediana de ${fmtBRL(vc.mediana_mercado)} em ` +
+    `${FMT_INT.format(vc.n_mercado)} anúncios de marketplace ` +
+    `(${vc.premio.toFixed(2)}x). Curva calibrada em ${c.n_modelos} modelos ` +
+    `contra lojas de carro antigo, R² ${c.r2.toFixed(2)}, ` +
+    `erro típico ${Math.round(c.erro_tipico * 100)}% — ${c.data}.`;
+
+  const partes = [`${fmtBRL(vc.piso)} a ${fmtBRL(vc.teto)}`];
+  // Projetar abaixo do mercado é legítimo em carro caro (ninguém anuncia
+  // 911 detonado, então a mediana do marketplace já é preço de coleção),
+  // mas sem uma palavra o número parece erro.
+  partes.push(vc.abaixo_do_mercado
+    ? `${vc.premio.toFixed(2)}x — mercado já em preço de coleção`
+    : `${vc.premio.toFixed(2)}x o mercado aberto`);
+  nota.textContent = partes.join(" · ");
+}
+
 /* ── Carga e composição ── */
 
 const grid = document.getElementById("dash-grid");
@@ -430,6 +472,7 @@ async function carregar() {
     document.getElementById("kpi-mediana").textContent = fmtBRL(k.preco_mediano);
     renderFaixa(dados.extremos);
     renderFaixaCentral(dados.faixa_central);
+    renderValorColecao(dados.valor_colecao);
     document.getElementById("kpi-fontes").textContent = FMT_INT.format(k.fontes);
     document.getElementById("kpi-com-ano").textContent =
       k.total ? Math.round((k.com_ano / k.total) * 100) + "%" : "—";

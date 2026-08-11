@@ -21,6 +21,8 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 
+from src.pipeline.valor_colecao import FONTES_GENERALISTAS, estimar
+
 # ── Thresholds de negócio ─────────────────────────────────────────────────────
 
 CHART_MIN_DIAS = 5
@@ -540,6 +542,33 @@ def _faixa_central(
     }
 
 
+def _valor_colecao(cur, cond_e: str, params: list) -> dict[str, Any] | None:
+    """
+    Projeção do preço de um exemplar em estado de coleção no recorte atual.
+
+    A mediana entra SÓ das fontes generalistas: a curva foi calibrada em
+    cima delas, e as lojas de carro antigo já anunciam no preço de coleção
+    — incluí-las aqui corrigiria duas vezes o que já está corrigido. Se o
+    recorte estiver filtrado numa fonte especializada, a interseção fica
+    vazia e o retorno é None, que é o certo: não há o que projetar.
+
+    Ver `src.pipeline.valor_colecao` pra de onde saem as constantes.
+    """
+    cur.execute(
+        f"""
+        SELECT COUNT(*)                                           AS n,
+               percentile_cont(0.5) WITHIN GROUP (ORDER BY preco) AS mediana
+        FROM anuncios
+        {cond_e} preco IS NOT NULL AND preco > 0 AND fonte = ANY(%s)
+        """,
+        [*params, list(FONTES_GENERALISTAS)],
+    )
+    r = cur.fetchone()
+    if not r:
+        return None
+    return estimar(r["mediana"], r["n"])
+
+
 def _opcoes_marca_modelo_ano(
     cur, fonte: str | None, marca: str | None, modelo: str | None, ano: int | None,
     versao: str | None = None, com_versao: bool = False,
@@ -693,6 +722,10 @@ def get_dashboard_stats(
     preços em torno da mediana e a média deles (ver `_faixa_central`). Os
     dois convivem de propósito — um serve pra auditar o dado, o outro pra
     ler o mercado.
+
+    `valor_colecao` é o único bloco que não descreve a amostra: projeta o
+    preço de um exemplar em estado de coleção, que é o que o índice quer
+    publicar e o que o mercado aberto não mostra (ver `_valor_colecao`).
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -767,6 +800,7 @@ def get_dashboard_stats(
             extremos = {r["ponta"]: dict(r) for r in cur.fetchall()}
 
             faixa_central = _faixa_central(cur, cond_e, params, cobertura_faixa)
+            valor_colecao = _valor_colecao(cur, cond_e, params)
 
             cur.execute(
                 f"""
@@ -843,6 +877,10 @@ def get_dashboard_stats(
         # Média dos preços do "miolo" + limites do corte (ver `_faixa_central`).
         # None quando a amostra é pequena demais pra sustentar quartis.
         "faixa_central": faixa_central,
+        # Projeção do preço em estado de coleção (ver `_valor_colecao`). É a
+        # única leitura aqui que não descreve a amostra e sim estima o que ela
+        # não contém, então vem com banda de confiança e procedência junto.
+        "valor_colecao": valor_colecao,
         "por_fonte": por_fonte,
         "por_decada": por_decada,
         "top_marcas": top_marcas,

@@ -54,6 +54,14 @@
     }
     .dash-faixa a:hover { color: var(--dash-realce); }
     .dash-faixa strong { color: var(--vc-ink); font-weight: 600; }
+    /* O valor de coleção é a resposta que o índice publica; os outros KPIs
+       são o caminho até ela. A borda marca essa diferença sem precisar de
+       um bloco separado na página. */
+    .dash-card-destaque {
+      border-color: var(--dash-realce);
+      box-shadow: inset 3px 0 0 var(--dash-realce);
+    }
+    .dash-card-destaque .admin-stat-value { color: var(--dash-realce); }
     .dash-grid {
       display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem;
       transition: opacity var(--transition);
@@ -73,6 +81,13 @@
 
     /* KPIs (reusa os cards do admin) */
     .dash-kpis { margin-bottom: 1.5rem; }
+    /* São 6 KPIs, e o auto-fit global deixava 5 numa linha e um órfão na
+       outra. Três colunas fecham 3+3 e ainda dão largura pras notas de
+       faixa caberem em duas linhas. Acima do breakpoint só, pra não
+       atropelar o `1fr 1fr` do mobile em styles.css. */
+    @media (min-width: 681px) {
+      .dash-kpis { grid-template-columns: repeat(3, 1fr); }
+    }
 
     /* Barras horizontais (HTML/CSS) */
     .dash-hbar-row {
@@ -256,6 +271,16 @@
         <span class="admin-stat-label">Média do centro</span>
         <span class="admin-stat-value" id="kpi-media-central">—</span>
         <span class="dash-faixa" id="kpi-central-nota"></span>
+      </div>
+      <!-- Único card que não descreve a amostra: projeta o preço de um
+           exemplar em estado de coleção, que é o que o índice publica e o
+           que o mercado aberto não mostra. Destacado porque é a resposta
+           final, e com banda de confiança porque erra 20% — ver
+           `src/pipeline/valor_colecao.py`. -->
+      <div class="admin-stat-card dash-card-destaque">
+        <span class="admin-stat-label">Valor de coleção</span>
+        <span class="admin-stat-value" id="kpi-colecao">—</span>
+        <span class="dash-faixa" id="kpi-colecao-nota"></span>
       </div>
       <div class="admin-stat-card">
         <span class="admin-stat-label">Fontes com dados</span>
