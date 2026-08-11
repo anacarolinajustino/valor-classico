@@ -313,6 +313,34 @@ function renderFaixa(extremos) {
   el.append(pontaDePreco("Maior", extremos.max));
 }
 
+/* ── Faixa central (média do miolo, sem os extremos) ── */
+
+function renderFaixaCentral(f) {
+  const valor = document.getElementById("kpi-media-central");
+  const nota = document.getElementById("kpi-central-nota");
+  nota.replaceChildren();
+
+  if (!f) {
+    valor.textContent = "—";
+    nota.textContent = "amostra pequena demais pra separar extremo de dispersão";
+    valor.removeAttribute("title");
+    return;
+  }
+
+  valor.textContent = fmtBRL(f.media);
+  valor.title =
+    `Média dos ${FMT_INT.format(f.n_dentro)} anúncios entre ${fmtBRL(f.piso)} e ` +
+    `${fmtBRL(f.teto)}. Limites por Tukey (${f.k}×IQR) em escala logarítmica.`;
+
+  // Quanto foi descartado é parte do resultado: uma média "sem extremos" que
+  // jogou fora metade da amostra fala mais do corte que do mercado.
+  const partes = [`entre ${fmtBRL(f.piso)} e ${fmtBRL(f.teto)}`];
+  partes.push(f.n_fora
+    ? `${FMT_INT.format(f.n_fora)} de ${FMT_INT.format(f.n_dentro + f.n_fora)} fora`
+    : "nenhum descartado");
+  nota.textContent = partes.join(" · ");
+}
+
 /* ── Carga e composição ── */
 
 const grid = document.getElementById("dash-grid");
@@ -397,6 +425,7 @@ async function carregar() {
     document.getElementById("kpi-total").textContent = FMT_INT.format(k.total);
     document.getElementById("kpi-mediana").textContent = fmtBRL(k.preco_mediano);
     renderFaixa(dados.extremos);
+    renderFaixaCentral(dados.faixa_central);
     document.getElementById("kpi-fontes").textContent = FMT_INT.format(k.fontes);
     document.getElementById("kpi-com-ano").textContent =
       k.total ? Math.round((k.com_ano / k.total) * 100) + "%" : "—";

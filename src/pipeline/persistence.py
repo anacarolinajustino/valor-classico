@@ -456,6 +456,80 @@ def _cond_amostra_minima(conds_base: list[str], params_base: list) -> tuple[str,
     )
 
 
+# Faixa central de preço: Tukey (1,5 × IQR) aplicado ao LOGARITMO do preço.
+#
+# O objetivo é a média dos anúncios "do meio", ignorando os muito distantes —
+# tanto o erro de digitação (há um F-250 a R$ 100 milhões) quanto o carro de
+# coleção que não se compara ao resto do grupo.
+#
+# Por que 1,5 × IQR e não uma fatia fixa (aparar 10% de cada ponta): a fatia
+# fixa descarta sempre a mesma proporção, mesmo quando não há outlier nenhum.
+# Medido em 2026-08-10: no Maverick 1974 e na C10 1975, cuja dispersão é
+# real, a regra de IQR não corta nada, enquanto a aparada de 10% jogaria fora
+# 6 e 2 anúncios bons. Onde há cauda (Fusca 1975, Kombi 1996) ela corta.
+#
+# Por que no LOG e não no preço direto: preço é multiplicativo — "o dobro da
+# mediana" é a noção natural de longe, não "+R$ 50 mil". Na escala linear o
+# limite inferior fica negativo na maioria dos grupos (Q1 − 1,5·IQR < 0), ou
+# seja, a regra só pune o lado caro e deixa passar qualquer preço baixo,
+# inclusive o Puma GTB anunciado a R$ 169. No log os dois lados são
+# simétricos em proporção: Fusca 1975 sai de "R$ 1.012 – 56.832" (limite
+# inferior sem sentido) para "R$ 10.488 – 75.116".
+_IQR_K = 1.5
+# Abaixo disso o quartil não significa nada — com 3 pontos, Q1 e Q3 são
+# praticamente o mínimo e o máximo, e a "faixa central" seria a amostra
+# inteira com ar de estatística.
+_MIN_AMOSTRA_FAIXA = 4
+
+
+def _faixa_central(cur, cond_e: str, params: list) -> dict[str, Any] | None:
+    """
+    Média dos preços dentro da cerca de Tukey em escala log, com os limites e
+    quantos ficaram de fora. None quando a amostra é pequena demais.
+
+    Ver o bloco acima para a escolha do método. O retorno traz `n_fora` de
+    propósito: uma média "sem extremos" que descartou metade da amostra diz
+    mais sobre o corte do que sobre o mercado, e quem lê precisa ver isso.
+    """
+    cur.execute(
+        f"""
+        WITH base AS (
+            SELECT preco, ln(preco) AS lp FROM anuncios
+            {cond_e} preco IS NOT NULL AND preco > 0
+        ), quartis AS (
+            SELECT COUNT(*) AS n,
+                   percentile_cont(0.25) WITHIN GROUP (ORDER BY lp) AS q1,
+                   percentile_cont(0.75) WITHIN GROUP (ORDER BY lp) AS q3
+            FROM base
+        ), cerca AS (
+            SELECT n,
+                   exp(q1 - %s * (q3 - q1)) AS piso,
+                   exp(q3 + %s * (q3 - q1)) AS teto
+            FROM quartis
+        )
+        SELECT cerca.n AS n_total, cerca.piso, cerca.teto,
+               COUNT(base.preco)                AS n_dentro,
+               AVG(base.preco)                  AS media,
+               MIN(base.preco)                  AS menor,
+               MAX(base.preco)                  AS maior
+        FROM cerca
+        LEFT JOIN base ON base.preco BETWEEN cerca.piso AND cerca.teto
+        GROUP BY cerca.n, cerca.piso, cerca.teto
+        """,
+        [*params, _IQR_K, _IQR_K],
+    )
+    r = cur.fetchone()
+    if not r or not r["n_total"] or r["n_total"] < _MIN_AMOSTRA_FAIXA:
+        return None
+    return {
+        "media": r["media"],
+        "piso": r["piso"], "teto": r["teto"],
+        "menor": r["menor"], "maior": r["maior"],
+        "n_dentro": r["n_dentro"], "n_fora": r["n_total"] - r["n_dentro"],
+        "k": _IQR_K,
+    }
+
+
 def _opcoes_marca_modelo_ano(
     cur, fonte: str | None, marca: str | None, modelo: str | None, ano: int | None,
     versao: str | None = None, com_versao: bool = False,
@@ -603,6 +677,10 @@ def get_dashboard_stats(
     `extremos` traz o anúncio mais barato e o mais caro do recorte (com url),
     não só os valores — a ponta é onde mora o erro de preço, e o link é o que
     permite conferir na hora.
+
+    `faixa_central` é a leitura oposta: descarta as pontas e devolve a média
+    do miolo (ver `_faixa_central`). Os dois convivem de propósito — um serve
+    pra auditar o dado, o outro pra ler o mercado.
     """
     filtros: dict[str, Any] = {
         "fonte": fonte,
@@ -676,6 +754,8 @@ def get_dashboard_stats(
             )
             extremos = {r["ponta"]: dict(r) for r in cur.fetchall()}
 
+            faixa_central = _faixa_central(cur, cond_e, params)
+
             cur.execute(
                 f"""
                 SELECT CASE WHEN ano < 1950 THEN 1949 ELSE (ano / 10) * 10 END AS decada,
@@ -748,6 +828,9 @@ def get_dashboard_stats(
         # {"min": {...}, "max": {...}} — o anúncio de cada ponta, com url.
         # Vazio quando o recorte não tem preço nenhum.
         "extremos": extremos,
+        # Média dos preços do "miolo" + limites do corte (ver `_faixa_central`).
+        # None quando a amostra é pequena demais pra sustentar quartis.
+        "faixa_central": faixa_central,
         "por_fonte": por_fonte,
         "por_decada": por_decada,
         "top_marcas": top_marcas,

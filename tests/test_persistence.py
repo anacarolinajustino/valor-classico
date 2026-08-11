@@ -537,6 +537,60 @@ class TestGetDashboardStats:
         self._semear_precos()
         assert get_dashboard_stats(marca="FERRARI")["extremos"] == {}
 
+    # ── Faixa central: média do miolo, sem os extremos ──────────────
+    #
+    # Tukey 1,5×IQR em escala LOG. O log importa: na escala linear o limite
+    # inferior fica negativo na maioria dos grupos, e a regra só puniria o
+    # lado caro — deixando passar o Puma GTB anunciado a R$ 169.
+
+    def _com_precos(self, precos, modelo="FUSCA", ano=1975):
+        upsert_anuncios([
+            Anuncio(**{**_anuncio(f"http://f/{i}", ano, marca="VOLKSWAGEN",
+                                  modelo=modelo).__dict__, "preco": float(p)})
+            for i, p in enumerate(precos, 1)
+        ])
+
+    def test_media_ignora_o_extremo_alto(self):
+        self._com_precos([28000, 29000, 30000, 31000, 32000, 5_000_000])
+        f = get_dashboard_stats()["faixa_central"]
+        assert f["n_fora"] == 1
+        assert f["n_dentro"] == 5
+        assert 29000 <= f["media"] <= 31000     # sem o milhão, fica no miolo
+
+    def test_media_ignora_o_extremo_baixo(self):
+        """O caso real: um Puma GTB anunciado a R$ 169 entre carros de 200 mil."""
+        self._com_precos([169, 180000, 190000, 200000, 210000])
+        f = get_dashboard_stats()["faixa_central"]
+        assert f["n_fora"] == 1
+        assert f["media"] > 150000
+
+    def test_nao_corta_dispersao_legitima(self):
+        """
+        Onde a dispersão é real, a regra não corta nada — é a diferença pra
+        uma aparada de percentual fixo, que descartaria sempre.
+        """
+        self._com_precos([40000, 90000, 150000, 220000, 300000, 398000])
+        f = get_dashboard_stats()["faixa_central"]
+        assert f["n_fora"] == 0
+        assert f["n_dentro"] == 6
+
+    def test_limites_saem_junto_com_a_media(self):
+        self._com_precos([28000, 29000, 30000, 31000, 32000, 5_000_000])
+        f = get_dashboard_stats()["faixa_central"]
+        assert 0 < f["piso"] < f["media"] < f["teto"] < 5_000_000
+        assert f["k"] == 1.5
+
+    def test_amostra_pequena_nao_vira_estatistica(self):
+        """Com 3 pontos, Q1 e Q3 são quase o mínimo e o máximo."""
+        self._com_precos([10000, 20000, 30000])
+        assert get_dashboard_stats()["faixa_central"] is None
+
+    def test_respeita_o_recorte(self):
+        self._com_precos([28000, 29000, 30000, 31000], modelo="FUSCA")
+        self._com_precos([900000, 950000, 980000, 990000], modelo="KOMBI")
+        f = get_dashboard_stats(marca="volkswagen", modelo="kombi")["faixa_central"]
+        assert f["media"] > 900000
+
     def test_anuncio_sem_ano_agrupa_a_parte_e_nao_some(self):
         """
         Sem ano não se pertence a ano nenhum, mas descartar em silêncio é
