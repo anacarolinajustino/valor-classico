@@ -34,3 +34,8 @@ backups/
 
 # Variáveis de ambiente locais (nunca commitar)
 .env
+
+# Curadoria do catálogo definitivo (/admin/catalogo). Muda a cada clique e é
+# trabalho da usuária, não código — a pasta está no OneDrive, que é o backup.
+# O módulo trata a ausência do arquivo como "nada triado ainda".
+data/catalogo_definitivo.csv

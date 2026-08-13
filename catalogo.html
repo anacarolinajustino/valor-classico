@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor Clássico — Catálogo definitivo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Teko:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    /* ── Filtros ── */
+    .cat-filtros {
+      display: flex; flex-wrap: wrap; gap: 1rem 1.25rem;
+      align-items: flex-end; margin-bottom: 1rem;
+    }
+    .cat-grupo { display: flex; flex-direction: column; gap: .4rem; }
+    .cat-grupo label {
+      font-size: 10px; font-weight: 600; letter-spacing: 1.5px;
+      text-transform: uppercase; color: var(--vc-ink-muted);
+    }
+    .cat-grupo select, .cat-grupo input[type="search"] {
+      padding: .5rem .7rem; border: 1px solid var(--vc-border);
+      border-radius: var(--radius); background: var(--vc-white);
+      font-family: inherit; font-size: .92rem; min-width: 150px;
+    }
+    .cat-grupo input[type="search"] { min-width: 220px; }
+    .cat-caixas { display: flex; flex-direction: column; gap: .3rem; }
+    .cat-caixas label {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .85rem; text-transform: none; letter-spacing: 0;
+      font-weight: 400; color: var(--vc-ink-soft); cursor: pointer;
+    }
+
+    /* ── Resumo ── */
+    .cat-resumo {
+      display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: 1.25rem;
+    }
+    .cat-pilula {
+      border: 1px solid var(--vc-border); border-radius: 999px;
+      padding: .3rem .8rem; font-size: .85rem; color: var(--vc-ink-soft);
+      background: var(--vc-white); cursor: pointer;
+    }
+    .cat-pilula:hover { border-color: var(--vc-accent-strong); }
+    .cat-pilula.ativa {
+      border-color: var(--vc-accent-strong); color: var(--vc-accent-strong);
+      font-weight: 600;
+    }
+    .cat-pilula strong { color: var(--vc-ink); font-weight: 600; }
+
+    /* ── Tabela ── */
+    .cat-tabela-wrap { overflow-x: auto; }
+    .cat-tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    .cat-tabela th {
+      text-align: left; padding: .5rem .7rem; font-size: 10px;
+      letter-spacing: 1.2px; text-transform: uppercase;
+      color: var(--vc-ink-muted); border-bottom: 1px solid var(--vc-border);
+      white-space: nowrap;
+    }
+    .cat-tabela td {
+      padding: .5rem .7rem; border-bottom: 1px solid var(--vc-border);
+      color: var(--vc-ink-soft); vertical-align: top;
+    }
+    .cat-tabela tr.confirmado td { background: rgba(46, 125, 50, .06); }
+    .cat-tabela tr.descartado td { opacity: .5; text-decoration: line-through; }
+    .cat-tabela tr.descartado td:last-child { text-decoration: none; opacity: 1; }
+    .cat-nome { font-weight: 600; color: var(--vc-ink); }
+    .cat-sem-versao { font-style: italic; color: var(--vc-ink-muted); font-weight: 400; }
+    .cat-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    /* Crachá de fonte: a linha inteira se resume a quem a avaliza. */
+    .cat-fontes { display: flex; flex-wrap: wrap; gap: .25rem; }
+    .cat-fonte {
+      font-size: 10.5px; padding: .1rem .45rem; border-radius: 3px;
+      background: var(--vc-surface-warm); color: var(--vc-ink-muted);
+      white-space: nowrap;
+    }
+    .cat-fonte--anuncios {
+      background: rgba(163, 106, 24, .14); color: var(--vc-accent-strong);
+      font-weight: 600;
+    }
+    .cat-so-uma { color: #B23A2E; font-size: 11px; }
+
+    /* ── Ações ── */
+    .cat-acoes { display: flex; gap: .3rem; flex-wrap: wrap; }
+    .cat-btn {
+      border: 1px solid var(--vc-border); background: var(--vc-white);
+      border-radius: var(--radius); padding: .25rem .6rem;
+      font-family: inherit; font-size: .8rem; cursor: pointer;
+      color: var(--vc-ink-soft); white-space: nowrap;
+    }
+    .cat-btn:hover { border-color: var(--vc-accent-strong); color: var(--vc-accent-strong); }
+    .cat-btn--ok:hover { border-color: #2E7D32; color: #2E7D32; }
+    .cat-btn--no:hover { border-color: #B23A2E; color: #B23A2E; }
+    .cat-btn[disabled] { opacity: .45; cursor: default; }
+
+    /* ── Edição inline ── */
+    .cat-editor td { background: var(--vc-surface-warm); }
+    .cat-editor-campos {
+      display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end;
+    }
+    .cat-editor-campos label {
+      display: flex; flex-direction: column; gap: .25rem;
+      font-size: 10px; letter-spacing: 1.2px; text-transform: uppercase;
+      color: var(--vc-ink-muted);
+    }
+    .cat-editor-campos input {
+      padding: .35rem .5rem; border: 1px solid var(--vc-border);
+      border-radius: var(--radius); font-family: inherit; font-size: .9rem;
+    }
+    .cat-editor-campos input[type="number"] { width: 88px; }
+    .cat-editor-erro { color: #B23A2E; font-size: .85rem; margin-top: .5rem; }
+    .cat-editor-fontes {
+      margin-top: .6rem; font-size: .82rem; color: var(--vc-ink-muted);
+    }
+
+    /* ── Paginação ── */
+    .cat-paginacao {
+      display: flex; align-items: center; gap: .75rem;
+      margin-top: 1.25rem; flex-wrap: wrap;
+    }
+    .cat-vazio, .cat-carregando {
+      padding: 2rem 0; color: var(--vc-ink-muted); text-align: center;
+    }
+    .cat-lista.carregando { opacity: .5; pointer-events: none; }
+    .cat-nota { font-size: 13px; color: var(--vc-ink-muted); margin: -.5rem 0 1rem; }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="top-header">
+    <div class="header-inner">
+      <a href="/" class="logo" aria-label="Valor Clássico — Início">
+        <img src="/static/LogoValorClassico.png" alt="Valor Clássico" class="logo-img">
+      </a>
+      <span class="admin-badge-header">Painel Administrativo</span>
+      <nav class="header-nav">
+        <a href="/admin">Painel</a>
+        <a href="/admin/anuncios">Anúncios</a>
+        <a href="/admin/dashboard">Dashboard</a>
+        <a href="/admin/calculadora">Calculadora</a>
+        <a href="/admin/pendencias">Pendências</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="admin-main admin-main--largo container">
+
+    <div class="admin-page-header">
+      <h1 class="admin-title">Catálogo definitivo</h1>
+      <p class="admin-sub">
+        As <strong>sete fontes</strong> de marca, modelo e versão numa tabela só — anúncios
+        coletados, catálogo da Webmotors, suplementos, catálogo estrangeiro e vocabulário de
+        trim. Confirme, corrija ou descarte cada combinação pra formar o catálogo definitivo.
+        <strong>Nada aqui altera os anúncios coletados:</strong> a curadoria grava num arquivo
+        próprio, e a base segue como registro do que foi encontrado.
+      </p>
+    </div>
+
+    <!-- Contadores, que também são filtros: clicar numa pilula recorta a lista -->
+    <div class="cat-resumo" id="cat-resumo"></div>
+
+    <div class="cat-filtros">
+      <div class="cat-grupo">
+        <label for="cat-busca">Buscar</label>
+        <input type="search" id="cat-busca" placeholder="marca, modelo ou versão" />
+      </div>
+      <div class="cat-grupo">
+        <label for="cat-marca">Marca</label>
+        <select id="cat-marca"><option value="">Todas</option></select>
+      </div>
+      <div class="cat-grupo">
+        <label for="cat-fonte">Fonte</label>
+        <select id="cat-fonte"><option value="">Qualquer</option></select>
+      </div>
+      <div class="cat-grupo">
+        <label for="cat-situacao">Situação</label>
+        <select id="cat-situacao">
+          <option value="">Todas</option>
+          <option value="pendente">Pendente</option>
+          <option value="confirmado">Confirmado</option>
+          <option value="descartado">Descartado</option>
+        </select>
+      </div>
+      <div class="cat-grupo">
+        <label for="cat-ordem">Ordenar por</label>
+        <select id="cat-ordem">
+          <option value="relevancia">Mais anúncios primeiro</option>
+          <option value="alfabetica">Alfabética</option>
+          <option value="fontes">Menos fontes primeiro</option>
+        </select>
+      </div>
+      <div class="cat-grupo">
+        <label for="cat-por-pagina">Por página</label>
+        <select id="cat-por-pagina">
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+      <div class="cat-grupo cat-caixas">
+        <label><input type="checkbox" id="cat-so-anuncios" /> Só com anúncios nossos</label>
+        <label><input type="checkbox" id="cat-uma-fonte" /> Só com uma fonte</label>
+      </div>
+      <div class="cat-grupo">
+        <label for="cat-exportar">Exportar</label>
+        <select id="cat-exportar">
+          <option value="">Baixar CSV…</option>
+          <option value="confirmado">Confirmados</option>
+          <option value="pendente">Pendentes</option>
+          <option value="descartado">Descartados</option>
+        </select>
+      </div>
+    </div>
+
+    <p class="cat-nota" id="cat-nota"></p>
+
+    <div class="cat-lista" id="cat-lista">
+      <div class="cat-tabela-wrap">
+        <table class="cat-tabela">
+          <thead>
+            <tr>
+              <th>Marca</th>
+              <th>Modelo</th>
+              <th>Versão</th>
+              <th class="cat-num">Anos</th>
+              <th class="cat-num">Anúncios</th>
+              <th>Fontes</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="cat-tbody"></tbody>
+        </table>
+      </div>
+      <p class="cat-vazio hidden" id="cat-vazio">Nenhuma combinação com esses filtros.</p>
+    </div>
+
+    <div class="cat-paginacao">
+      <button class="cat-btn" id="cat-anterior">← Anterior</button>
+      <span id="cat-pagina-info"></span>
+      <button class="cat-btn" id="cat-proxima">Próxima →</button>
+    </div>
+
+  </main>
+
+  <script src="/static/catalogo.js"></script>
+</body>
+</html>

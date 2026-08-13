@@ -47,6 +47,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 load_dotenv(Path(__file__).parent / ".env")
 
 from src.catalog.externo import registrar_decisao_alias
+from src.catalog.unificado import (
+    FONTES as FONTES_CATALOGO,
+    SITUACOES as SITUACOES_CATALOGO,
+    decidir as decidir_catalogo,
+    exportar_definitivo,
+    listar as listar_catalogo,
+    marcas_disponiveis,
+    resumo as resumo_catalogo,
+)
 from src.pipeline.backup import fazer_backup
 from src.pipeline.pendencias import (
     ABA_ARQUIVO,
@@ -181,6 +190,11 @@ def admin_calculadora():
 @app.route("/admin/pendencias")
 def admin_pendencias():
     return send_from_directory(".", "pendencias.html")
+
+
+@app.route("/admin/catalogo")
+def admin_catalogo():
+    return send_from_directory(".", "catalogo.html")
 
 
 # ──────────────────────────────────────────────────────
@@ -683,6 +697,131 @@ def admin_api_exportar_pendencias():
         return resp
     except Exception as exc:
         logger.error("admin_api_exportar_pendencias erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/catalogo")
+def admin_api_catalogo():
+    """
+    Catálogo unificado, paginado: as sete fontes de marca/modelo/versão
+    numa tabela só (ver `src.catalog.unificado`).
+
+    São 20 mil trios — a página nunca pede todos. `resumo` e `marcas` vêm
+    junto na primeira chamada pra a tela montar filtros e contadores sem uma
+    segunda ida ao servidor; nas seguintes ela pede `?so_linhas=1`, porque o
+    resumo custa varrer o índice inteiro e não muda entre páginas.
+    """
+    try:
+        pagina = int(request.args.get("pagina", "1") or 1)
+        por_pagina = int(request.args.get("por_pagina", "100") or 100)
+    except ValueError:
+        return jsonify({"erro": "pagina e por_pagina devem ser números."}), 400
+
+    situacao = request.args.get("situacao", "").strip() or None
+    if situacao and situacao not in SITUACOES_CATALOGO:
+        return jsonify({
+            "erro": f"situacao deve ser uma de: {', '.join(SITUACOES_CATALOGO)}."
+        }), 400
+
+    fonte = request.args.get("fonte", "").strip() or None
+    if fonte and fonte not in FONTES_CATALOGO:
+        return jsonify({
+            "erro": f"fonte deve ser uma de: {', '.join(FONTES_CATALOGO)}."
+        }), 400
+
+    try:
+        dados = listar_catalogo(
+            marca=request.args.get("marca", "").strip() or None,
+            busca=request.args.get("busca", "").strip() or None,
+            fonte=fonte,
+            situacao=situacao,
+            so_com_anuncios=request.args.get("so_com_anuncios", "").strip() == "1",
+            apenas_uma_fonte=request.args.get("apenas_uma_fonte", "").strip() == "1",
+            ordem=request.args.get("ordem", "relevancia").strip() or "relevancia",
+            pagina=pagina,
+            por_pagina=por_pagina,
+        )
+        if request.args.get("so_linhas", "").strip() != "1":
+            dados["resumo"] = resumo_catalogo()
+            dados["marcas"] = marcas_disponiveis()
+        return jsonify(dados)
+    except Exception as exc:
+        logger.error("admin_api_catalogo erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/catalogo-decidir", methods=["POST"])
+def admin_api_catalogo_decidir():
+    """
+    Grava a curadoria de um trio: confirmar, editar ou descartar.
+
+    NÃO altera anúncio nenhum — decisão da usuária em 2026-08-12. O que sai
+    daqui vai pro data/catalogo_definitivo.csv e a base coletada segue
+    intacta como registro do que foi encontrado.
+
+    A chave é o trio de ORIGEM, e ela é obrigatória: sem isso, corrigir o
+    nome de um modelo perderia o vínculo com a linha que originou a decisão.
+    """
+    dados = request.get_json(silent=True) or {}
+
+    def texto(chave: str) -> Optional[str]:
+        valor = dados.get(chave)
+        return valor.strip() if isinstance(valor, str) and valor.strip() else None
+
+    def ano(chave: str) -> Optional[int]:
+        valor = dados.get(chave)
+        if valor in (None, ""):
+            return None
+        try:
+            return int(valor)
+        except (TypeError, ValueError):
+            raise ValueError(f"{chave} deve ser um ano de 4 dígitos.")
+
+    try:
+        resultado = decidir_catalogo(
+            marca_origem=dados.get("marca_origem", "") or "",
+            modelo_origem=dados.get("modelo_origem", "") or "",
+            versao_origem=dados.get("versao_origem", "") or "",
+            situacao=(dados.get("situacao") or "").strip(),
+            marca=texto("marca"),
+            modelo=texto("modelo"),
+            # Versão aceita string vazia como valor legítimo ("esta linha é o
+            # modelo sem versão"), então não passa pelo `texto`, que a
+            # transformaria em None e faria herdar a origem.
+            versao=dados["versao"].strip() if isinstance(dados.get("versao"), str) else None,
+            ano_min=ano("ano_min"),
+            ano_max=ano("ano_max"),
+        )
+        logger.info("catalogo-decidir: %s %s %s -> %s",
+                    dados.get("marca_origem"), dados.get("modelo_origem"),
+                    dados.get("versao_origem"), resultado.get("situacao"))
+        return jsonify({"ok": True, **resultado})
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except Exception as exc:
+        logger.error("admin_api_catalogo_decidir erro: %s", exc, exc_info=True)
+        return jsonify({"erro": str(exc)}), 500
+
+
+@app.route("/admin/api/exportar-catalogo")
+def admin_api_exportar_catalogo():
+    """
+    Baixa o catálogo curado em CSV — por padrão só o confirmado, que é o
+    produto da triagem. `?situacao=descartado` serve pra revisar o que foi
+    jogado fora, e `pendente` pra levar a fila pra fora do painel.
+    """
+    situacao = request.args.get("situacao", "confirmado").strip() or "confirmado"
+    if situacao not in SITUACOES_CATALOGO:
+        return jsonify({
+            "erro": f"situacao deve ser uma de: {', '.join(SITUACOES_CATALOGO)}."
+        }), 400
+    try:
+        colunas, linhas = exportar_definitivo(situacao)
+        resp = _csv_streaming(linhas, colunas, f"catalogo_{situacao}")
+        resp.headers["X-Total-Linhas"] = str(len(linhas))
+        return resp
+    except Exception as exc:
+        logger.error("admin_api_exportar_catalogo erro: %s", exc, exc_info=True)
         return jsonify({"erro": str(exc)}), 500
 
 
