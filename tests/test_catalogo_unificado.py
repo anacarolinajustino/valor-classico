@@ -176,12 +176,87 @@ class TestFiltros:
         d = catalogo.listar(ordem="relevancia")
         assert d["linhas"][0]["n_anuncios"] == 120
 
+    def test_paginacao_nao_muda_de_criterio(self, catalogo):
+        """
+        A ordenação é do servidor sobre o conjunto INTEIRO. Se fosse do
+        navegador, cada página seria ordenada por conta própria e a lista
+        mudaria de critério a cada 100 linhas.
+        """
+        inteiro = [l["marca"] for l in catalogo.listar(ordem="marca", por_pagina=500)["linhas"]]
+        aos_pares = []
+        for p in range(1, 6):
+            aos_pares += [l["marca"] for l in
+                          catalogo.listar(ordem="marca", pagina=p, por_pagina=2)["linhas"]]
+        assert aos_pares == inteiro
+
     def test_paginacao(self, catalogo):
         p1 = catalogo.listar(pagina=1, por_pagina=2)
         p2 = catalogo.listar(pagina=2, por_pagina=2)
         assert len(p1["linhas"]) == 2
         assert p1["paginas"] == (p1["total"] + 1) // 2
         assert p1["linhas"][0] != p2["linhas"][0]
+
+
+class TestOrdenacao:
+    """Cada coluna ordena nos dois sentidos; '-' na frente inverte."""
+
+    def _valores(self, catalogo, ordem, campo):
+        return [l[campo] for l in catalogo.listar(ordem=ordem, por_pagina=500)["linhas"]]
+
+    @pytest.mark.parametrize("campo", ["marca", "modelo", "versao"])
+    def test_crescente_e_decrescente(self, catalogo, campo):
+        subindo = self._valores(catalogo, campo, campo)
+        descendo = self._valores(catalogo, "-" + campo, campo)
+        assert subindo == sorted(subindo)
+        assert descendo == sorted(descendo, reverse=True)
+
+    def test_por_ano(self, catalogo):
+        anos = [a for a in self._valores(catalogo, "anos", "ano_min") if a is not None]
+        assert anos == sorted(anos)
+        assert anos[0] == 1959      # FUSCA 1300, esticado pelo estrangeiro
+
+    def test_sem_ano_vai_pro_fim_nas_duas_direcoes(self, catalogo):
+        """
+        Invertida, a linha sem ano encabeçaria a lista com um vazio — o pior
+        lugar possível pra quem está procurando faixa.
+        """
+        for ordem in ("anos", "-anos"):
+            anos = self._valores(catalogo, ordem, "ano_min")
+            sem = [i for i, a in enumerate(anos) if a is None]
+            com = [i for i, a in enumerate(anos) if a is not None]
+            assert sem, "a fixture precisa ter linha sem ano (CORCEL GT)"
+            assert min(sem) > max(com)
+
+    def test_por_situacao_agrupa(self, catalogo):
+        catalogo.decidir("FORD", "CORCEL", "GT", "descartado")
+        catalogo.decidir("GURGEL", "XEF", "", "confirmado")
+        s = self._valores(catalogo, "situacao", "situacao")
+        assert s == sorted(s)
+        assert s[0] == "confirmado"
+
+    def test_desempate_e_estavel(self, catalogo):
+        """
+        Duas linhas iguais na coluna ordenada não podem trocar de lugar entre
+        uma carga e outra — senão a paginação repete e pula linhas.
+        """
+        uma = self._valores(catalogo, "marca", "versao")
+        outra = self._valores(catalogo, "marca", "versao")
+        assert uma == outra
+
+    def test_ordem_desconhecida_cai_no_padrao(self, catalogo):
+        chute = catalogo.listar(ordem="pelo-preco", por_pagina=500)["linhas"]
+        padrao = catalogo.listar(ordem="relevancia", por_pagina=500)["linhas"]
+        assert chute == padrao
+
+    def test_alfabetica_continua_valendo(self, catalogo):
+        """Nome antigo de 'marca': link salvo e script não podem quebrar."""
+        assert (self._valores(catalogo, "alfabetica", "marca")
+                == self._valores(catalogo, "marca", "marca"))
+
+    def test_pela_rota(self, client, catalogo):
+        d = client.get("/admin/api/catalogo?ordem=-marca&por_pagina=500").get_json()
+        marcas = [l["marca"] for l in d["linhas"]]
+        assert marcas == sorted(marcas, reverse=True)
 
 
 class TestDecidir:

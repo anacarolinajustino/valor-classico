@@ -28,10 +28,14 @@ const filtros = {
   busca:     el('cat-busca'),
   marca:     el('cat-marca'),
   situacao:  el('cat-situacao'),
-  ordem:     el('cat-ordem'),
   porPagina: el('cat-por-pagina'),
   soAnuncios: el('cat-so-anuncios'),
 };
+
+// Ordem corrente. O servidor entende "campo" e "-campo"; "relevancia" é o
+// padrão e é o único que não tem coluna correspondente.
+const ORDEM_PADRAO = 'relevancia';
+let ordem = ORDEM_PADRAO;
 
 let pagina = 1;
 // A procedência saiu da tabela, mas continua servindo o editor: é a faixa de
@@ -67,7 +71,7 @@ function params(extra = {}) {
   if (filtros.busca.value.trim()) p.set('busca', filtros.busca.value.trim());
   if (filtros.marca.value)     p.set('marca', filtros.marca.value);
   if (filtros.situacao.value)  p.set('situacao', filtros.situacao.value);
-  if (filtros.ordem.value)     p.set('ordem', filtros.ordem.value);
+  p.set('ordem', ordem);
   if (filtros.soAnuncios.checked) p.set('so_com_anuncios', '1');
   p.set('pagina', String(pagina));
   p.set('por_pagina', filtros.porPagina.value);
@@ -140,6 +144,37 @@ function renderResumo(r) {
   }, filtros.soAnuncios.checked));
 }
 
+/* ── Ordenação ──────────────────────────────────────────────────────── */
+
+/**
+ * Clique no cabeçalho: primeiro clique ordena crescente, o segundo inverte,
+ * o terceiro volta ao padrão. O terceiro estado existe pra dar saída — sem
+ * ele, escolher uma coluna por engano prenderia a lista nela.
+ */
+function alternarOrdem(campo) {
+  if (ordem === campo) ordem = '-' + campo;
+  else if (ordem === '-' + campo) ordem = ORDEM_PADRAO;
+  else ordem = campo;
+  reiniciar();
+}
+
+// Setas e destaque saem do estado, não do clique: assim o botão "Ordem
+// padrão" também limpa a indicação, sem precisar saber quem estava ativo.
+function pintarCabecalhos() {
+  const campo = ordem.startsWith('-') ? ordem.slice(1) : ordem;
+  const dir = ordem.startsWith('-') ? 'desc' : 'asc';
+  for (const b of document.querySelectorAll('.cat-ord')) {
+    const th = b.closest('th');
+    if (b.dataset.ordem === campo) {
+      b.dataset.dir = dir;
+      th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+    } else {
+      delete b.dataset.dir;
+      th.removeAttribute('aria-sort');
+    }
+  }
+}
+
 /* ── Tabela ─────────────────────────────────────────────────────────── */
 
 function celula(texto, classe) {
@@ -185,6 +220,7 @@ function celulaAcoes(l) {
 }
 
 function renderTabela(dados) {
+  pintarCabecalhos();
   tbody.replaceChildren();
   const linhas = dados.linhas || [];
   vazio.classList.toggle('hidden', linhas.length > 0);
@@ -351,8 +387,16 @@ filtros.busca.addEventListener('input', () => {
   clearTimeout(debounce);
   debounce = setTimeout(reiniciar, 300);
 });
-['marca', 'situacao', 'ordem', 'porPagina', 'soAnuncios'].forEach(k =>
+['marca', 'situacao', 'porPagina', 'soAnuncios'].forEach(k =>
   filtros[k].addEventListener('change', reiniciar));
+
+for (const b of document.querySelectorAll('.cat-ord')) {
+  b.addEventListener('click', () => alternarOrdem(b.dataset.ordem));
+}
+el('cat-ordem-padrao').addEventListener('click', () => {
+  ordem = ORDEM_PADRAO;
+  reiniciar();
+});
 
 el('cat-anterior').addEventListener('click', () => { pagina--; editando = null; carregar(); });
 el('cat-proxima').addEventListener('click', () => { pagina++; editando = null; carregar(); });

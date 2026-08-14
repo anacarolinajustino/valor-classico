@@ -70,6 +70,41 @@ Sobrevive um lugar onde a procedência aparece: **dentro do editor**, na linha
 estrangeiro diz 1959–1986 e os anúncios dizem 1962–1996 é a evidência que
 justifica o número escolhido. Fora do editor, não aparece em lugar nenhum.
 
+## Ordenar
+
+Clique no cabeçalho da coluna: o primeiro clique ordena crescente, o segundo
+inverte, o terceiro volta ao padrão. O terceiro estado existe pra dar saída —
+sem ele, escolher uma coluna por engano prenderia a lista nela. O botão
+"Ordem padrão" também limpa.
+
+Ordenam **Marca**, **Modelo**, **Versão**, **Anos** e **Ações** (esta última
+agrupa por situação: confirmado, descartado, pendente).
+
+A ordenação é feita **no servidor, sobre o conjunto inteiro**. Ordenar no
+navegador ordenaria só as 100 linhas à vista, e a lista mudaria de critério a
+cada página.
+
+Linha sem ano vai pro fim nas duas direções da ordenação por ano. Invertida,
+ela encabeçaria a lista com um vazio — o pior lugar possível pra quem está
+procurando faixa.
+
+## O que a ordenação por ano revela
+
+Ordenar por **Anos** é a maneira mais rápida de achar dado ruim, porque o
+catálogo unificado **não é filtrado por ano** (diferente da base de anúncios,
+que corta em 2000):
+
+- **2.395 combinações com ano acima de 2000** — Chevrolet Montana 2023–2025 e
+  companhia, que vieram do catálogo da Webmotors e estão fora do escopo de
+  carro clássico.
+- **5.597 sem ano nenhum** — a maioria do vocabulário de trim, que não traz
+  faixa.
+- **1 com ano abaixo de 1900** — `BUGRE III 1796–1977`, erro do
+  `base_dados_webmotors.csv`.
+
+Nada disso é filtrado automaticamente: são justamente as linhas que a
+curadoria existe pra descartar.
+
 ## Por onde começar
 
 Os contadores no topo são clicáveis e recortam a lista.

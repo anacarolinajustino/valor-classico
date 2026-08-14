@@ -52,11 +52,25 @@
     .cat-tabela-wrap { overflow-x: auto; }
     .cat-tabela { width: 100%; border-collapse: collapse; font-size: .9rem; }
     .cat-tabela th {
-      text-align: left; padding: .5rem .7rem; font-size: 10px;
+      text-align: left; padding: 0; font-size: 10px;
       letter-spacing: 1.2px; text-transform: uppercase;
       color: var(--vc-ink-muted); border-bottom: 1px solid var(--vc-border);
       white-space: nowrap;
     }
+    /* Botão, não <th> com onclick: tem foco de teclado e Enter de graça. */
+    .cat-ord {
+      width: 100%; padding: .5rem .7rem; background: none; border: none;
+      font: inherit; letter-spacing: inherit; text-transform: inherit;
+      color: inherit; text-align: inherit; cursor: pointer;
+    }
+    .cat-num .cat-ord { text-align: right; }
+    .cat-ord:hover { color: var(--vc-accent-strong); }
+    .cat-ord::after {
+      content: " ↕"; opacity: .35; font-size: 11px;
+    }
+    .cat-ord[data-dir="asc"]::after  { content: " ↑"; opacity: 1; }
+    .cat-ord[data-dir="desc"]::after { content: " ↓"; opacity: 1; }
+    .cat-ord[data-dir] { color: var(--vc-accent-strong); font-weight: 700; }
     .cat-tabela td {
       padding: .5rem .7rem; border-bottom: 1px solid var(--vc-border);
       color: var(--vc-ink-soft); vertical-align: top;
@@ -175,15 +189,15 @@
           <option value="descartado">Descartado</option>
         </select>
       </div>
+      <!-- A ordenação saiu daqui pros cabeçalhos da tabela, que é onde se
+           procura por ela. Este botão só existe pra voltar ao padrão sem ter
+           que adivinhar qual coluna estava ativa. -->
       <div class="cat-grupo">
-        <label for="cat-ordem">Ordenar por</label>
-        <select id="cat-ordem">
-          <!-- "Relevância" continua sendo a contagem de anúncios por trás,
-               mas ela não é mais exibida: o rótulo não pode prometer uma
-               coluna que a tabela não tem. -->
-          <option value="relevancia">Mais relevantes primeiro</option>
-          <option value="alfabetica">Alfabética</option>
-        </select>
+        <label for="cat-ordem-padrao">Ordem</label>
+        <button class="cat-btn" id="cat-ordem-padrao"
+                title="Volta à ordem padrão: as combinações mais relevantes primeiro">
+          Ordem padrão
+        </button>
       </div>
       <div class="cat-grupo">
         <label for="cat-por-pagina">Por página</label>
@@ -217,12 +231,16 @@
       <div class="cat-tabela-wrap">
         <table class="cat-tabela">
           <thead>
+            <!-- Ordenar é do cabeçalho, não de um select à parte: numa
+                 tabela é aqui que se procura. `data-ordem` é a chave que vai
+                 pro servidor — ordenar no navegador ordenaria só as 100
+                 linhas à vista, e a lista mudaria de critério a cada página. -->
             <tr>
-              <th>Marca</th>
-              <th>Modelo</th>
-              <th>Versão</th>
-              <th class="cat-num">Anos</th>
-              <th>Ações</th>
+              <th><button class="cat-ord" data-ordem="marca">Marca</button></th>
+              <th><button class="cat-ord" data-ordem="modelo">Modelo</button></th>
+              <th><button class="cat-ord" data-ordem="versao">Versão</button></th>
+              <th class="cat-num"><button class="cat-ord" data-ordem="anos">Anos</button></th>
+              <th><button class="cat-ord" data-ordem="situacao">Ações</button></th>
             </tr>
           </thead>
           <tbody id="cat-tbody"></tbody>

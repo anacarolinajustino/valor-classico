@@ -375,11 +375,45 @@ def _montar_linha(bruta: dict[str, Any], decisao: Optional[dict[str, Any]]) -> d
 # Ordem padrão: quem tem mais anúncio primeiro. Triar 20 mil linhas é
 # inviável, e ordenar por relevância faz o esforço render - as combinações
 # com anúncio são as que afetam o índice publicado.
+#
+# Cada campo aceita o prefixo "-" pra inverter ("-marca" = Z→A). Os critérios
+# de desempate são fixos e alfabéticos: sem eles, duas linhas iguais na
+# coluna ordenada trocariam de lugar entre uma página e outra.
 ORDENS = {
     "relevancia": lambda l: (-l["n_anuncios"], l["marca"], l["modelo"], l["versao"]),
+    "marca": lambda l: (l["marca"], l["modelo"], l["versao"]),
+    "modelo": lambda l: (l["modelo"], l["marca"], l["versao"]),
+    "versao": lambda l: (l["versao"], l["marca"], l["modelo"]),
+    "anos": lambda l: (l["ano_min"], l["ano_max"] or l["ano_min"],
+                       l["marca"], l["modelo"]),
+    "situacao": lambda l: (l["situacao"], -l["n_anuncios"], l["marca"], l["modelo"]),
+    # Nome antigo de "marca", mantido pra não quebrar link salvo nem chamada
+    # de script.
     "alfabetica": lambda l: (l["marca"], l["modelo"], l["versao"]),
-    "fontes": lambda l: (len(l["fontes"]), -l["n_anuncios"]),
 }
+
+ORDEM_PADRAO = "relevancia"
+
+
+def _ordenar(linhas: list[dict[str, Any]], ordem: str) -> list[dict[str, Any]]:
+    """Ordena no lugar e devolve. `ordem` com "-" na frente inverte."""
+    desc = ordem.startswith("-")
+    campo = ordem[1:] if desc else ordem
+    if campo not in ORDENS:
+        campo, desc = ORDEM_PADRAO, False
+
+    if campo == "anos":
+        # Linha sem ano não tem posição numa ordenação por ano. Vai pro fim
+        # nas DUAS direções: invertida, ela encabeçaria a lista com um vazio,
+        # que é o pior lugar possível pra quem está procurando faixa.
+        com = [l for l in linhas if l["ano_min"] is not None]
+        sem = [l for l in linhas if l["ano_min"] is None]
+        com.sort(key=ORDENS["anos"], reverse=desc)
+        sem.sort(key=ORDENS["marca"])
+        return com + sem
+
+    linhas.sort(key=ORDENS[campo], reverse=desc)
+    return linhas
 
 
 def listar(
@@ -389,7 +423,7 @@ def listar(
     situacao: Optional[str] = None,
     so_com_anuncios: bool = False,
     apenas_uma_fonte: bool = False,
-    ordem: str = "relevancia",
+    ordem: str = ORDEM_PADRAO,
     pagina: int = 1,
     por_pagina: int = 100,
 ) -> dict[str, Any]:
@@ -399,6 +433,11 @@ def listar(
     `apenas_uma_fonte` isola os 13 mil trios que uma fonte só avaliza - é
     onde mora tanto o achado legítimo quanto o lixo, e é o recorte que mais
     precisa de olho humano.
+
+    `ordem` aceita qualquer chave de ORDENS, com "-" na frente pra inverter.
+    Ordenar aqui e não no navegador é o que faz a paginação significar
+    alguma coisa: ordenar só a página à vista daria uma lista que muda de
+    critério a cada 100 linhas.
     """
     indice = construir_indice()
     decisoes = carregar_decisoes()
@@ -424,7 +463,7 @@ def listar(
             continue
         linhas.append(linha)
 
-    linhas.sort(key=ORDENS.get(ordem, ORDENS["relevancia"]))
+    linhas = _ordenar(linhas, ordem)
 
     total = len(linhas)
     por_pagina = max(1, min(int(por_pagina), 500))
