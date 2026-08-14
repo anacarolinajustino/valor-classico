@@ -27,15 +27,15 @@ const paginaInfo = el('cat-pagina-info');
 const filtros = {
   busca:     el('cat-busca'),
   marca:     el('cat-marca'),
-  fonte:     el('cat-fonte'),
   situacao:  el('cat-situacao'),
   ordem:     el('cat-ordem'),
   porPagina: el('cat-por-pagina'),
   soAnuncios: el('cat-so-anuncios'),
-  umaFonte:  el('cat-uma-fonte'),
 };
 
 let pagina = 1;
+// A procedência saiu da tabela, mas continua servindo o editor: é a faixa de
+// cada fonte que justifica mexer (ou não) nos anos.
 let rotulosFonte = {};
 let primeiraCarga = true;
 // Qual linha está com o editor aberto, pela chave de origem. Guardado por
@@ -66,11 +66,9 @@ function params(extra = {}) {
   const p = new URLSearchParams();
   if (filtros.busca.value.trim()) p.set('busca', filtros.busca.value.trim());
   if (filtros.marca.value)     p.set('marca', filtros.marca.value);
-  if (filtros.fonte.value)     p.set('fonte', filtros.fonte.value);
   if (filtros.situacao.value)  p.set('situacao', filtros.situacao.value);
   if (filtros.ordem.value)     p.set('ordem', filtros.ordem.value);
   if (filtros.soAnuncios.checked) p.set('so_com_anuncios', '1');
-  if (filtros.umaFonte.checked)   p.set('apenas_uma_fonte', '1');
   p.set('pagina', String(pagina));
   p.set('por_pagina', filtros.porPagina.value);
   Object.entries(extra).forEach(([k, v]) => p.set(k, v));
@@ -99,15 +97,11 @@ async function carregar() {
   }
 }
 
-// Marca e fonte só na primeira carga: são a lista completa, e recarregá-las a
-// cada página faria a seleção do usuário piscar.
+// Só na primeira carga: é a lista completa de marcas, e recarregá-la a cada
+// página faria a seleção do usuário piscar.
 function montarFiltrosFixos(dados) {
   for (const m of dados.marcas || []) {
     filtros.marca.append(new Option(`${m.marca} (${FMT_INT.format(m.qtd)})`, m.marca));
-  }
-  for (const [chave, rotulo] of Object.entries(rotulosFonte)) {
-    const n = dados.resumo.por_fonte[chave] || 0;
-    filtros.fonte.append(new Option(`${rotulo} (${FMT_INT.format(n)})`, chave));
   }
 }
 
@@ -140,15 +134,10 @@ function renderResumo(r) {
     }, filtros.situacao.value === chave));
   }
 
-  resumoBox.append(pilula('Com anúncios', r.com_anuncios, () => {
+  resumoBox.append(pilula('Aparecem em anúncios', r.com_anuncios, () => {
     filtros.soAnuncios.checked = !filtros.soAnuncios.checked;
     reiniciar();
   }, filtros.soAnuncios.checked));
-
-  resumoBox.append(pilula('Com uma fonte só', r.uma_fonte, () => {
-    filtros.umaFonte.checked = !filtros.umaFonte.checked;
-    reiniciar();
-  }, filtros.umaFonte.checked));
 }
 
 /* ── Tabela ─────────────────────────────────────────────────────────── */
@@ -157,32 +146,6 @@ function celula(texto, classe) {
   const td = document.createElement('td');
   if (classe) td.className = classe;
   td.textContent = texto;
-  return td;
-}
-
-function celulaFontes(l) {
-  const td = document.createElement('td');
-  const caixa = document.createElement('div');
-  caixa.className = 'cat-fontes';
-  for (const f of l.fontes) {
-    const s = document.createElement('span');
-    s.className = 'cat-fonte' + (f === 'anuncios' ? ' cat-fonte--anuncios' : '');
-    s.textContent = rotulosFonte[f] || f;
-    const [a1, a2] = l.anos_por_fonte[f] || [null, null];
-    // A faixa de cada fonte fica no tooltip: quando duas discordam, é aqui
-    // que se vê qual delas está esticando o intervalo exibido.
-    s.title = (a1 || a2) ? `${rotulosFonte[f] || f}: ${a1 ?? '?'}–${a2 ?? '?'}`
-                         : `${rotulosFonte[f] || f}: sem anos`;
-    caixa.append(s);
-  }
-  if (l.fontes.length === 1) {
-    const aviso = document.createElement('span');
-    aviso.className = 'cat-so-uma';
-    aviso.textContent = '⚠ fonte única';
-    aviso.title = 'Nenhuma outra fonte confirma esta combinação';
-    caixa.append(aviso);
-  }
-  td.append(caixa);
   return td;
 }
 
@@ -238,8 +201,6 @@ function renderTabela(dados) {
     tr.append(tdVersao);
 
     tr.append(celula(faixaAnos(l), 'cat-num'));
-    tr.append(celula(l.n_anuncios ? FMT_INT.format(l.n_anuncios) : '—', 'cat-num'));
-    tr.append(celulaFontes(l));
     tr.append(celulaAcoes(l));
     tbody.append(tr);
 
@@ -279,7 +240,7 @@ function linhaEditor(l) {
   const tr = document.createElement('tr');
   tr.className = 'cat-editor';
   const td = document.createElement('td');
-  td.colSpan = 7;
+  td.colSpan = 5;
 
   const campos = document.createElement('div');
   campos.className = 'cat-editor-campos';
@@ -390,9 +351,7 @@ filtros.busca.addEventListener('input', () => {
   clearTimeout(debounce);
   debounce = setTimeout(reiniciar, 300);
 });
-['marca', 'fonte', 'situacao', 'ordem', 'porPagina'].forEach(k =>
-  filtros[k].addEventListener('change', reiniciar));
-['soAnuncios', 'umaFonte'].forEach(k =>
+['marca', 'situacao', 'ordem', 'porPagina', 'soAnuncios'].forEach(k =>
   filtros[k].addEventListener('change', reiniciar));
 
 el('cat-anterior').addEventListener('click', () => { pagina--; editando = null; carregar(); });

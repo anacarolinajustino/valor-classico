@@ -55,22 +55,32 @@ carga e a decisão se sobrepõe a ele por essa chave.
 Sem isso, corrigir "GOL CL" para "GOL CL 1.6" perderia o vínculo com a linha
 que originou a decisão, e ela reapareceria como pendente na carga seguinte.
 
+## A tabela mostra só o que se decide
+
+Marca, modelo, versão, anos e as ações. **A procedência e a contagem de
+anúncios saíram da tabela** (2026-08-13): a pergunta ali é "este carro existe
+e com que anos", e de onde a informação veio não muda a resposta.
+
+A unificação continua acontecendo por trás — as sete fontes seguem sendo
+lidas e a faixa exibida continua sendo a união delas. O que mudou é o que a
+tela mostra.
+
+Sobrevive um lugar onde a procedência aparece: **dentro do editor**, na linha
+"Origem". Quando se está mexendo em `ano_min`/`ano_max`, saber que o catálogo
+estrangeiro diz 1959–1986 e os anúncios dizem 1962–1996 é a evidência que
+justifica o número escolhido. Fora do editor, não aparece em lugar nenhum.
+
 ## Por onde começar
 
 Os contadores no topo são clicáveis e recortam a lista.
 
-1. **Com anúncios** (2.770) — são as combinações que afetam o índice
-   publicado. Triar aqui rende mais que triar as outras 17 mil.
-2. **Com uma fonte só** (13.472) — onde mora tanto o achado legítimo quanto o
-   lixo. Combinado com "com anúncios", isola o que só os nossos anúncios
-   afirmam e nenhum catálogo confirma: 2.499 trios, e é o recorte mais
-   suspeito da base.
-3. Ordenar por **menos fontes primeiro** dentro de uma marca dá a fila de
-   maior risco daquela marca.
+**Aparecem em anúncios** (2.770) é o recorte que rende: são as combinações
+que o mercado de fato mostrou, e as únicas que afetam o índice publicado.
+Triar as outras 17 mil, que vieram só de catálogo, é trabalho sem retorno
+imediato.
 
-O crachá de cada fonte tem a faixa de anos dela no tooltip. Quando duas
-discordam, o intervalo exibido é a união — e é no tooltip que se vê qual das
-duas está esticando.
+Depois disso, filtrar por marca e ordenar alfabeticamente dá uma fila
+previsível — dá pra fechar uma marca inteira por vez.
 
 ## Exportar
 
