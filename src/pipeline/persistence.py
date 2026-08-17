@@ -107,6 +107,46 @@ _DDL_STATEMENTS = [
     # Aditivo/idempotente, como as duas colunas acima.
     "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS geracao TEXT",
     "ALTER TABLE anuncios ADD COLUMN IF NOT EXISTS motor TEXT",
+    # ── Série histórica mensal ────────────────────────────────────────────
+    #
+    # `anuncios` é o retrato do mercado AGORA: o upsert sobrescreve o preço
+    # de quem continua no ar, e sem esta tabela a coleta de agosto apagaria
+    # os preços de julho sem deixar cópia.
+    #
+    # Guarda o anúncio CRU, não o agregado (decisão da usuária 2026-08-14).
+    # São ~33 mil linhas por mês, o que é nada pro Postgres, e compra o que o
+    # agregado não compra: recalcular o índice de qualquer mês passado quando
+    # a curva for recalibrada ou a curadoria do catálogo avançar. Guardando
+    # só médias, cada mês ficaria congelado com a fórmula da época.
+    """
+    CREATE TABLE IF NOT EXISTS anuncios_snapshot (
+        id             SERIAL PRIMARY KEY,
+        competencia    TEXT    NOT NULL,
+        fonte          TEXT    NOT NULL,
+        url            TEXT    NOT NULL,
+        titulo         TEXT    NOT NULL,
+        marca          TEXT,
+        modelo         TEXT,
+        versao         TEXT,
+        geracao        TEXT,
+        motor          TEXT,
+        obs            TEXT,
+        ano            INTEGER,
+        preco          REAL,
+        primeira_vista TEXT    NOT NULL,
+        ultima_vista   TEXT    NOT NULL
+    )
+    """,
+    # Fechar a mesma competência duas vezes não pode duplicar linha.
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_chave
+        ON anuncios_snapshot (competencia, fonte, url)
+    """,
+    # Recalcular o índice de um mês passa sempre por (competência, par).
+    """
+    CREATE INDEX IF NOT EXISTS idx_snapshot_lookup
+        ON anuncios_snapshot (competencia, marca, modelo)
+    """,
 ]
 
 # ── Conexão ───────────────────────────────────────────────────────────────────
