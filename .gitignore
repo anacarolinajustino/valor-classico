@@ -43,3 +43,6 @@ data/catalogo_definitivo.csv
 # Token OAuth do Mercado Livre (segredo de longa duracao)
 data/.ml_token.json
 data/.ml_token.tmp
+
+# Backups de snapshot (o dado vive no Postgres; o CSV.gz e a 3a copia)
+backups/snapshots/
