@@ -91,9 +91,11 @@ def _mostrar(diag: dict) -> None:
         for c in diag["colapsadas"]:
             print(f"     {c['fonte']:<24}{c['antes']:>6} -> {c['vistos']:<6}"
                   f"  perda {c['perda']:.0%}")
+        fontes = ",".join(c["fonte"] for c in diag["colapsadas"])
         print("\n  Recolete essas fontes antes de fechar:")
-        print(f"     python scripts/coletar_todas.py --so "
-              f"{','.join(c['fonte'] for c in diag['colapsadas'])}")
+        print(f"     python scripts/coletar_todas.py --so {fontes}")
+        print("  Se conferiu e a queda é real, nomeie a fonte:")
+        print(f"     ... --aplicar --permitir-colapso {fontes}")
 
     if diag["ja_no_snapshot"]:
         print(f"\n  ATENÇÃO: {diag['competencia']} já tem "
@@ -110,12 +112,12 @@ def main() -> int:
                    help="grava o snapshot sem apagar os anúncios mortos")
     p.add_argument("--refazer", action="store_true",
                    help="sobrescreve um snapshot já existente")
-    p.add_argument("--permitir-colapso", action="store_true",
+    p.add_argument("--permitir-colapso", metavar="FONTES", default="",
                    # O %% é obrigatório: argparse passa o help por interpolação
                    # de string, e um % solto derruba o parser inteiro na
                    # montagem dos argumentos.
-                   help="fecha mesmo com fonte que perdeu mais de 70%% "
-                        "(use só quando a queda for real)")
+                   help="fontes (separadas por vírgula) cuja perda de mais de "
+                        "70%% já foi conferida e é real")
     args = p.parse_args()
 
     if not args.competencia:
@@ -143,7 +145,7 @@ def main() -> int:
     try:
         r = fechar(args.competencia, purgar=not args.sem_purga,
                    refazer=args.refazer,
-                   permitir_colapso=args.permitir_colapso)
+                   permitir_colapso=args.permitir_colapso.split(","))
     except ValueError as exc:
         print(f"\nErro: {exc}")
         return 1

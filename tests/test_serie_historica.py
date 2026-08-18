@@ -190,10 +190,21 @@ class TestColapsoDeFonte:
         assert len(_ativos()) == 100
         assert _no_snapshot() == []
 
-    def test_permitir_colapso_libera(self):
-        self._fonte_com(100, 1)
-        r = sh.fechar("2026-08", permitir_colapso=True)
+    def test_permitir_colapso_libera_a_fonte_nomeada(self):
+        self._fonte_com(100, 1, fonte="icarros")
+        r = sh.fechar("2026-08", permitir_colapso=["icarros"])
         assert r["purgados"] == 99
+
+    def test_permitir_colapso_nao_libera_as_outras(self):
+        """
+        Liberar em bloco desarmaria a trava na rodada em que ela mais importa:
+        a fonte que despencou de verdade e a que quebrou junto, sem avisar.
+        """
+        self._fonte_com(100, 1, fonte="icarros")
+        self._fonte_com(100, 1, fonte="olx")
+        with pytest.raises(ValueError, match="olx"):
+            sh.fechar("2026-08", permitir_colapso=["icarros"])
+        assert len(_ativos()) == 200
 
     def test_sem_purga_nao_precisa_da_trava(self):
         """Sem purga não há o que perder."""

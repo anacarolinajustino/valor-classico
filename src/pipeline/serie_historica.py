@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from typing import Any, Optional
 
 from src.pipeline.persistence import _connect
@@ -210,13 +211,18 @@ def fechar(
     competencia: str,
     purgar: bool = True,
     refazer: bool = False,
-    permitir_colapso: bool = False,
+    permitir_colapso: Iterable[str] = (),
 ) -> dict[str, Any]:
     """
     Fecha a competência: copia pro snapshot e limpa a base ativa.
 
     `purgar=False` grava o snapshot sem apagar nada - útil pra fechar um mês
     e só depois decidir sobre os mortos.
+
+    `permitir_colapso` nomeia as fontes cuja queda já foi conferida e é real.
+    É lista de nomes, e não um booleano, de propósito: liberar o fechamento
+    em bloco desarma a trava justamente na rodada em que ela mais importa -
+    aquela em que uma fonte despencou e outra quebrou junto, sem avisar.
 
     `refazer=True` reescreve um snapshot já existente. Sem isso, fechar duas
     vezes é um erro: a segunda passada aconteceria depois de uma coleta nova
@@ -247,17 +253,19 @@ def fechar(
             # A purga é irreversível: o que sai da base ativa e não está no
             # snapshot deste mês só volta de backup. Fonte que despencou
             # quase certamente teve a coleta quebrada, não o estoque zerado.
-            if purgar and diag["colapsadas"] and not permitir_colapso:
+            liberadas = {f.strip() for f in permitir_colapso if f and f.strip()}
+            barradas = [c for c in diag["colapsadas"] if c["fonte"] not in liberadas]
+            if purgar and barradas:
                 nomes = ", ".join(
                     f"{c['fonte']} ({c['antes']}->{c['vistos']})"
-                    for c in diag["colapsadas"][:5]
+                    for c in barradas[:5]
                 )
                 raise ValueError(
-                    f"{len(diag['colapsadas'])} fonte(s) perderam mais de "
+                    f"{len(barradas)} fonte(s) perderam mais de "
                     f"{COLAPSO_PERDA:.0%} dos anúncios: {nomes}. "
                     "Isso costuma ser coleta quebrada, não estoque vendido - "
                     "recolete essas fontes antes de fechar. Se a queda for "
-                    "real, use permitir_colapso=True."
+                    "real, nomeie a fonte em permitir_colapso."
                 )
 
             if refazer:
