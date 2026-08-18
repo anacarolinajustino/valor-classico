@@ -84,6 +84,17 @@ def _mostrar(diag: dict) -> None:
         if len(diag["nao_coletadas"]) > 10:
             print(f"     ... mais {len(diag['nao_coletadas']) - 10} fonte(s)")
 
+    if diag["colapsadas"]:
+        print(f"\n  ⚠ COLAPSO EM {len(diag['colapsadas'])} FONTE(S)")
+        print("  (perderam mais de 70% dos anúncios — quase sempre é coleta")
+        print("   quebrada, não estoque vendido. Fechar assim purga o resto.)")
+        for c in diag["colapsadas"]:
+            print(f"     {c['fonte']:<24}{c['antes']:>6} → {c['vistos']:<6}"
+                  f"  perda {c['perda']:.0%}")
+        print("\n  Recolete essas fontes antes de fechar:")
+        print(f"     python scripts/coletar_todas.py --so "
+              f"{','.join(c['fonte'] for c in diag['colapsadas'])}")
+
     if diag["ja_no_snapshot"]:
         print(f"\n  ATENÇÃO: {diag['competencia']} já tem "
               f"{diag['ja_no_snapshot']:,} anúncios no snapshot. "
@@ -99,6 +110,9 @@ def main() -> int:
                    help="grava o snapshot sem apagar os anúncios mortos")
     p.add_argument("--refazer", action="store_true",
                    help="sobrescreve um snapshot já existente")
+    p.add_argument("--permitir-colapso", action="store_true",
+                   help="fecha mesmo com fonte que perdeu mais de 70% "
+                        "(use só quando a queda for real)")
     args = p.parse_args()
 
     if not args.competencia:
@@ -124,7 +138,9 @@ def main() -> int:
         return 1
 
     try:
-        r = fechar(args.competencia, purgar=not args.sem_purga, refazer=args.refazer)
+        r = fechar(args.competencia, purgar=not args.sem_purga,
+                   refazer=args.refazer,
+                   permitir_colapso=args.permitir_colapso)
     except ValueError as exc:
         print(f"\nErro: {exc}")
         return 1

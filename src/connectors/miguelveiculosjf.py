@@ -152,10 +152,19 @@ def _parsear(html: str, data_coleta: str) -> list[Anuncio]:
         if not preco or preco <= 0:
             continue
 
+        # A inferência roda SEMPRE, e não só quando a URL falha: versão e obs
+        # existem apenas no título — a URL traz marca, modelo e ano e mais
+        # nada. O ramo antigo pulava a inferência e depois usava `versao` e
+        # `obs` na montagem do anúncio, o que estourava UnboundLocalError no
+        # primeiro item cuja URL casasse com o padrão (coleta de 2026-08-17).
+        marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
+        # O que vem da URL é mais confiável que o título e sobrepõe. O ano só
+        # sobrepõe quando existe: a URL nem sempre o traz, e o do título é
+        # melhor que nenhum.
         if marca_url and modelo_url:
-            marca, modelo, ano = marca_url, modelo_url, ano_url
-        else:
-            marca, modelo, versao, obs, ano = inferir_marca_modelo_versao_obs_ano(titulo)
+            marca, modelo = marca_url, modelo_url
+            if ano_url:
+                ano = ano_url
         if not modelo:
             continue
 

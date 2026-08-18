@@ -162,6 +162,72 @@ class TestTravaDaFonteNaoColetada:
         assert [f["fonte"] for f in d["nao_coletadas"]] == ["webmotors"]
 
 
+class TestColapsoDeFonte:
+    """
+    A trava que a coleta de 2026-08-17 pediu: o eduardoveiculosantigos
+    devolveu zero sem erro (a página veio sem os cards) e nove na tentativa
+    seguinte. Zero é pego pela trava da fonte não coletada; UM não seria - a
+    fonte entraria em `fontes_coletadas` e os outros seriam purgados.
+    """
+
+    def _fonte_com(self, n_julho, n_agosto, fonte="olx"):
+        linhas = [(f"http://{fonte}/j{i}", "2026-07-14", fonte) for i in range(n_julho)]
+        _semear(linhas)
+        if n_agosto:
+            _semear([(f"http://{fonte}/j{i}", "2026-08-10", fonte)
+                     for i in range(n_agosto)])
+
+    def test_perda_grande_barra_o_fechamento(self):
+        self._fonte_com(100, 1)
+        with pytest.raises(ValueError, match="perderam mais de"):
+            sh.fechar("2026-08")
+
+    def test_nada_e_purgado_quando_barra(self):
+        """A exceção não pode deixar meio caminho andado."""
+        self._fonte_com(100, 1)
+        with pytest.raises(ValueError):
+            sh.fechar("2026-08")
+        assert len(_ativos()) == 100
+        assert _no_snapshot() == []
+
+    def test_permitir_colapso_libera(self):
+        self._fonte_com(100, 1)
+        r = sh.fechar("2026-08", permitir_colapso=True)
+        assert r["purgados"] == 99
+
+    def test_sem_purga_nao_precisa_da_trava(self):
+        """Sem purga não há o que perder."""
+        self._fonte_com(100, 1)
+        assert sh.fechar("2026-08", purgar=False)["purgados"] == 0
+
+    def test_perda_normal_nao_barra(self):
+        """Loja pequena vende metade do pátio; travar nisso viraria ruído."""
+        self._fonte_com(100, 60)
+        assert sh.fechar("2026-08")["purgados"] == 40
+
+    def test_fonte_pequena_nao_dispara(self):
+        """Numa fonte de 4 anúncios, vender 3 é 75% e não quer dizer nada."""
+        self._fonte_com(4, 1)
+        assert sh.fechar("2026-08")["purgados"] == 3
+
+    def test_zero_continua_sendo_fonte_nao_coletada(self):
+        """O caso do eduardoveiculosantigos: some de fontes_coletadas."""
+        self._fonte_com(100, 0)
+        _semear([("http://outra/1", "2026-08-10", "maxicar")])
+        r = sh.fechar("2026-08")
+        assert r["purgados"] == 0
+        assert r["nao_coletadas_total"] == 100
+        assert r["colapsadas"] == []
+
+    def test_diagnostico_mostra_sem_alterar(self):
+        self._fonte_com(100, 1)
+        d = sh.diagnosticar("2026-08")
+        assert [c["fonte"] for c in d["colapsadas"]] == ["olx"]
+        assert d["colapsadas"][0]["antes"] == 100
+        assert d["colapsadas"][0]["vistos"] == 1
+        assert len(_ativos()) == 100
+
+
 class TestFecharDuasVezes:
     def test_segunda_vez_e_erro(self):
         """

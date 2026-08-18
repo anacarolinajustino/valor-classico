@@ -50,6 +50,15 @@ logger = logging.getLogger(__name__)
 
 FORMATO_COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
+# Fonte que perde esta fração dos anúncios de um mês pro outro provavelmente
+# não teve o estoque zerado: teve a coleta quebrada. 70% é folgado de
+# propósito - loja pequena vende metade do pátio num mês bom, e travar nisso
+# viraria ruído que se aprende a ignorar.
+COLAPSO_PERDA = 0.7
+# Abaixo disto a porcentagem não significa nada: numa fonte de 4 anúncios,
+# vender 3 é 75%.
+COLAPSO_MIN_ANUNCIOS = 15
+
 
 def validar_competencia(competencia: str) -> str:
     comp = (competencia or "").strip()
@@ -143,12 +152,44 @@ def _diagnostico(cur, competencia: str) -> dict[str, Any]:
     )
     ja_no_snapshot = cur.fetchone()["n"]
 
+    # Fonte que perdeu quase tudo: parser meio quebrado, site parcialmente
+    # fora, bloqueio no meio da paginação. A trava da fonte não coletada não
+    # pega este caso - basta UM anúncio ter voltado pra a fonte entrar em
+    # `fontes_coletadas` e os outros 499 serem purgados como mortos.
+    #
+    # Isto não é hipótese: em 2026-08-17 o eduardoveiculosantigos devolveu
+    # zero sem erro nenhum (a página veio sem os cards) e, na tentativa
+    # seguinte, nove. Se tivesse devolvido um, teria levado os outros junto.
+    cur.execute(
+        """
+        SELECT fonte,
+               COUNT(*)                                        AS antes,
+               COUNT(*) FILTER (WHERE ultima_vista LIKE %s)    AS vistos
+        FROM anuncios
+        WHERE fonte = ANY(%s)
+        GROUP BY fonte
+        """,
+        (like, fontes_coletadas or [""]),
+    )
+    colapsadas = []
+    for r in cur.fetchall():
+        antes, vistos_f = r["antes"], r["vistos"]
+        if antes < COLAPSO_MIN_ANUNCIOS:
+            continue
+        perda = (antes - vistos_f) / antes
+        if perda >= COLAPSO_PERDA:
+            colapsadas.append({"fonte": r["fonte"], "antes": antes,
+                               "vistos": vistos_f, "perda": perda})
+    colapsadas.sort(key=lambda c: -c["perda"])
+
     return {
         "competencia": competencia,
         "vistos": vistos,
         "fontes_coletadas": fontes_coletadas,
         "mortos": mortos,
         "mortos_total": sum(m["n"] for m in mortos),
+        # Fonte que perdeu quase tudo mas não tudo - ver o comentário acima.
+        "colapsadas": colapsadas,
         # Fonte sem NENHUM anúncio na competência não foi coletada. Não é
         # anúncio morto, e apagar seria varrer uma fonte inteira.
         "nao_coletadas": nao_coletadas,
@@ -169,6 +210,7 @@ def fechar(
     competencia: str,
     purgar: bool = True,
     refazer: bool = False,
+    permitir_colapso: bool = False,
 ) -> dict[str, Any]:
     """
     Fecha a competência: copia pro snapshot e limpa a base ativa.
@@ -201,6 +243,21 @@ def fechar(
                 raise ValueError(
                     f"{comp} já foi fechada ({diag['ja_no_snapshot']:,} anúncios). "
                     "Use refazer=True se a intenção é sobrescrever."
+                )
+            # A purga é irreversível: o que sai da base ativa e não está no
+            # snapshot deste mês só volta de backup. Fonte que despencou
+            # quase certamente teve a coleta quebrada, não o estoque zerado.
+            if purgar and diag["colapsadas"] and not permitir_colapso:
+                nomes = ", ".join(
+                    f"{c['fonte']} ({c['antes']}->{c['vistos']})"
+                    for c in diag["colapsadas"][:5]
+                )
+                raise ValueError(
+                    f"{len(diag['colapsadas'])} fonte(s) perderam mais de "
+                    f"{COLAPSO_PERDA:.0%} dos anúncios: {nomes}. "
+                    "Isso costuma ser coleta quebrada, não estoque vendido - "
+                    "recolete essas fontes antes de fechar. Se a queda for "
+                    "real, use permitir_colapso=True."
                 )
 
             if refazer:
