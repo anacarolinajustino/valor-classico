@@ -50,6 +50,14 @@ logger = logging.getLogger(__name__)
 FONTE = "socarrao"
 SITE_BASE = "https://www.socarrao.com.br"
 SEARCH_INPUT_SELECTOR = "input[placeholder='Digite aqui marca ou modelo']"
+AUTOCOMPLETE_SELECTOR = "div.lz-select-list__item"
+# O autocomplete é uma chamada de rede, e "não veio sugestão" é a forma como
+# este conector conclui que a fonte não tem o carro em estoque. Esperar um
+# tempo fixo transforma proxy lento em "estoque vazio": na rodada de
+# 2026-08-17 sete dos oito termos foram dados como sem estoque, e os anúncios
+# estavam todos no ar — 27 anúncios viraram 1. Agora esperamos a sugestão
+# aparecer de fato, e só o esgotamento deste prazo significa ausência.
+AUTOCOMPLETE_TIMEOUT_MS = 15000
 RATE_LIMIT = 1.5
 # Marketplace generalista: nomes de modelo clássicos às vezes são reaproveitados
 # em carros novos (ex.: "Maverick" hoje é uma picape Ford 2022+, não o cupê de
@@ -74,7 +82,7 @@ def buscar(marca: str, modelo: str, paginas: int = 2) -> list[Anuncio]:
 
     with criar_contexto() as ctx:
         page = ctx.new_page()
-        itens_brutos = _buscar_termo(page, modelo, marca, paginas)
+        itens_brutos, _ = _buscar_termo(page, modelo, marca, paginas)
 
     anuncios = [a for item in itens_brutos if (a := _parsear_item(item, data_coleta))]
     logger.info("[socarrao] busca: %d anúncio(s)", len(anuncios))
@@ -89,6 +97,7 @@ def coletar_completo(max_paginas: int = 2) -> tuple[list[Anuncio], dict]:
     seen_ids: set[int] = set()
     termos_com_resultado = 0
     termos_sem_resultado = 0
+    termos_sem_sugestao = 0
     erros = 0
 
     with criar_contexto() as ctx:
@@ -96,7 +105,7 @@ def coletar_completo(max_paginas: int = 2) -> tuple[list[Anuncio], dict]:
         for i, termo in enumerate(TERMOS_CLASSICOS, 1):
             logger.info("[socarrao] termo %d/%d — '%s'", i, len(TERMOS_CLASSICOS), termo)
             try:
-                itens_brutos = _buscar_termo(page, termo, "", max_paginas)
+                itens_brutos, motivo = _buscar_termo(page, termo, "", max_paginas)
             except Exception as exc:
                 logger.warning("[socarrao] erro buscando '%s': %s", termo, exc)
                 erros += 1
@@ -104,6 +113,8 @@ def coletar_completo(max_paginas: int = 2) -> tuple[list[Anuncio], dict]:
 
             if not itens_brutos:
                 termos_sem_resultado += 1
+                if motivo == "sem_sugestao":
+                    termos_sem_sugestao += 1
                 continue
             termos_com_resultado += 1
 
@@ -129,6 +140,9 @@ def coletar_completo(max_paginas: int = 2) -> tuple[list[Anuncio], dict]:
         "data_coleta": data_coleta,
         "termos_com_resultado": termos_com_resultado,
         "termos_sem_resultado": termos_sem_resultado,
+        # Termo cujo autocomplete não respondeu: buraco na coleta, não estoque
+        # vazio. Se este número for alto, a rodada não vale — refaça.
+        "termos_sem_sugestao": termos_sem_sugestao,
         "anuncios_validos": len(anuncios),
         "erros": erros,
         "tempo_total_s": round(time.monotonic() - inicio, 1),
@@ -139,10 +153,16 @@ def coletar_completo(max_paginas: int = 2) -> tuple[list[Anuncio], dict]:
 
 # ── Helpers internos ────────────────────────────────────────────────────────
 
-def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str, max_paginas: int) -> list[dict]:
+def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str,
+                  max_paginas: int) -> tuple[list[dict], Optional[str]]:
     """
     Dirige o fluxo de busca real (ver docstring do módulo) e devolve os
-    itens brutos de `results` capturados de `search/closed`.
+    itens brutos de `results` capturados de `search/closed`, junto com o
+    motivo de ter voltado vazio.
+
+    O motivo separa dois vazios que não significam a mesma coisa:
+    `sem_sugestao` é o autocomplete que não respondeu a tempo (pode ser rede),
+    `sem_match` é o autocomplete que respondeu sem o carro (é estoque zerado).
     """
     capturados: list[dict] = []
 
@@ -161,9 +181,18 @@ def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str, max_paginas: i
         campo = page.locator(SEARCH_INPUT_SELECTOR)
         campo.click(timeout=10000)
         campo.fill(termo_busca)
-        page.wait_for_timeout(1500)
 
-        opcoes = page.locator("div.lz-select-list__item")
+        opcoes = page.locator(AUTOCOMPLETE_SELECTOR)
+        try:
+            opcoes.first.wait_for(state="visible", timeout=AUTOCOMPLETE_TIMEOUT_MS)
+        except Exception:
+            logger.warning(
+                "[socarrao] '%s': autocomplete não respondeu em %ds — resultado "
+                "descartado (não confundir com estoque vazio).",
+                termo_busca, AUTOCOMPLETE_TIMEOUT_MS // 1000,
+            )
+            return [], "sem_sugestao"
+
         termo_norm = normalizar_texto(termo_busca)
         marca_norm = normalizar_texto(marca_filtro) if marca_filtro else ""
         alvo = None
@@ -174,8 +203,8 @@ def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str, max_paginas: i
                 break
 
         if alvo is None:
-            logger.info("[socarrao] '%s': sem sugestão no autocomplete (sem estoque atual).", termo_busca)
-            return []
+            logger.info("[socarrao] '%s': autocomplete sem esse carro (sem estoque atual).", termo_busca)
+            return [], "sem_match"
 
         alvo.click(timeout=5000)
         page.wait_for_timeout(500)
@@ -200,7 +229,7 @@ def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str, max_paginas: i
     resultados: list[dict] = []
     for body in capturados:
         resultados.extend(body.get("results", []))
-    return resultados
+    return resultados, None
 
 
 def _parsear_item(item: dict, data_coleta: str) -> Optional[Anuncio]:

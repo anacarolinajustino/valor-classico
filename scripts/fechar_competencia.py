@@ -85,11 +85,11 @@ def _mostrar(diag: dict) -> None:
             print(f"     ... mais {len(diag['nao_coletadas']) - 10} fonte(s)")
 
     if diag["colapsadas"]:
-        print(f"\n  ⚠ COLAPSO EM {len(diag['colapsadas'])} FONTE(S)")
-        print("  (perderam mais de 70% dos anúncios — quase sempre é coleta")
+        print(f"\n  !! COLAPSO EM {len(diag['colapsadas'])} FONTE(S)")
+        print("  (perderam mais de 70% dos anúncios - quase sempre é coleta")
         print("   quebrada, não estoque vendido. Fechar assim purga o resto.)")
         for c in diag["colapsadas"]:
-            print(f"     {c['fonte']:<24}{c['antes']:>6} → {c['vistos']:<6}"
+            print(f"     {c['fonte']:<24}{c['antes']:>6} -> {c['vistos']:<6}"
                   f"  perda {c['perda']:.0%}")
         print("\n  Recolete essas fontes antes de fechar:")
         print(f"     python scripts/coletar_todas.py --so "
@@ -111,7 +111,10 @@ def main() -> int:
     p.add_argument("--refazer", action="store_true",
                    help="sobrescreve um snapshot já existente")
     p.add_argument("--permitir-colapso", action="store_true",
-                   help="fecha mesmo com fonte que perdeu mais de 70% "
+                   # O %% é obrigatório: argparse passa o help por interpolação
+                   # de string, e um % solto derruba o parser inteiro na
+                   # montagem dos argumentos.
+                   help="fecha mesmo com fonte que perdeu mais de 70%% "
                         "(use só quando a queda for real)")
     args = p.parse_args()
 
