@@ -55,9 +55,15 @@ AUTOCOMPLETE_SELECTOR = "div.lz-select-list__item"
 # este conector conclui que a fonte não tem o carro em estoque. Esperar um
 # tempo fixo transforma proxy lento em "estoque vazio": na rodada de
 # 2026-08-17 sete dos oito termos foram dados como sem estoque, e os anúncios
-# estavam todos no ar — 27 anúncios viraram 1. Agora esperamos a sugestão
-# aparecer de fato, e só o esgotamento deste prazo significa ausência.
-AUTOCOMPLETE_TIMEOUT_MS = 15000
+# estavam todos no ar — 27 anúncios viraram 1.
+#
+# Não dá pra distinguir os dois casos pelo DOM: quando o site não tem o carro,
+# o dropdown não renderiza nada (medido 2026-08-18 com 'puma' e 'karmann
+# ghia'), exatamente como quando a resposta não chega. O que separa um do
+# outro é a repetição — rede lenta é intermitente, estoque vazio não muda.
+# Daí a segunda tentativa antes de concluir ausência.
+AUTOCOMPLETE_TIMEOUT_MS = 8000
+AUTOCOMPLETE_TENTATIVAS = 2
 RATE_LIMIT = 1.5
 # Marketplace generalista: nomes de modelo clássicos às vezes são reaproveitados
 # em carros novos (ex.: "Maverick" hoje é uma picape Ford 2022+, não o cupê de
@@ -180,16 +186,24 @@ def _buscar_termo(page: Any, termo_busca: str, marca_filtro: str,
 
         campo = page.locator(SEARCH_INPUT_SELECTOR)
         campo.click(timeout=10000)
-        campo.fill(termo_busca)
-
         opcoes = page.locator(AUTOCOMPLETE_SELECTOR)
-        try:
-            opcoes.first.wait_for(state="visible", timeout=AUTOCOMPLETE_TIMEOUT_MS)
-        except Exception:
+
+        for tentativa in range(1, AUTOCOMPLETE_TENTATIVAS + 1):
+            campo.fill("")
+            page.wait_for_timeout(300)
+            campo.fill(termo_busca)
+            try:
+                opcoes.first.wait_for(state="visible", timeout=AUTOCOMPLETE_TIMEOUT_MS)
+                break
+            except Exception:
+                if tentativa < AUTOCOMPLETE_TENTATIVAS:
+                    logger.info("[socarrao] '%s': autocomplete mudo, tentativa %d/%d",
+                                termo_busca, tentativa, AUTOCOMPLETE_TENTATIVAS)
+        else:
             logger.warning(
-                "[socarrao] '%s': autocomplete não respondeu em %ds — resultado "
-                "descartado (não confundir com estoque vazio).",
-                termo_busca, AUTOCOMPLETE_TIMEOUT_MS // 1000,
+                "[socarrao] '%s': autocomplete mudo em %d tentativas de %ds — pode "
+                "ser estoque vazio, pode ser rede.",
+                termo_busca, AUTOCOMPLETE_TENTATIVAS, AUTOCOMPLETE_TIMEOUT_MS // 1000,
             )
             return [], "sem_sugestao"
 

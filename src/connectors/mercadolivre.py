@@ -98,6 +98,16 @@ _FONTES_CATEGORIA: list[tuple[str, Optional[tuple[int, int]]]] = [
 _ESPERA_NAV_MS = 4000
 _RATE_LIMIT = 2.0
 
+# Tetos de troca de sessão. Sessão bloqueada faz o conector reabrir uma sessão
+# aquecida e tentar a MESMA página de novo — sem teto isso é um laço infinito
+# quando o bloqueio é do lado deles e não do IP: em 2026-08-18 a coleta girou
+# 63 vezes em dez minutos na mesma listagem, sem colher nada, e cada volta
+# aquece uma sessão nova pelo proxy residencial, que é pago por GB.
+# `_MAX_BLOQUEIOS_LISTAGEM` desiste da listagem teimosa e vai pra próxima;
+# `_MAX_TROCAS_SESSAO` encerra a coleta quando o bloqueio é geral.
+_MAX_BLOQUEIOS_LISTAGEM = 4
+_MAX_TROCAS_SESSAO = 12
+
 # A busca por slug do ML cai num fallback de marketplace geral quando o par
 # marca+modelo tem poucos carros reais — devolvendo miniaturas, kits e peças
 # cujo título cita o modelo e um ano (descoberto 2026-07-14: 84% dos 4.440
@@ -194,14 +204,18 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
     fichas_ausentes = 0
     fonte_idx = 0
     pagina = 1
+    trocas_sessao = 0
+    bloqueios_listagem = 0
+    abortado = False
     # URLs brutas (todos os cards) da listagem atual — detecta teto de
     # paginação (página repetida), mesmo padrão do conector da OLX.
     urls_brutas_fonte: set[str] = set()
 
     def _proxima_fonte():
-        nonlocal fonte_idx, pagina, urls_brutas_fonte
+        nonlocal fonte_idx, pagina, urls_brutas_fonte, bloqueios_listagem
         fonte_idx += 1
         pagina = 1
+        bloqueios_listagem = 0
         urls_brutas_fonte = set()
 
     logger.info(
@@ -209,7 +223,7 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
         len(_FONTES_CATEGORIA), max_paginas_por_fonte,
     )
 
-    while fonte_idx < len(_FONTES_CATEGORIA):
+    while fonte_idx < len(_FONTES_CATEGORIA) and not abortado:
         try:
             with criar_contexto_aquecido(_HOME_URL, bloqueado=_bloqueado, max_tentativas=3) as (ctx, page):
                 _bloquear_midia(page)
@@ -229,12 +243,31 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
                     total_req += 1
 
                     if _bloqueado(page):
+                        trocas_sessao += 1
+                        bloqueios_listagem += 1
+                        if trocas_sessao >= _MAX_TROCAS_SESSAO:
+                            logger.error(
+                                "[mercadolivre] %d trocas de sessão sem passar do "
+                                "bloqueio — abortando a coleta (%d anúncios até aqui).",
+                                trocas_sessao, len(anuncios),
+                            )
+                            abortado = True
+                            break
+                        if bloqueios_listagem >= _MAX_BLOQUEIOS_LISTAGEM:
+                            logger.warning(
+                                "[mercadolivre] %s bloqueada em %d sessões seguidas — "
+                                "pulando esta listagem.", rotulo, bloqueios_listagem,
+                            )
+                            _proxima_fonte()
+                            break
                         logger.warning(
-                            "[mercadolivre] sessão bloqueada em %s pág %d — trocando de sessão",
-                            rotulo, pagina,
+                            "[mercadolivre] sessão bloqueada em %s pág %d — trocando "
+                            "de sessão (%d/%d)", rotulo, pagina, trocas_sessao,
+                            _MAX_TROCAS_SESSAO,
                         )
                         break  # reabre sessão aquecida; retoma da mesma página
 
+                    bloqueios_listagem = 0
                     html = _conteudo_com_retry(page)
                     urls_pagina = _urls_cards(html)
                     novos = _parsear_listagem(html, data_coleta)
@@ -301,6 +334,10 @@ def coletar_completo(max_paginas_por_fonte: int = 60) -> tuple[list[Anuncio], di
         "erros_detalhe": fichas_ausentes,
         "fichas_tecnicas_ok": fichas_ok,
         "requisicoes": total_req,
+        "trocas_sessao": trocas_sessao,
+        # Coleta interrompida pelo antibô: o que veio é parcial, não é o
+        # estoque da fonte. Não feche a competência com isto.
+        "abortado_por_bloqueio": abortado,
         "tempo_total_s": round(time.monotonic() - inicio, 1),
     }
     logger.info("[mercadolivre] coleta completa: %s", metricas)
