@@ -94,6 +94,13 @@ def buscar(token: str, zona: str, url: str) -> tuple[str | None, str]:
         return None, "caiu no muro de verificação"
     if "requires JavaScript" in h:
         return None, "parou no desafio JavaScript (faltou espera)"
+    # O Unlocker recusa URL que o robots.txt do alvo proíbe, e a recusa vem
+    # como 200 com um corpo de duas linhas. Sem esta checagem o teste dá
+    # "funciona" para uma resposta de 252 bytes - aconteceu em 19/08.
+    if "Residential Failed" in h or "bad_endpoint" in h:
+        return None, f"recusado pelo fornecedor: {h[:150]}"
+    if len(h) < 50_000:
+        return None, f"resposta curta demais ({len(h)} bytes) - não é listagem"
     return h, "ok"
 
 
