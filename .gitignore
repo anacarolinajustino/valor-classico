@@ -46,3 +46,6 @@ data/.ml_token.tmp
 
 # Backups de snapshot (o dado vive no Postgres; o CSV.gz e a 3a copia)
 backups/snapshots/
+
+# Estado de trabalho da varredura fatiada do ML (regravado a cada rodada)
+data/.ml_fatiado.json
