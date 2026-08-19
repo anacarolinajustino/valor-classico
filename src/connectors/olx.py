@@ -30,11 +30,11 @@ import logging
 import time
 import urllib.parse
 from datetime import date
-from typing import Any
+from typing import Any, Optional
 
 from bs4 import BeautifulSoup
 
-from src.connectors._browser import criar_contexto
+from src.connectors._browser import criar_contexto, criar_contexto_aquecido
 from src.pipeline.normalizer import inferir_marca_modelo_versao_obs_ano, normalizar_preco, normalizar_texto
 from src.pipeline.persistence import ANO_CORTE_CLASSICO
 from src.pipeline.schema import Anuncio
@@ -477,6 +477,146 @@ def parsear_listagem(html: str, data_coleta: str = "2000-01-01") -> list[Anuncio
     """
     anuncios, _, _, _ = _parsear_ads_dom(html, data_coleta)
     return anuncios
+
+
+# ────────────────────────────────────────────────
+# Ficha técnica (página de detalhe) — reprocessamento retroativo (2026-07-16)
+# ────────────────────────────────────────────────
+#
+# NÃO ESTÁ EM USO, E NÃO DEVE PASSAR A ESTAR SEM NOVA MEDIÇÃO. A coleta da
+# OLX segue extraindo marca/modelo do TÍTULO. O reprocessamento por ficha
+# técnica foi construído, medido numa amostra e REJEITADO: a taxonomia
+# "Modelo" da OLX é pior que o título para carro clássico - devolve "1600"
+# para Fusca, e perde o trim, que pesa no preço. Ver
+# scripts/reprocessar_olx_ficha_tecnica.py.
+#
+# Fica no repositório pelo que foi MEDIDO aqui, que custaria caro
+# redescobrir (ver o bloqueio da Cloudflare logo abaixo), e não pelo que faz.
+#
+# Diferente do Mercado Livre (cuja página de detalhe não tem bloqueio e usa
+# `requests` puro — ver mercadolivre.py), a página de detalhe da OLX bloqueia
+# `requests` puro E Playwright "frio" (confirmado ao vivo em 2026-07-16).
+# Pior: mesmo com sessão aquecida (visita a BASE_URL antes), o bloqueio via
+# Cloudflare acontece já na 2ª página de detalhe navegada na mesma sessão —
+# não é intermitente, é 1 ficha por sessão aquecida (medido: 4/4 sucessos
+# abrindo sessão nova pra cada ficha, 0/4 tentando reaproveitar a sessão).
+# Por isso `buscar_ficha_tecnica()` abre e fecha sua própria sessão a cada
+# chamada — bem mais caro (em tempo e GB) que o padrão usado no ML, que
+# reaproveita uma sessão aquecida para dezenas de páginas.
+
+_TIMEOUT_FICHA_MS = 30_000
+_ESPERA_FICHA_MS = 2000
+
+
+def _bloqueado_ficha(page: Any) -> bool:
+    """True se a página caiu num desafio da Cloudflare (interstitial "Attention Required")."""
+    try:
+        titulo = (page.title() or "").lower()
+    except Exception:
+        return True
+    return "attention required" in titulo or "just a moment" in titulo or "cloudflare" in titulo
+
+
+def _extrair_ficha_tecnica(html: str) -> dict[str, str]:
+    """
+    Extrai os campos da seção de especificações do anúncio (Marca, Modelo,
+    Ano, Quilometragem, Combustível, Câmbio etc.) como um dict
+    {rótulo: valor}, com rótulos normalizados (maiúsculo, sem acento) pra
+    lookup robusto — ex.: {"MARCA": "Volkswagen", "ANO": "1985"}.
+
+    Cada campo é `<span class="typo-overline">RÓTULO</span>` seguido de um
+    irmão `<a>` (a maioria) ou `<span>` (Quilometragem, Câmbio, Potência do
+    motor) com o valor. Guarda também `{ROTULO}_HREF` para campos com link —
+    necessário porque o texto visível de "Modelo" às vezes mistura marca +
+    versão (ex.: "Volkswagen 1600" pro Fusca 1.6), enquanto o slug da URL do
+    link é o identificador limpo da categoria (ex.: ".../vw-volkswagen/fusca/...").
+
+    Dict vazio se a seção não existir (página bloqueada ou layout mudou).
+    """
+    soup = BeautifulSoup(html, "lxml")
+    ficha: dict[str, str] = {}
+    for label_el in soup.select("span.typo-overline"):
+        valor_el = label_el.find_next_sibling()
+        if not valor_el:
+            continue
+        rotulo = normalizar_texto(label_el.get_text(strip=True))
+        if valor_el.name == "a":
+            valor = valor_el.get_text(strip=True)
+            href = valor_el.get("href", "")
+        else:
+            # <span> de valor tem um <div> de scroll-detection injetado (lib
+            # de medição de tamanho) — pega só o texto direto, não recursivo.
+            texto_direto = valor_el.find(string=True, recursive=False)
+            valor = texto_direto.strip() if texto_direto else valor_el.get_text(strip=True)
+            href = ""
+        if not rotulo or not valor:
+            continue
+        ficha[rotulo] = valor
+        if href:
+            ficha[f"{rotulo}_HREF"] = href
+    return ficha
+
+
+def _modelo_da_ficha(ficha: dict[str, str]) -> Optional[str]:
+    """
+    Extrai o modelo "limpo" da ficha técnica via slug da URL do campo Modelo,
+    não do texto visível (que pode vir como "Volkswagen 1600" em vez de
+    "Fusca" — ver docstring de `_extrair_ficha_tecnica`). O slug do modelo é
+    o segmento que vem logo após o slug da marca na URL do campo Modelo
+    (ex.: marca "vw-volkswagen" + modelo href ".../vw-volkswagen/fusca/estado-..."
+    → "fusca"). Cai pro texto visível se não der pra isolar o slug.
+    """
+    modelo_href = ficha.get("MODELO_HREF", "")
+    marca_href = ficha.get("MARCA_HREF", "")
+    if modelo_href and marca_href:
+        marca_segmentos = [s for s in marca_href.split("/") if s]
+        modelo_segmentos = [s for s in modelo_href.split("/") if s]
+        # último segmento não-geográfico da URL da marca é o slug da marca
+        slug_marca = next((s for s in reversed(marca_segmentos) if not s.startswith("estado-")), None)
+        if slug_marca and slug_marca in modelo_segmentos:
+            idx = modelo_segmentos.index(slug_marca)
+            if idx + 1 < len(modelo_segmentos):
+                candidato = modelo_segmentos[idx + 1]
+                if candidato and not candidato.startswith("estado-"):
+                    return candidato.replace("-", " ").upper()
+
+    modelo_texto = ficha.get("MODELO", "")
+    return modelo_texto.upper() if modelo_texto else None
+
+
+def buscar_ficha_tecnica(url: str) -> Optional[dict[str, str]]:
+    """
+    Busca a ficha técnica de UM anúncio, abrindo e fechando sua própria
+    sessão Playwright aquecida (proxy + stealth) — ver docstring da seção
+    acima sobre por que não dá pra reaproveitar sessão entre fichas.
+
+    Returns:
+        Dict da ficha técnica (ver `_extrair_ficha_tecnica`), ou None se a
+        página não abriu, ficou bloqueada em todas as tentativas de
+        aquecimento, ou o anúncio não existe mais (removido/expirado).
+    """
+    try:
+        with criar_contexto_aquecido(BASE_URL, bloqueado=_bloqueado_ficha, max_tentativas=3) as (ctx, page):
+            try:
+                page.goto(url, timeout=_TIMEOUT_FICHA_MS, wait_until="domcontentloaded", referer=page.url)
+                page.wait_for_timeout(_ESPERA_FICHA_MS)
+            except Exception as exc:
+                logger.warning("[olx] erro navegando para ficha técnica de %s: %s", url, exc)
+                return None
+
+            if _bloqueado_ficha(page):
+                logger.warning("[olx] ficha técnica bloqueada (Cloudflare) em %s", url)
+                return None
+
+            html = page.content()
+    except RuntimeError as exc:
+        logger.warning("[olx] não foi possível aquecer sessão pra ficha técnica de %s: %s", url, exc)
+        return None
+
+    if '"pageType":"page_not_found"' in html:
+        return None
+
+    return _extrair_ficha_tecnica(html)
 
 
 # ────────────────────────────────────────────────
